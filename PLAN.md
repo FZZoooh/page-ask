@@ -1,5 +1,9 @@
 # PageAsk：Edge 侧栏「就当前标签页问 AI」— 规划 v0.7
 
+> **历史文档**：本文按版本记录设计与踩坑，其中配置方式（环境变量 / `server/.env` / `server/data/settings.json`）
+> 已被现行实现取代——Key 只存在 `~/.config/pageask/settings.json`，后端刻意不读模型相关环境变量。
+> 当前行为以 `README.md` 与 `AGENTS.md` 为准。
+
 > v0.1 只做了调研与选型；v0.2 吸收了三个已确认约束，并回答「自写还是用开源」；
 > v0.3 记录 P0 已落地并在真实 Edge 里跑通（见 §9）；
 > **v0.4 记录 P1 已接上真实 DeepSeek 接口，流式 + Markdown + LaTeX 跑通（见 §10）**；

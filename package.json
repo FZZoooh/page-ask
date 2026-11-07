@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "version": "0.1.0",
+  "engines": {
+    "node": ">=22.13"
+  },
   "description": "Edge 侧栏：就当前标签页内容向 AI 提问",
   "scripts": {
     "dev": "wxt",
@@ -10,7 +13,9 @@
     "build": "wxt build",
     "build:edge": "wxt build -b edge",
     "zip": "wxt zip",
-    "compile": "tsc --noEmit",
+    "compile": "tsc --noEmit && node scripts/check-syntax.mjs",
+    "check:server": "node scripts/check-syntax.mjs",
+    "test:server": "node scripts/test-turn-integrity.mjs && node scripts/test-turn-abort.mjs && node scripts/test-empty-stream.mjs && node scripts/test-incomplete-and-bad-body.mjs && node scripts/test-lifecycle-recover.mjs",
     "server": "node server/index.mjs",
     "server:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-server.ps1",
     "postinstall": "wxt prepare",
