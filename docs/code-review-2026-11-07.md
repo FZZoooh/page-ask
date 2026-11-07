@@ -77,7 +77,8 @@
 | P3 设置批 | `48001bf` | 测试连接前确认远端地址（避免令牌外发）、回环判断容忍 `localhost.` 尾点 | compile/build |
 | P3 清理批 | `fc21cd4` | 删除死 CSS 与未用文案、换行/粘贴改用 Range、复制失败改轻提示、流式结束 `aria-live` | compile/build |
 | P3 脚本批 | `c9e5774` | 托盘 Mutex 接管、Edge 路径多候选、`args` 改名、`verify`/`zip:edge` 脚本、截图二次校验 | `pnpm verify` 全过 |
-| 后续 | — | 无阻断项；架构级项（`App.tsx` 拆分、CI、更多 UI 自动化）未做，见第三、四节 | 每批更新 |
+| 架构/CI | `f9d5d48`、`bc1c38b` | `App.tsx` 拆分（1552→1139，新增 `messages.ts`/`editorDom.ts`/面板组件）、GitHub Actions（Windows + Node 22.13 + `pnpm verify`） | `pnpm verify`、CI 首次运行通过 |
+| 不做 | — | 真实 Edge UI 自动化按用户要求跳过；前端仍无单测，靠 `pnpm verify` + 手测 | — |
 
 > 表里的提交只是“已修”的记录；正文行号仍是**审查时**的位置，已在后续修复中漂移，定位请以当前代码为准。
 

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-给在本仓库工作的 AI 协作者（以及人类）的项目说明。**先读完这一页再动代码**；更细的来龙去脉在 `PLAN.md` 对应版本小节里。
+给在本仓库工作的 AI 协作者（以及人类）的项目说明。**先读完这一页再动代码**；文档入口见第 9 节。
 
 ## 1. 这是什么
 
@@ -26,7 +26,7 @@ PageAsk：Edge 侧栏扩展 + 本机 Node 后端。侧栏就**当前标签页**�
 | `pnpm tray:bg` | WinForms 托盘 + 看门狗，后台常驻 |
 
 - Node **≥ 22.13**（`node:sqlite` + pdfjs-dist 6.x），包管理器用 pnpm（11.x）。
-- 有 git 仓库与 GitHub Actions（`.github/workflows/ci.yml`，windows-latest + Node 22.13 + `pnpm verify`），但仓库暂无 remote，推送后 CI 才会真正跑。
+- 有 git 仓库与 GitHub Actions（`.github/workflows/ci.yml`，windows-latest + Node 22.13 + `pnpm verify`）；远端为 `origin`（GitHub），push/PR 时触发，Dependabot 每周提依赖更新 PR。
 - 改扩展代码后要在 `edge://extensions` 点「重新加载」；改后端要重启进程；只改 `~/.config/pageask/settings.json` 不用重启（后端每次请求都重读）。
 - 版本号只在 `package.json` 维护，`wxt.config.ts` 通过 JSON import 读取；别再手写第二份。
 
@@ -44,7 +44,7 @@ server/data/                      运行时产物（db、shots/、日志、run.j
 scripts/                          PowerShell 启动/托盘/测试实例 + CDP/冒烟脚本
 test/                             手测夹具（article.html、*.pdf）
 docs/prior-art.md                 竞品调研；docs/img/ 版本截图
-PLAN.md                           按版本的落地记录与决策（部分早期小节已过时，以源码为准）
+PLAN.md                           已归档的早期规划（不再维护，勿作实现依据）
 ```
 
 ## 4. 数据流（改任何一端前先看懂）
@@ -81,7 +81,7 @@ PLAN.md                           按版本的落地记录与决策（部分早�
 - 数据库加列用 `PRAGMA table_info` + `ALTER TABLE` 就地补，不写破坏性迁移；`messages.role` 只有 `user | assistant | tool`。
 - 改协议必须两端同步：`server/index.mjs` 的 SSE emit ↔ `src/lib/chat.ts` 的 `ChatEvent`；`page` 字段 ↔ `ChatRequest`。
 - 关键上限：`MAX_OUTPUT_TOKENS = 8192`、上游超时 300s、请求体 4MB（`/pdf` 64MB）、PDF 400 页 / 40 万字符。
-- 上游走 Responses API。`state=auto` 只对已知端点（`api.openai.com`、`*.openai.azure.com`、`*.services.ai.azure.com`）启用 `previous_response_id`；链断按 400/404/409/422 结构性判定并整段回退，失败后本进程不再尝试。不要改回 Chat Completions，也不要回传 reasoning item（见 `PLAN.md` §15/§16）。
+- 上游走 Responses API。`state=auto` 只对已知端点（`api.openai.com`、`*.openai.azure.com`、`*.services.ai.azure.com`）启用 `previous_response_id`；链断按 400/404/409/422 结构性判定并整段回退，失败后本进程不再尝试。不要改回 Chat Completions，也不要回传 reasoning item。
 
 ## 6. 代码风格
 
@@ -98,11 +98,11 @@ PLAN.md                           按版本的落地记录与决策（部分早�
 2. 后端改动：`pnpm server` 起服务，`curl http://127.0.0.1:8787/health`；必要时 `node scripts/test-chat.mjs "问题"` 看 SSE 事件；新增行为优先补进 `scripts/test-*.mjs`（临时 `PAGEASK_DATA_DIR`/`USERPROFILE` + 假上游，不要碰真实配置）。
 3. UI 改动：`pnpm build` → `pwsh -File scripts/edge-test.ps1`（干净 Edge + CDP，默认打开 `127.0.0.1:8811/article.html`，需要自己先把 `test/` 静态服务在 8811 端口）；用 `scripts/cdp-eval.mjs`、`cdp-key.mjs`、`cdp-dark.mjs` 检查侧栏与深浅色。
 4. 专项脚本：`test-cache.mjs`（前缀缓存）、`test-shot.mjs`（截图落盘/回放）、`test-pdf-prompt.mjs`、`test-selection-context.mjs`、`test-hist-time.mjs`、`test-turn-integrity.mjs` / `test-turn-abort.mjs`（工具轮次与中止）、`test-empty-stream.mjs`（空流）、`test-incomplete-and-bad-body.mjs`（截断/坏请求）、`test-lifecycle-recover.mjs`（异常退出/断尾提问恢复）。
-5. 有新决策或踩坑，按现有习惯补进 `PLAN.md` 对应版本小节，而不是散落在提交说明里。
+5. 有新决策或踩坑，写进 `docs/` 或提交说明；`PLAN.md` 已归档，不要再回填。
 
 ## 8. 不要再走的路（已实测否掉）
 
-- 快捷键唤起侧栏（Alt+Shift 被系统/输入法占用）；只靠 `activeTab`；在 service worker 里直接 `sidePanel.open()`。详见 `PLAN.md` §9.4。
+- 快捷键唤起侧栏（Alt+Shift 被系统/输入法占用）；只靠 `activeTab`；在 service worker 里直接 `sidePanel.open()`（早年记录在已归档的 `PLAN.md` §9.4）。
 - 把整篇正文拼进 system prompt（P3 已改为工具按需读取）。
 - 试图修复「切标签侧栏消失」——Edge 已知缺陷（microsoft/MicrosoftEdge-Extensions#142）。
 - 用环境变量覆盖模型配置（与 `settings.mjs` 的设计直接冲突）。
@@ -111,6 +111,6 @@ PLAN.md                           按版本的落地记录与决策（部分早�
 ## 9. 文档分工
 
 - `README.md`：安装、配置、使用、常见问题（面向用户）。
-- `PLAN.md`：版本演进、实测数据、被否方案、协议细节（面向实现；早期小节可能过时）。
+- `PLAN.md`：早期规划与踩坑记录，**已归档，不再维护，不作为实现依据**；新决策写 `docs/` 或提交说明。
 - `docs/prior-art.md`：竞品与技术路线调研。
 - 本文件：给协作者的规则摘要；与源码冲突时以源码为准，并顺手修正本文件。

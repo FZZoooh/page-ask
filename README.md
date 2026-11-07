@@ -107,4 +107,4 @@ pnpm build          # 生产构建
 
 CI 在 `.github/workflows/ci.yml`：Windows + Node 22.13 + `pnpm verify`，`push` 到 `main` 或开 PR 时运行（仓库当前没有 remote，推送后才会生效）。
 
-设计与决策记录在 [`PLAN.md`](PLAN.md)。
+设计与决策的早期记录已归档在 [`PLAN.md`](PLAN.md)（仅历史参考，不再维护）；现行架构与协作规则见 [`AGENTS.md`](AGENTS.md)，审查与修复记录见 [`docs/code-review-2026-11-07.md`](docs/code-review-2026-11-07.md)。
