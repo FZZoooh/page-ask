@@ -1,0 +1,129 @@
+// 探测 DeepSeek Responses API：工具结果里的图片、思考+工具的历史回传
+// 用法：node scripts/probe-responses.mjs
+const KEY = process.env.DEEPSEEK_API_KEY || '';
+const BASE = (process.env.PAGEASK_BASE_URL || 'https://api.deepseek.com').replace(/\/+$/, '');
+const MODEL = process.env.PAGEASK_MODEL || 'deepseek-flash';
+if (!KEY) {
+  console.error('缺 DEEPSEEK_API_KEY');
+  process.exit(1);
+}
+
+const RED =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+async function post(body) {
+  const res = await fetch(`${BASE}/responses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${KEY}` },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* 错误页/流式 */
+  }
+  return { status: res.status, text, json };
+}
+
+function extractText(json) {
+  const parts = [];
+  for (const item of json.output ?? []) {
+    if (item.type !== 'message') continue;
+    for (const c of item.content ?? []) if (typeof c.text === 'string') parts.push(c.text);
+  }
+  return parts.join('');
+}
+
+function summarize(json) {
+  if (!json) return '(no json)';
+  if (json.error) return `ERROR ${JSON.stringify(json.error).slice(0, 300)}`;
+  const out = json.output ?? [];
+  const kinds = out.map((o) => o.type).join(',');
+  const text = extractText(json).replace(/\s+/g, ' ').slice(0, 200);
+  const u = json.usage;
+  const usage = u ? `in=${u.input_tokens} out=${u.output_tokens} reasoning=${u.output_tokens_details?.reasoning_tokens}` : '';
+  return `types=[${kinds}] text="${text}" ${usage}`;
+}
+
+const userMsg = (t) => ({ role: 'user', content: [{ type: 'input_text', text: t }] });
+
+console.log('=== 2. 函数工具 + function_call_output 里带图片 ===');
+{
+  const tools = [
+    {
+      type: 'function',
+      name: 'screenshot',
+      description: '截取用户当前画面',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+    },
+  ];
+  const first = await post({ model: MODEL, input: [userMsg('截个图，告诉我画面是什么颜色。')], tools });
+  console.log('turn1', first.status, first.json ? summarize(first.json) : first.text.slice(0, 300));
+  const call = first.json?.output?.find((o) => o.type === 'function_call');
+  if (!call) process.exit(0);
+
+  const second = await post({
+    model: MODEL,
+    input: [
+      userMsg('截个图，告诉我画面是什么颜色。'),
+      ...first.json.output,
+      {
+        type: 'function_call_output',
+        call_id: call.call_id,
+        output: [
+          { type: 'input_text', text: '截图如下。' },
+          { type: 'input_image', image_url: RED, detail: 'low' },
+        ],
+      },
+    ],
+    tools,
+  });
+  console.log('turn2', second.status, second.json ? summarize(second.json) : second.text.slice(0, 400));
+}
+
+console.log('\n=== 3. 思考+工具：历史里不回传 reasoning item ===');
+{
+  const tools = [
+    {
+      type: 'function',
+      name: 'add',
+      description: '把两个整数相加',
+      parameters: {
+        type: 'object',
+        properties: { a: { type: 'integer' }, b: { type: 'integer' } },
+        required: ['a', 'b'],
+        additionalProperties: false,
+      },
+    },
+  ];
+  const first = await post({ model: MODEL, input: [userMsg('用工具算 17 + 25。')], tools });
+  console.log('turn1', first.status, first.json ? summarize(first.json) : first.text.slice(0, 200));
+  const call = first.json?.output?.find((o) => o.type === 'function_call');
+  if (!call) process.exit(0);
+
+  const kept = first.json.output.filter((o) => o.type !== 'reasoning');
+  const second = await post({
+    model: MODEL,
+    input: [
+      userMsg('用工具算 17 + 25。'),
+      ...kept,
+      { type: 'function_call_output', call_id: call.call_id, output: '42' },
+    ],
+    tools,
+  });
+  console.log('turn2(丢弃 reasoning)', second.status, second.json ? summarize(second.json) : second.text.slice(0, 400));
+
+  // 再试一次：把 reasoning item 原样回传
+  const third = await post({
+    model: MODEL,
+    input: [
+      userMsg('用工具算 17 + 25。'),
+      ...first.json.output,
+      { type: 'function_call_output', call_id: call.call_id, output: '42' },
+    ],
+    tools,
+  });
+  console.log('turn2(回传 reasoning)', third.status, third.json ? summarize(third.json) : third.text.slice(0, 400));
+}

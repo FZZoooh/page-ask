@@ -1,0 +1,39 @@
+{
+  "name": "pageask",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Edge 侧栏：就当前标签页内容向 AI 提问",
+  "scripts": {
+    "dev": "wxt",
+    "dev:edge": "wxt -b edge",
+    "build": "wxt build",
+    "build:edge": "wxt build -b edge",
+    "zip": "wxt zip",
+    "compile": "tsc --noEmit",
+    "server": "node server/index.mjs",
+    "server:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-server.ps1",
+    "postinstall": "wxt prepare",
+    "tray": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tray.ps1",
+    "tray:bg": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tray-bg.ps1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@wxt-dev/module-react": "^1.2.2",
+    "typescript": "^7.0.2",
+    "wxt": "^0.21.5"
+  },
+  "dependencies": {
+    "defuddle": "^0.19.6",
+    "katex": "0.16.47",
+    "pdfjs-dist": "6.5.438",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0"
+  }
+}

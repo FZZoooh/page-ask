@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>浏览器扩展侧栏开发入门 - 测试文章</title>
+    <meta name="description" content="用于验证 PageAsk 正文提取效果的一篇测试文章" />
+    <meta property="og:title" content="浏览器扩展侧栏开发入门" />
+    <meta property="og:site_name" content="Example Docs" />
+    <style>
+      body { font: 16px/1.7 system-ui, sans-serif; max-width: 780px; margin: 0 auto; padding: 24px; }
+      nav, aside, footer, .ad, .social { background: #eee; padding: 12px; margin: 12px 0; }
+      pre { background: #f4f4f4; padding: 12px; overflow: auto; }
+      table { border-collapse: collapse; }
+      td, th { border: 1px solid #ccc; padding: 6px 10px; }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <a href="/">首页</a> | <a href="/docs">文档</a> | <a href="/blog">博客</a> | <a href="/about">关于我们</a>
+    </nav>
+
+    <div class="ad">广告位：购买我们的高级会员，立享八折优惠！点击这里了解更多。</div>
+
+    <article>
+      <h1>浏览器扩展侧栏开发入门</h1>
+      <p class="byline">作者：张三 · 2026 年 11 月 3 日 · 预计阅读 6 分钟</p>
+
+      <p>
+        Manifest V3 引入了 <code>chrome.sidePanel</code> 接口，让扩展可以在浏览器右侧常驻一个面板。
+        与弹出式 popup 不同，侧栏不会在失去焦点时关闭，因此更适合承载多轮对话这类长时间交互。
+      </p>
+
+      <h2>三个必备步骤</h2>
+      <ol>
+        <li>在 manifest 中声明 <code>"side_panel": { "default_path": "sidepanel.html" }</code></li>
+        <li>申请 <code>sidePanel</code> 权限</li>
+        <li>调用 <code>sidePanel.setPanelBehavior({ openPanelOnActionClick: true })</code>，让点击图标就能打开</li>
+      </ol>
+
+      <h2>读取当前页面的正文</h2>
+      <p>
+        读取页面依赖 <code>scripting</code> 权限。只有在用户点击扩展图标时，浏览器才会把那一个标签页的
+        访问权临时授予扩展，这就是 <code>activeTab</code> 的设计意图——最小权限。
+      </p>
+
+      <pre><code>const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+const results = await browser.scripting.executeScript({
+  target: { tabId: tab.id },
+  func: () =&gt; document.documentElement.outerHTML,
+});</code></pre>
+
+      <h2>常见问题</h2>
+      <table>
+        <tr><th>现象</th><th>原因</th></tr>
+        <tr><td>侧栏打不开</td><td>缺少 sidePanel 权限，或 manifest_version 不是 3</td></tr>
+        <tr><td>读不到页面</td><td>页面是 edge:// 内部页面，或没有 activeTab 授权</td></tr>
+        <tr><td>切回标签页侧栏消失</td><td>Edge 的已知缺陷，需要再次点击图标</td></tr>
+      </table>
+
+      <p>
+        最后一点值得强调：正文提取的质量直接决定问答质量。把整个 DOM 丢给模型既浪费 token，
+        又会引入导航栏、广告、评论区这些噪音，所以必须先用 Readability 一类的算法做一次清洗。
+      </p>
+
+      <ul>
+        <li>优点是实现简单，两个库都在几十 KB 量级；</li>
+        <li>缺点是对 SPA 站点、Shadow DOM 支持有限；</li>
+        <li>建议永远保留一条「纯文本回退」路径。</li>
+      </ul>
+    </article>
+
+    <aside class="social">分享到微博 / 微信 / Twitter。关注我们的公众号，获取更多技术文章。</aside>
+    <aside>相关阅读：十行代码实现网页摘要、扩展开发避坑指南、Manifest V3 迁移实录。</aside>
+
+    <footer>
+      © 2026 Example Docs · 京 ICP 备 00000000 号 · 联系我们 · 隐私政策 · 服务条款
+    </footer>
+
+    <script>
+      console.log('这段脚本不应该出现在提取结果里');
+      document.querySelectorAll('.ad').forEach((el) => (el.dataset.tracked = '1'));
+    </script>
+  </body>
+</html>
