@@ -682,6 +682,9 @@ export default function App() {
         if (i > 0) frag.appendChild(document.createElement('br'));
         if (line) frag.appendChild(document.createTextNode(line));
       });
+      // 末尾的 <br> 后面没有可见字符时，浏览器不会为这一行建立 line box，
+      // 表现就是第一次 Shift+Enter 像没反应。塞一个零宽空格占位；serialize 会把它去掉。
+      if (text.endsWith('\n')) frag.appendChild(document.createTextNode('\u200b'));
       const tail = frag.lastChild;
       range.insertNode(frag);
       if (tail) {
