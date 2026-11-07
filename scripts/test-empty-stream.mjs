@@ -83,6 +83,7 @@ try {
   const sse = await res.text();
   check('返回 SSE', res.status === 200 && sse.includes('event: error'), sse.slice(0, 200));
   check('报错文案可读', sse.includes('上游没有返回任何内容'), sse.slice(0, 300));
+  check('报错带错误码', sse.includes('"code":"upstream.empty"'), sse.slice(0, 300));
   check('没有假成功 done', !sse.includes('event: done'));
 } finally {
   child.kill();

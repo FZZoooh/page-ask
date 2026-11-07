@@ -1,7 +1,7 @@
 // 后端接口客户端：会话读写 + 流式对话。
 // 后端在 127.0.0.1:8787，只认 chrome-extension://<本扩展> 的 Origin。
 import type { ExtractedPage, SelectionInfo } from './extract';
-import { t } from './i18n';
+import { t, tError } from './i18n';
 import { baseUrl, type Settings } from './settings';
 
 export interface ConversationMeta {
@@ -96,7 +96,7 @@ export type ChatEvent =
       steps?: number;
       ms?: number;
     }
-  | { type: 'error'; message: string; code?: string }
+  | { type: 'error'; message: string; code?: string; params?: Record<string, string | number> }
   /** 第一轮问答后服务端自动起的标题 */
   | { type: 'title'; conversationId: string; title: string };
 
@@ -112,6 +112,30 @@ function authHeaders(settings: Settings): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+interface ApiErrorBody {
+  error?: string;
+  message?: string;
+  code?: string;
+  params?: Record<string, string | number>;
+}
+
+/** 后端的错误体统一是 { error, message, code, params }：有 code 走本地文案，否则拼状态码。 */
+async function backendErrorText(res: Response): Promise<string> {
+  const raw = await res.text().catch(() => '');
+  let body: ApiErrorBody | null = null;
+  try {
+    body = raw ? (JSON.parse(raw) as ApiErrorBody) : null;
+  } catch {
+    /* 非 JSON 错误体，保留原文 */
+  }
+  if (body?.code) return tError(body.code, body.params, body.message ?? body.error);
+  const detail = (body?.message ?? body?.error ?? raw).slice(0, 300);
+  return t('error.backendStatus', {
+    status: res.status,
+    detail: detail ? t('error.backendDetail', { detail }) : '',
+  });
+}
+
 async function httpJson<T>(settings: Settings, path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -122,16 +146,7 @@ async function httpJson<T>(settings: Settings, path: string, init?: RequestInit)
   } catch {
     throw new Error(t('error.unreachable', { baseUrl: baseUrl(settings) }));
   }
-  if (!res.ok) {
-    const raw = await res.text().catch(() => '');
-    let detail = raw.slice(0, 300);
-    try {
-      detail = (JSON.parse(raw) as { error?: string }).error ?? detail;
-    } catch {
-      /* 非 JSON 错误体，保留原文 */
-    }
-    throw new Error(t('error.backendStatus', { status: res.status, detail: detail ? t('error.backendDetail', { detail }) : '' }));
-  }
+  if (!res.ok) throw new Error(await backendErrorText(res));
   return (await res.json()) as T;
 }
 
@@ -229,13 +244,7 @@ export async function* streamChat(req: ChatRequest): AsyncGenerator<ChatEvent> {
   }
 
   if (!res.ok || !res.body) {
-    let detail = '';
-    try {
-      detail = ((await res.json()) as { error?: string }).error ?? '';
-    } catch {
-      detail = await res.text().catch(() => '');
-    }
-    throw new Error(t('error.backendStatus', { status: res.status, detail: detail ? t('error.backendDetail', { detail }) : '' }));
+    throw new Error(await backendErrorText(res));
   }
 
   const reader = res.body.getReader();
@@ -316,6 +325,10 @@ export async function* streamChat(req: ChatRequest): AsyncGenerator<ChatEvent> {
             type: 'error',
             message: String(payload.message ?? t('error.unknown')),
             code: typeof payload.code === 'string' ? payload.code : undefined,
+            params:
+              payload.params && typeof payload.params === 'object'
+                ? (payload.params as Record<string, string | number>)
+                : undefined,
           };
           break;
         case 'title':

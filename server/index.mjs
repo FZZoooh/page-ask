@@ -38,6 +38,7 @@ import { lifecycleInfo, markCleanExit, startLifecycle } from './lifecycle.mjs';
 import { logError, logEvent } from './log.mjs';
 import { assertPublicHttpUrl, readBodyCapped } from './net.mjs';
 import { withV1 } from './upstream.mjs';
+import { errorPayload, normalizePdfCode, upstreamErrorCode } from './errors.mjs';
 import { extractPdfText, PdfError } from './pdf.mjs';
 import { publicSettings, readSettings, settingsFile, writeSettings } from './settings.mjs';
 import { RESPONSES_TOOLS, runTool, ToolError } from './tools.mjs';
@@ -157,16 +158,16 @@ async function handle(req, res) {
 
   // 预检
   if (req.method === 'OPTIONS') {
-    if (!applyCors(req, res)) return sendJson(res, 403, { error: 'origin not allowed' });
+    if (!applyCors(req, res)) return sendJson(res, 403, errorPayload('auth.origin'));
     res.writeHead(204).end();
     return;
   }
 
-  if (!applyCors(req, res)) return sendJson(res, 403, { error: 'origin not allowed' });
+  if (!applyCors(req, res)) return sendJson(res, 403, errorPayload('auth.origin'));
   // 托盘的「停止」用：先让后端正常退出（关库、checkpoint），失败再 force kill。
   // 只接受同源请求或正确 token；托盘没有 token 时会 403，退回旧的强杀逻辑。
   if (req.method === 'POST' && url.pathname === '/api/shutdown') {
-    if (!allowSettingsRequest(req)) return sendJson(res, 403, { error: 'forbidden' });
+    if (!allowSettingsRequest(req)) return sendJson(res, 403, errorPayload('auth.forbidden'));
     sendJson(res, 202, { ok: true });
     setTimeout(() => shutdown('http'), 50);
     return;
@@ -184,7 +185,7 @@ async function handle(req, res) {
   }
 
   if (url.pathname === '/api/settings' || url.pathname === '/api/settings/test') {
-    if (!allowSettingsRequest(req)) return sendJson(res, 403, { error: 'forbidden' });
+    if (!allowSettingsRequest(req)) return sendJson(res, 403, errorPayload('auth.forbidden'));
   }
 
   // 托盘/看门狗用的存活探针：不需要 token，也不暴露任何配置
@@ -198,12 +199,12 @@ async function handle(req, res) {
       let body;
       try {
         body = await readJson(req, res, 64 * 1024);
-      } catch (err) {
-        return sendJson(res, 400, { error: String(err?.message ?? err) });
+      } catch {
+        return sendJson(res, 400, errorPayload('request.bad_body'));
       }
       const baseUrl = String(body?.baseUrl ?? '').trim();
       if (baseUrl && !/^https?:\/\//i.test(baseUrl)) {
-        return sendJson(res, 400, { error: '上游地址要以 http:// 或 https:// 开头' });
+        return sendJson(res, 400, errorPayload('settings.invalid_base_url'));
       }
       const saved = writeSettings({
         baseUrl: baseUrl || undefined,
@@ -234,7 +235,7 @@ async function handle(req, res) {
     }
   }
 
-  if (TOKEN && !checkToken(req)) return sendJson(res, 401, { error: 'bad token' });
+  if (TOKEN && !checkToken(req)) return sendJson(res, 401, errorPayload('auth.bad_token'));
 
   // GET /health
   if (req.method === 'GET' && url.pathname === '/health') {
@@ -259,7 +260,7 @@ async function handle(req, res) {
   // GET /conversations?url=...
   if (req.method === 'GET' && url.pathname === '/conversations') {
     const pageUrl = url.searchParams.get('url');
-    if (!pageUrl) return sendJson(res, 400, { error: 'missing url' });
+    if (!pageUrl) return sendJson(res, 400, errorPayload('request.missing_url'));
     return sendJson(res, 200, { conversations: listConversations(pageUrl) });
   }
 
@@ -270,9 +271,9 @@ async function handle(req, res) {
   const recoverMatch = url.pathname.match(/^\/conversations\/([^/]+)\/recover$/);
   if (recoverMatch && req.method === 'POST') {
     const id = decodeURIComponent(recoverMatch[1]);
-    if ((activeChats.get(id) ?? 0) > 0) return sendJson(res, 409, { error: 'still generating' });
+    if ((activeChats.get(id) ?? 0) > 0) return sendJson(res, 409, errorPayload('conversation.busy'));
     const recovered = recoverLastUserMessage(id);
-    if (!recovered) return sendJson(res, 409, { error: 'no pending question' });
+    if (!recovered) return sendJson(res, 409, errorPayload('conversation.no_pending'));
     logEvent('recover_pending_question', { conversationId: id, chars: recovered.content.length });
     return sendJson(res, 200, { text: recovered.content, messageId: recovered.id });
   }
@@ -283,14 +284,16 @@ async function handle(req, res) {
     const id = decodeURIComponent(convMatch[1]);
     if (req.method === 'GET') {
       const conv = getConversation(id);
-      return conv ? sendJson(res, 200, conv) : sendJson(res, 404, { error: 'not found' });
+      return conv ? sendJson(res, 200, conv) : sendJson(res, 404, errorPayload('conversation.not_found'));
     }
     if (req.method === 'DELETE') {
       // 连同这个会话的截图文件一起删；先删会话行，再只清理不再被引用的文件
       const paths = imagePathsFor(id);
       const removed = deleteConversation(id);
       if (removed) pruneShots(paths);
-      return sendJson(res, removed ? 200 : 404, { ok: true });
+      return removed
+        ? sendJson(res, 200, { ok: true })
+        : sendJson(res, 404, errorPayload('conversation.not_found'));
     }
   }
 
@@ -299,10 +302,10 @@ async function handle(req, res) {
     let body;
     try {
       body = await readJson(req);
-    } catch (err) {
-      return sendJson(res, 400, { error: `bad request body: ${err?.message ?? err}` });
+    } catch {
+      return sendJson(res, 400, errorPayload('request.bad_body'));
     }
-    if (!body?.url) return sendJson(res, 400, { error: 'missing url' });
+    if (!body?.url) return sendJson(res, 400, errorPayload('request.missing_url'));
     return sendJson(res, 200, createConversation({ url: body.url, title: body.title ?? '' }));
   }
 
@@ -319,7 +322,7 @@ async function handle(req, res) {
     return handleChat(req, res);
   }
 
-  return sendJson(res, 404, { error: 'not found' });
+  return sendJson(res, 404, errorPayload('request.not_found'));
 }
 
 /** POST /pdf：bytes 由扩展上传（带登录态的 PDF），或给个 url 让后端自己抓（公开 PDF） */
@@ -327,8 +330,8 @@ async function handlePdf(req, res) {
   let body;
   try {
     body = await readJson(req, res, 64 * 1024 * 1024);
-  } catch (err) {
-    return sendJson(res, 400, { error: String(err?.message ?? err) });
+  } catch {
+    return sendJson(res, 400, errorPayload('request.bad_body'));
   }
 
   const started = Date.now();
@@ -342,11 +345,11 @@ async function handlePdf(req, res) {
     } else if (typeof body?.url === 'string' && /^https?:\/\//i.test(body.url)) {
       bytes = await downloadPdf(body.url);
     } else {
-      return sendJson(res, 400, { error: 'missing base64, fileUrl or url' });
+      return sendJson(res, 400, errorPayload('pdf.missing_source'));
     }
 
     if (bytes.byteLength < 5 || Buffer.from(bytes.slice(0, 5)).toString('latin1') !== '%PDF-') {
-      return sendJson(res, 400, { error: '不是 PDF 文件（缺少 %PDF- 头）' });
+      return sendJson(res, 400, errorPayload('pdf.not_pdf'));
     }
 
     // pdfjs 会把 buffer 转移给 worker（原数组被 detach），所以长度要先记下来
@@ -362,12 +365,13 @@ async function handlePdf(req, res) {
     });
     return sendJson(res, 200, out);
   } catch (err) {
-    const code = err instanceof PdfError ? err.code : 'pdf_failed';
+    const rawCode = err instanceof PdfError ? err.code : 'pdf_failed';
+    const code = normalizePdfCode(rawCode);
     // 本地路径类错误属于“请求有问题”，回 400，且不要把绝对路径回显给客户端
-    const clientError = ['pdf_bad_file_url', 'pdf_not_found', 'pdf_not_file', 'pdf_too_big'].includes(code);
-    logError('pdf_extract_failed', { message: String(err?.message ?? err) });
+    const clientError = ['pdf.bad_file_url', 'pdf.not_found', 'pdf.not_file', 'pdf.too_big'].includes(code);
+    logError('pdf_extract_failed', { message: String(err?.message ?? err), code });
     return sendJson(res, clientError ? 400 : 502, {
-      error: code,
+      ...errorPayload(code),
       message: clientError ? '无法读取这个本地文件' : String(err?.message ?? err),
     });
   }
@@ -477,21 +481,25 @@ async function handleChat(req, res) {
   let body;
   try {
     body = await readJson(req);
-  } catch (err) {
-    return sendJson(res, 400, { error: `bad request body: ${err?.message ?? err}` });
+  } catch {
+    return sendJson(res, 400, errorPayload('request.bad_body'));
   }
   const page = body?.page;
   const text = (body?.text ?? '').trim();
-  if (!text) return sendJson(res, 400, { error: 'empty text' });
-  if (!page?.url) return sendJson(res, 400, { error: 'missing page.url' });
+  if (!text) return sendJson(res, 400, errorPayload('chat.empty_text'));
+  if (!page?.url) return sendJson(res, 400, errorPayload('chat.missing_page'));
 
   // 首次使用最常见的一步没做：还没填 Key。这里直接说清楚去哪儿填，
   // 否则会一路转发到上游、拿回一个 401，用户看到的是「Unauthorized」。
   const configured = readSettings();
   if (!configured.apiKey) {
-    return sendJson(res, 400, {
-      error: `还没有配置 API Key：打开 http://${HOST}:${PORT}/settings 填一个（或在托盘菜单里点「配置…」）`,
-    });
+    return sendJson(
+      res,
+      400,
+      errorPayload('settings.missing_api_key', {
+        settingsUrl: `http://${HOST}:${PORT}/settings`,
+      }),
+    );
   }
 
   // 会话：给了 id 就续，否则按 URL 新建
@@ -603,7 +611,9 @@ async function handleChat(req, res) {
 
       // 超时且一个字都没拿到：没有可保留的内容，按错误处理，别写一条空回答。
       if (turn.timedOut && !turn.content && !turn.reasoning) {
-        throw new UpstreamError(504, `上游在 ${Math.round(UPSTREAM_TIMEOUT / 1000)} 秒内没有返回内容`);
+        throw new UpstreamError(504, `上游在 ${Math.round(UPSTREAM_TIMEOUT / 1000)} 秒内没有返回内容`, 'upstream.timeout', {
+          seconds: Math.round(UPSTREAM_TIMEOUT / 1000),
+        });
       }
 
       // 上游用 response.incomplete 结束（常见于 max_output_tokens 截断）：
@@ -652,7 +662,7 @@ async function handleChat(req, res) {
             break;
           }
           // 上游正常收流却什么都没给：不能当成功，否则 UI 只看到一个空气泡
-          throw new UpstreamError(502, '');
+          throw new UpstreamError(502, '', 'upstream.empty');
         }
         const assistant = addTurn({ conversationId: conv.id, assistant: assistantFields }).assistant;
         emit('done', {
@@ -803,19 +813,23 @@ async function handleChat(req, res) {
     }
   } catch (err) {
     const isAbort = controller.signal.aborted;
+    const seconds = Math.round(UPSTREAM_TIMEOUT / 1000);
+    const timedOut = !isAbort && err?.name === 'TimeoutError';
+    const code = isAbort ? undefined : err instanceof UpstreamError ? err.code : timedOut ? 'upstream.timeout' : undefined;
+    const params = err instanceof UpstreamError ? err.params : timedOut ? { seconds } : undefined;
     const message = isAbort
       ? '已停止'
       : err instanceof UpstreamError
         ? err.friendly()
-        : err?.name === 'TimeoutError'
-          ? `上游在 ${Math.round(UPSTREAM_TIMEOUT / 1000)} 秒内没有响应`
+        : timedOut
+          ? `上游在 ${seconds} 秒内没有响应`
           : String(err?.message ?? err);
     if (isAbort) {
       logEvent('chat_abort', { conversationId: conv.id, steps });
       emit('done', { conversationId: conv.id, aborted: true, totals, steps });
     } else {
-      logError('chat_error', err, { conversationId: conv.id, steps, message });
-      emit('error', { message, code: err?.code });
+      logError('chat_error', err, { conversationId: conv.id, steps, message, code });
+      emit('error', { message, code, params });
     }
   } finally {
     const remaining = (activeChats.get(conv.id) ?? 1) - 1;
@@ -955,7 +969,7 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
   // 有真实状态码就沿用它，friendly() 才能给出 401/429 这类准确提示。
   if (failure || final?.status === 'failed') {
     const status = failureStatus(failure ?? final?.error);
-    const err = new UpstreamError(status, JSON.stringify(failure ?? final?.error ?? { message: '上游返回失败' }));
+    const err = new UpstreamError(status, JSON.stringify(failure ?? final?.error ?? { message: '上游返回失败' }), 'upstream.failed');
     // 标记是否已经流给前端过：调用方据此决定能不能安全重试
     err.streamed = Boolean(content || reasoning);
     throw err;
@@ -1064,10 +1078,12 @@ function failureStatus(failure) {
 }
 
 class UpstreamError extends Error {
-  constructor(status, detail) {
+  constructor(status, detail, code = upstreamErrorCode(status), params = undefined) {
     super(`upstream ${status}: ${detail.slice(0, 500)}`);
     this.status = status;
     this.detail = detail;
+    this.code = code;
+    this.params = params ?? (code === 'upstream.status' ? { status } : undefined);
   }
   friendly() {
     const hints = {

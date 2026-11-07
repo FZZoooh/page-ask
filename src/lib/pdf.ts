@@ -7,7 +7,7 @@
  *
  * 分工：这里只负责下载与编码（浏览器有 cookie），解析全在后端。
  */
-import { t } from '@/lib/i18n';
+import { t, tError } from '@/lib/i18n';
 
 /** 后端 /pdf 返回的东西 */
 export interface PdfExtract {
@@ -117,13 +117,22 @@ export async function readPdfFromTab(url: string, backendUrl: string): Promise<P
 /** 后端 /pdf 的 4xx/5xx 统一翻成可读文案（别再把 500 说成“没有文字层”） */
 async function pdfHttpError(parsed: Response): Promise<PdfReadError> {
   let detail = `HTTP ${parsed.status}`;
+  let code: string | undefined;
+  let params: Record<string, string | number> | undefined;
   try {
-    const body = (await parsed.json()) as { message?: string; error?: string };
+    const body = (await parsed.json()) as {
+      message?: string;
+      error?: string;
+      code?: string;
+      params?: Record<string, string | number>;
+    };
+    code = body.code;
+    params = body.params;
     detail = body.message ?? body.error ?? detail;
   } catch {
     /* 后端没给 JSON 就用状态码 */
   }
-  return new PdfReadError(t('page.failure.pdfParse', { message: detail }));
+  return new PdfReadError(t('page.failure.pdfParse', { message: tError(code, params, detail) }));
 }
 
 /** 校验 /pdf 的响应并把正文返给上层 */

@@ -16,7 +16,7 @@ import {
   type ExtractedPage,
   type ReadFailure,
 } from '@/lib/extract';
-import { t, type MessageKey } from '@/lib/i18n';
+import { t, tError, type MessageKey } from '@/lib/i18n';
 import {
   DEFAULT_SETTINGS,
   isConfigured,
@@ -71,13 +71,12 @@ const SUGGESTION_KEYS: MessageKey[] = [
 ];
 
 /** 后端能给出错误码时优先用本地文案，否则退回原始 message */
-const SERVER_ERROR_KEYS: Record<string, MessageKey> = {
-  conversation_busy: 'error.conversationBusy',
-};
-
-function serverErrorText(code: string | undefined, message: string): string {
-  const key = code ? SERVER_ERROR_KEYS[code] : undefined;
-  return key ? t(key) : message;
+function serverErrorText(
+  code: string | undefined,
+  params: Record<string, string | number> | undefined,
+  message: string,
+): string {
+  return tError(code, params, message);
 }
 
 function errText(err: unknown): string {
@@ -606,7 +605,7 @@ export default function App() {
             sawError = true;
             flush();
             ensureTarget();
-            const text = serverErrorText(ev.code, ev.message);
+            const text = serverErrorText(ev.code, ev.params, ev.message);
             setMessages((prev) =>
               prev.map((m) => (m.id === targetId ? { ...m, streaming: false, error: text } : m)),
             );

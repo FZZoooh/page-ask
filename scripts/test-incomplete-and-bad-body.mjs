@@ -115,11 +115,12 @@ try {
   const badChat = await postJson('/chat', '{ not json');
   const badChatBody = await badChat.text();
   check('非法 /chat JSON 返回 400', badChat.status === 400, `${badChat.status} ${badChatBody.slice(0, 120)}`);
-  check('400 文案可读', badChatBody.includes('bad request body'), badChatBody.slice(0, 120));
+  check('400 带错误码', badChatBody.includes('"code":"request.bad_body"'), badChatBody.slice(0, 120));
 
   const badConv = await postJson('/conversations', '{ not json');
   const badConvBody = await badConv.text();
   check('非法 /conversations JSON 返回 400', badConv.status === 400, `${badConv.status} ${badConvBody.slice(0, 120)}`);
+  check('错误码一致', badConvBody.includes('"code":"request.bad_body"'), badConvBody.slice(0, 120));
 } finally {
   child.kill();
   await new Promise((r) => {

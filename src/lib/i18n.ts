@@ -126,11 +126,44 @@ export const zhCN = {
   'error.backendStatus': '后端返回 {status}{detail}',
   'error.backendDetail': '：{detail}',
   'error.unknown': '未知错误',
-  'error.conversationBusy': '请等待此轮对话结束',
   'error.historyLoad': '加载历史失败：{message}',
   'error.pageMismatch': '这个会话属于另一个页面',
   'error.historyDelete': '删除失败：{message}',
   'answer.copyFailed': '复制失败，请手动选中文字',
+
+  // 后端错误码（与 server/errors.mjs 的 code 一一对应）
+  'error.auth.origin': '请求来源不被允许',
+  'error.auth.forbidden': '没有权限访问这个接口',
+  'error.auth.bad_token': '访问令牌不正确',
+  'error.request.bad_body': '请求体不合法，或超过了大小限制',
+  'error.request.missing_url': '缺少页面地址',
+  'error.request.not_found': '接口不存在',
+  'error.conversation.not_found': '找不到这个会话',
+  'error.conversation.busy': '这一轮还在生成，请稍后再试',
+  'error.conversation.no_pending': '没有待恢复的提问',
+  'error.settings.invalid_base_url': '上游地址要以 http:// 或 https:// 开头',
+  'error.settings.missing_api_key':
+    '还没有配置 API Key：打开 {settingsUrl} 填一个（或在托盘菜单里点「配置…」）',
+  'error.chat.empty_text': '问题不能为空',
+  'error.chat.missing_page': '缺少页面信息',
+  'error.upstream.bad_request': '请求被上游拒绝（400）',
+  'error.upstream.auth': 'API Key 无效或已过期',
+  'error.upstream.balance': '账号余额不足',
+  'error.upstream.model_not_found': '模型不存在，检查配置页里的默认模型',
+  'error.upstream.invalid_request': '请求参数不合法（422）',
+  'error.upstream.rate_limit': '请求过于频繁或超出配额',
+  'error.upstream.empty': '上游没有返回任何内容',
+  'error.upstream.timeout': '上游在 {seconds} 秒内没有响应',
+  'error.upstream.status': '上游返回 {status}',
+  'error.upstream.failed': '上游返回失败',
+  'error.pdf.missing_source': '缺少 PDF 数据',
+  'error.pdf.not_pdf': '不是 PDF 文件',
+  'error.pdf.bad_file_url': '本地文件地址不合法',
+  'error.pdf.not_found': '读不到这个本地文件',
+  'error.pdf.not_file': '这个路径不是文件',
+  'error.pdf.too_big': 'PDF 太大了，不应大于 64 MB',
+  'error.pdf.bad': 'PDF 解析失败',
+  'error.pdf.failed': 'PDF 解析失败',
 
   // 设置面板
   'settings.title': '设置',
@@ -190,6 +223,21 @@ export function t(key: MessageKey, vars?: Record<string, string | number>): stri
   return raw.replace(/\{(\w+)\}/g, (whole, name: string) =>
     vars[name] === undefined ? whole : String(vars[name]),
   );
+}
+
+/**
+ * 把后端的错误码翻成本地文案；code 形如 `upstream.rate_limit`。
+ * 没有对应 key 时退回后端给的 fallback，再退到「未知错误」。
+ */
+export function tError(
+  code: string | undefined,
+  params?: Record<string, string | number>,
+  fallback?: string,
+): string {
+  if (!code) return fallback || t('error.unknown');
+  const key = `error.${code}` as MessageKey;
+  if (Object.prototype.hasOwnProperty.call(zhCN, key)) return t(key, params);
+  return fallback || t('error.unknown');
 }
 
 
