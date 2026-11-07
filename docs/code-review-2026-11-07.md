@@ -69,6 +69,8 @@
 | 第二批 P2 | `138a3f0` | F6/F7/F9/F11/F13/F14/F15/F16/F17、B1/B3/B7 | compile/build，`test-incomplete-and-bad-body` 10 项 |
 | 第三批 P2 | `7ce466f` | B4/B11/B12/B14/B16/B17/B19（工具超时与熔断、回退策略、提示词隔离、`/v1` 统一、短 Key 掩码） | 4 个回归脚本全过 |
 | 工程化批 | `a6af2ca` | F18、E1（`compile` 串 `.mjs` 语法检查）、E2（Node ≥22.13）、E4（README 依赖/版本）、E5（PLAN 历史横幅）、E6（版本单一来源） | `check:server` 30 个 `.mjs`、compile/build |
+| 第四批 P2 | `53e4057` | F8/F10/F12/F19（截屏并行、删无效授权入口、折叠块、PDF 标题兜底） | compile/build |
+| 复核修复 | `408ae0b` | 截断回答可见提示、切页/历史加载竞态、流取消、`baseUrl` 归一、失败码映射、`readJson` 超限不再断连 | compile/build、`test:server` 全过 |
 | 后续 | — | 其余 P2/P3（见第三、四节） | 每批更新 |
 
 > 表里的提交只是“已修”的记录；正文行号仍是**审查时**的位置，已在后续修复中漂移，定位请以当前代码为准。

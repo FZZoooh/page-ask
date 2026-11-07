@@ -63,6 +63,7 @@ export type ChatEvent =
   | { type: 'meta'; conversationId: string; messageId: string; model: string }
   | { type: 'reasoning'; delta: string }
   | { type: 'content'; delta: string }
+  | { type: 'replace'; text: string }
   | { type: 'usage'; usage: Usage }
   | {
       type: 'tool';
@@ -276,6 +277,9 @@ export async function* streamChat(req: ChatRequest): AsyncGenerator<ChatEvent> {
           break;
         case 'content':
           yield { type: 'content', delta: String(payload.delta ?? '') };
+          break;
+        case 'replace':
+          yield { type: 'replace', text: String(payload.text ?? '') };
           break;
         case 'usage':
           yield { type: 'usage', usage: payload as Usage };

@@ -153,33 +153,47 @@ export function addMessage({
 }) {
   const id = randomUUID();
   const ts = now();
-  db.prepare(
-    `INSERT INTO messages
-       (id, conversation_id, role, content, reasoning, created_at,
-        tokens_in, tokens_out, ms, process_ms, tool_calls, tool_call_id, tool_name, tool_args,
-        aborted, tool_failed, image_path, response_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    conversationId,
-    role,
-    content,
-    reasoning,
-    ts,
-    tokensIn,
-    tokensOut,
-    ms,
-    processMs,
-    toolCalls ? JSON.stringify(toolCalls) : null,
-    toolCallId,
-    toolName,
-    toolArgs ? JSON.stringify(toolArgs) : null,
-    aborted ? 1 : 0,
-    toolFailed == null ? null : toolFailed ? 1 : 0,
-    imagePath,
-    responseId,
-  );
-  touchConversation(conversationId);
+  // 用 SAVEPOINT 而不是 BEGIN：addTurn 已经开了事务，这里必须能嵌进去；
+  // 单独调用时它自己就是一次完整事务，INSERT 与 touch 不会只成一半。
+  db.exec('SAVEPOINT add_message');
+  try {
+    db.prepare(
+      `INSERT INTO messages
+         (id, conversation_id, role, content, reasoning, created_at,
+          tokens_in, tokens_out, ms, process_ms, tool_calls, tool_call_id, tool_name, tool_args,
+          aborted, tool_failed, image_path, response_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      conversationId,
+      role,
+      content,
+      reasoning,
+      ts,
+      tokensIn,
+      tokensOut,
+      ms,
+      processMs,
+      toolCalls ? JSON.stringify(toolCalls) : null,
+      toolCallId,
+      toolName,
+      toolArgs ? JSON.stringify(toolArgs) : null,
+      aborted ? 1 : 0,
+      toolFailed == null ? null : toolFailed ? 1 : 0,
+      imagePath,
+      responseId,
+    );
+    touchConversation(conversationId);
+    db.exec('RELEASE add_message');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK TO add_message');
+      db.exec('RELEASE add_message');
+    } catch {
+      // 事务可能已经被外层回滚，保留原始错误
+    }
+    throw err;
+  }
   return toMessage({
     id,
     conversation_id: conversationId,
@@ -243,9 +257,19 @@ export function truncateAfterLastUser(conversationId) {
     )
     .all(conversationId, last.rowid);
 
+  // 只删「调用发生前已经存在」的行：另一个侧栏在两次查询之间插入的新行
+  // （rowid 更大且超过 boundary）必须留下，否则双面板同时重生成会误删对方刚写的内容。
+  const boundary = db
+    .prepare('SELECT COALESCE(MAX(rowid), 0) AS maxRowid FROM messages WHERE conversation_id = ?')
+    .get(conversationId).maxRowid;
+
   db.exec('BEGIN IMMEDIATE');
   try {
-    db.prepare('DELETE FROM messages WHERE conversation_id = ? AND rowid > ?').run(conversationId, last.rowid);
+    db.prepare('DELETE FROM messages WHERE conversation_id = ? AND rowid > ? AND rowid <= ?').run(
+      conversationId,
+      last.rowid,
+      boundary,
+    );
     db.exec('COMMIT');
   } catch (err) {
     try {

@@ -575,7 +575,7 @@ async function handleChat(req, res) {
 
       let turn;
       try {
-        turn = await streamTurn({ input, instructions, model, signal: controller.signal, emit, previousResponseId: anchor });
+        turn = await streamTurn({ input, instructions, model, signal: controller.signal, emit, previousResponseId: anchor, store: wantChain });
       } catch (err) {
         // 链断了：上游把那条 response 删了/过期了（OpenAI 存 30 天，也可能被组织策略清掉），
         // 或者这个上游压根不认 previous_response_id（DeepSeek 就会 400：
@@ -838,7 +838,7 @@ async function handleChat(req, res) {
  * response.output_item.* / response.completed；但为了不被细节差异卡住，
  * 文本与工具调用最终以 response.completed 里的 `output` 为准（delta 只用于实时显示）。
  */
-async function streamTurn({ input, instructions, model, signal, emit, previousResponseId = null }) {
+async function streamTurn({ input, instructions, model, signal, emit, previousResponseId = null, store = false }) {
   const cfg = readSettings();
   /** @type {Record<string, unknown>} */
   const body = {
@@ -854,8 +854,9 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
     // 有状态模式：上游只发「锚点之后」的新 items，前面的历史由它自己存着。
     // store 必须为 true，否则这次响应不会被保存、下一轮就找不到它了。
     body.previous_response_id = previousResponseId;
-    body.store = true;
   }
+  // 首次建锚也要显式 store：不能赌上游默认值（自建网关默认 false 时第二轮必 404）
+  if (store || previousResponseId) body.store = true;
   // 用户停止与 300s 超时都可能把这条流掐断。两者都不该丢已经流给用户的正文：
   // 停止看 signal，超时看同时挂上的 timeout；读到一半就返回部分结果，
   // 由调用方落库并标记 aborted，而不是把整轮丢掉。
@@ -978,6 +979,10 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
       emit('content', { delta: finalText });
     } else if (finalText.startsWith(content)) {
       emit('content', { delta: finalText.slice(content.length) });
+    } else {
+      // 上游最终文本和流出来的 delta 对不上（内容过滤/重新生成），整段替换，
+      // 否则前端显示的是旧 delta、库里存的是 finalText，两边永久分叉
+      emit('replace', { text: finalText });
     }
     content = finalText;
   }

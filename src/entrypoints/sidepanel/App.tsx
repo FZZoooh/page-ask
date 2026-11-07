@@ -812,6 +812,11 @@ export default function App() {
             ensureTarget();
             contentBuf += ev.delta;
             schedule();
+          } else if (ev.type === 'replace') {
+            // 最终 output 与流式 delta 不一致：以最终文本为准整段替换，避免落库与界面分叉
+            ensureTarget();
+            contentBuf = ev.text;
+            schedule();
           } else if (ev.type === 'reasoning') {
             ensureTarget();
             reasoningBuf += ev.delta;
@@ -1450,6 +1455,7 @@ export default function App() {
             contentEditable={configured && pageState.kind === 'ready'}
             role="textbox"
             aria-multiline="true"
+            aria-label={t('composer.placeholder.ready')}
             suppressContentEditableWarning
             data-placeholder={
               !configured

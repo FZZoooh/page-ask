@@ -995,6 +995,12 @@ button.primary.sm {
   opacity: 1;
 }
 
+/* 键盘 Tab 到整行时，行内删除按钮必须变可见；否则焦点落在一个 0 透明度的按钮上 */
+.conv:focus-within .conv-del,
+.conv-del:focus-visible {
+  opacity: 1;
+}
+
 .conv-del:hover:not(:disabled) {
   background: color-mix(in srgb, var(--danger) 18%, transparent);
   color: var(--danger);
@@ -1295,4 +1301,16 @@ button.quote-btn .icon {
 
 .msg.user:hover .msg-time {
   opacity: 1;
+}
+
+/* 跟随系统「减少动态效果」：淡入、滚动与高亮都不要动画 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
