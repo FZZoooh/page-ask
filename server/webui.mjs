@@ -31,7 +31,8 @@ export function settingsPageHtml({ version }) {
   .field > span { display: block; font-weight: 600; margin-bottom: 6px; }
   input[type=text], input[type=password] {
     width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px;
-    background: var(--bg); color: var(--fg); font: inherit; outline: none;
+    background: var(--bg); color: var(--fg); font-size: 13px; outline: none;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   }
   input:focus { border-color: var(--accent); }
   small { display: block; color: var(--muted); margin-top: 6px; font-size: 12px; }
