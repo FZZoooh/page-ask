@@ -96,13 +96,17 @@ function quarantineBroken(err) {
   }
 }
 
-/** 合并式保存：patch 里没有的字段保持原样，`apiKey: ''` 表示「不动」 */
+/** 合并式保存：patch 里没有的字段保持原样，`apiKey: ''` 表示「不动」，`clearApiKey: true` 才是清空 */
 export function writeSettings(patch) {
   const current = readExisting();
   const next = normalize({
     baseUrl: patch.baseUrl ?? current.baseUrl,
     model: patch.model ?? current.model,
-    apiKey: patch.apiKey === undefined || patch.apiKey === '' ? current.apiKey : patch.apiKey,
+    apiKey: patch.clearApiKey
+      ? ''
+      : patch.apiKey === undefined || patch.apiKey === ''
+        ? current.apiKey
+        : patch.apiKey,
     state: patch.state ?? current.state,
   });
   // 目录 0700、文件 0600：Key 明文躺在磁盘上，至少别让同机其他用户随手读到

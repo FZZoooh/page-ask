@@ -49,6 +49,8 @@ pnpm server:win
 2. 输入模型提供商的 API Key（如 DeepSeek 等兼容 OpenAI 格式的接口）。
 3. 点击“保存”即可即时生效，无需重启后端服务。
 
+配置页默认跟随浏览器 `Accept-Language` 选择文案（当前提供简体中文），也可以用 `?lang=zh-CN` 强制指定。“测试连接”会用当前表单里的地址、模型和 Key（Key 留空时用已保存的）；已保存的 Key 只显示掩码，点“清空 Key”可删除。
+
 ### 4. 安装 Edge 侧栏扩展
 
 1. 打开 Edge，在地址栏输入 `edge://extensions`。

@@ -16,7 +16,7 @@
     "zip:edge": "wxt zip -b edge",
     "compile": "tsc --noEmit && node scripts/check-syntax.mjs",
     "check:server": "node scripts/check-syntax.mjs",
-    "test:server": "node scripts/test-turn-integrity.mjs && node scripts/test-turn-abort.mjs && node scripts/test-empty-stream.mjs && node scripts/test-incomplete-and-bad-body.mjs && node scripts/test-lifecycle-recover.mjs",
+    "test:server": "node scripts/test-turn-integrity.mjs && node scripts/test-turn-abort.mjs && node scripts/test-empty-stream.mjs && node scripts/test-incomplete-and-bad-body.mjs && node scripts/test-lifecycle-recover.mjs && node scripts/test-settings-webui.mjs",
     "verify": "pnpm compile && pnpm test:server && pnpm build",
     "server": "node server/index.mjs",
     "server:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-server.ps1",

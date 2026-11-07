@@ -39,8 +39,9 @@ import { logError, logEvent } from './log.mjs';
 import { assertPublicHttpUrl, readBodyCapped } from './net.mjs';
 import { withV1 } from './upstream.mjs';
 import { errorPayload, normalizePdfCode, upstreamErrorCode } from './errors.mjs';
+import { negotiateLocale } from './i18n/index.mjs';
 import { extractPdfText, PdfError } from './pdf.mjs';
-import { publicSettings, readSettings, settingsFile, writeSettings } from './settings.mjs';
+import { publicSettings, readSettings, settingsFile, STATE_MODES, writeSettings } from './settings.mjs';
 import { RESPONSES_TOOLS, runTool, ToolError } from './tools.mjs';
 import { settingsPageHtml } from './webui.mjs';
 
@@ -174,7 +175,13 @@ async function handle(req, res) {
   }
   // 配置页与它的接口：本机、同源才可用，且不受 PAGEASK_TOKEN 约束（否则页面自己都进不去）
   if (url.pathname === '/settings' && req.method === 'GET') {
-    const html = settingsPageHtml({ version: `v${VERSION}` });
+    const html = settingsPageHtml({
+      version: `v${VERSION}`,
+      locale: negotiateLocale({
+        acceptLanguage: req.headers['accept-language'],
+        queryLang: url.searchParams.get('lang'),
+      }),
+    });
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
@@ -202,14 +209,27 @@ async function handle(req, res) {
       } catch {
         return sendJson(res, 400, errorPayload('request.bad_body'));
       }
-      const baseUrl = String(body?.baseUrl ?? '').trim();
-      if (baseUrl && !/^https?:\/\//i.test(baseUrl)) {
-        return sendJson(res, 400, errorPayload('settings.invalid_base_url'));
+      let baseUrl;
+      if (typeof body?.baseUrl === 'string' && body.baseUrl.trim()) {
+        try {
+          // 只接受干净的 http(s) 地址：不允许内嵌账号密码，也不把 query/hash 带进拼接
+          const u = new URL(body.baseUrl.trim());
+          if (!/^https?:$/.test(u.protocol) || u.username || u.password || u.search || u.hash) {
+            throw new Error('bad base url');
+          }
+          baseUrl = u.href.replace(/\/+$/, '');
+        } catch {
+          return sendJson(res, 400, errorPayload('settings.invalid_base_url'));
+        }
+      }
+      if (body?.state !== undefined && !STATE_MODES.includes(body.state)) {
+        return sendJson(res, 400, errorPayload('settings.invalid_state', { modes: STATE_MODES.join(' / ') }));
       }
       const saved = writeSettings({
-        baseUrl: baseUrl || undefined,
-        model: typeof body?.model === 'string' ? body.model : undefined,
+        baseUrl,
+        model: typeof body?.model === 'string' ? body.model.trim() || undefined : undefined,
         apiKey: typeof body?.apiKey === 'string' ? body.apiKey.trim() : undefined,
+        clearApiKey: body?.clearApiKey === true,
         state: typeof body?.state === 'string' ? body.state : undefined,
       });
       logEvent('settings.saved', { baseUrl: saved.baseUrl, model: saved.model, state: saved.state, hasKey: Boolean(saved.apiKey) });
@@ -217,25 +237,54 @@ async function handle(req, res) {
     }
   }
 
-  // POST /api/settings/test：拿当前的 Base URL + Key 去敲一下上游的 /models
+  // POST /api/settings/test：拿表单里的 Base URL / Key 去敲上游的 /models。
+  // 允许传 draft，避免“改了地址点测试，其实测的是旧配置”。
   if (req.method === 'POST' && url.pathname === '/api/settings/test') {
-    const s = readSettings();
-    if (!s.apiKey) return sendJson(res, 200, { ok: false, detail: '还没有填 API Key' });
+    let body = {};
+    try {
+      body = (await readJson(req, res, 16 * 1024)) ?? {};
+    } catch {
+      return sendJson(res, 400, errorPayload('request.bad_body'));
+    }
+    const current = readSettings();
+    let baseUrl = current.baseUrl;
+    if (typeof body.baseUrl === 'string' && body.baseUrl.trim()) {
+      try {
+        const u = new URL(body.baseUrl.trim());
+        if (!/^https?:$/.test(u.protocol) || u.username || u.password || u.search || u.hash) {
+          throw new Error('bad base url');
+        }
+        baseUrl = u.href.replace(/\/+$/, '');
+      } catch {
+        return sendJson(res, 400, errorPayload('settings.invalid_base_url'));
+      }
+    }
+    const apiKey = typeof body.apiKey === 'string' && body.apiKey.trim() ? body.apiKey.trim() : current.apiKey;
+    if (!apiKey) {
+      return sendJson(res, 200, { ok: false, code: 'settings.missing_api_key', detail: '还没有填 API Key' });
+    }
     const started = Date.now();
     try {
-      const r = await fetch(`${withV1(s.baseUrl)}/models`, {
-        headers: { Authorization: `Bearer ${s.apiKey}` },
+      const r = await fetch(`${withV1(baseUrl)}/models`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
         signal: AbortSignal.timeout(10_000),
       });
-      const body = await r.text();
-      const detail = `HTTP ${r.status} · ${Date.now() - started} ms${r.ok ? '' : ` · ${body.slice(0, 160)}`}`;
-      return sendJson(res, 200, { ok: r.ok, status: r.status, detail });
+      const raw = await r.text();
+      const detail = `HTTP ${r.status} · ${Date.now() - started} ms${r.ok ? '' : ` · ${raw.slice(0, 160)}`}`;
+      return sendJson(res, 200, { ok: r.ok, status: r.status, detail, baseUrl, model: body.model?.trim() || current.model });
     } catch (err) {
-      return sendJson(res, 200, { ok: false, detail: `请求失败：${err?.message ?? err}` });
+      return sendJson(res, 200, {
+        ok: false,
+        detail: `请求失败：${err?.message ?? err}`,
+        baseUrl,
+      });
     }
   }
 
-  if (TOKEN && !checkToken(req)) return sendJson(res, 401, errorPayload('auth.bad_token'));
+  // 配置页要读 /health 才能在页面底部显示运行时状态；token 开启时同源页面仍放行
+  if (TOKEN && !checkToken(req) && !(url.pathname === '/health' && sameOriginRequest(req))) {
+    return sendJson(res, 401, errorPayload('auth.bad_token'));
+  }
 
   // GET /health
   if (req.method === 'GET' && url.pathname === '/health') {

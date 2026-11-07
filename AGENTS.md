@@ -40,6 +40,7 @@ src/entrypoints/sidepanel/        侧栏：App.tsx 编排状态机；messages.ts
 src/lib/                          chat.ts / extract.ts / pdf.ts / settings.ts / i18n.ts
 src/components/                   MarkdownView.tsx、icons.tsx
 server/                           后端：index.mjs 路由 + db/tools/pdf/text/log/webui/net/lifecycle
+server/i18n/                      后端文案字典（zh-CN.mjs）与 t()/negotiateLocale()
 server/data/                      运行时产物（db、shots/、日志、run.json），不要提交
 scripts/                          PowerShell 启动/托盘/测试实例 + CDP/冒烟脚本
 test/                             手测夹具（article.html、*.pdf）
@@ -81,6 +82,7 @@ PLAN.md                           已归档的早期规划（不再维护，勿�
 - 数据库加列用 `PRAGMA table_info` + `ALTER TABLE` 就地补，不写破坏性迁移；`messages.role` 只有 `user | assistant | tool`。
 - 改协议必须两端同步：`server/index.mjs` 的 SSE emit ↔ `src/lib/chat.ts` 的 `ChatEvent`；`page` 字段 ↔ `ChatRequest`。
 - 错误契约：HTTP 4xx/5xx 与 SSE `error` 都走 `server/errors.mjs` 的 `errorPayload()` / `UpstreamError`，响应体至少含 `code`（`domain.reason`）与可选 `params`，`message` 只作 fallback；前端用 `tError(code, params, message)` 映射 `error.<code>`。新增错误先定 code，再补两端文案；测试断言 `code`，不要断言中文句子。
+- 后端面向用户的文案（配置页、错误 fallback）统一放在 `server/i18n/zh-CN.mjs`：配置页用 `t('webui.*')`，错误用 `error.<code>`；`server/webui.mjs` 里不写硬编码中文。配置页按 `?lang=` / `Accept-Language` 选字典（当前只有 zh-CN，回退默认）；新增 locale 只加字典文件与 `server/i18n/index.mjs` 的注册，客户端脚本会拿到整份字典。
 - 关键上限：`MAX_OUTPUT_TOKENS = 8192`、上游超时 300s、请求体 4MB（`/pdf` 64MB）、PDF 400 页 / 40 万字符。
 - 上游走 Responses API。`state=auto` 只对已知端点（`api.openai.com`、`*.openai.azure.com`、`*.services.ai.azure.com`）启用 `previous_response_id`；链断按 400/404/409/422 结构性判定并整段回退，失败后本进程不再尝试。不要改回 Chat Completions，也不要回传 reasoning item。
 
@@ -93,12 +95,12 @@ PLAN.md                           已归档的早期规划（不再维护，勿�
 
 ## 7. 验证方式
 
-提交前先跑 `pnpm verify`（类型 + 30 个 `.mjs` 语法 + 5 个后端回归 + 构建）；CI 用同一命令。仍没有前端单测，UI 靠类型检查 + 手测：
+提交前先跑 `pnpm verify`（类型 + 32 个 `.mjs` 语法 + 6 个后端回归 + 构建）；CI 用同一命令。仍没有前端单测，UI 靠类型检查 + 手测：
 
 1. `pnpm verify` 通过；只改前端时至少 `pnpm compile` + `pnpm build`。
 2. 后端改动：`pnpm server` 起服务，`curl http://127.0.0.1:8787/health`；必要时 `node scripts/test-chat.mjs "问题"` 看 SSE 事件；新增行为优先补进 `scripts/test-*.mjs`（临时 `PAGEASK_DATA_DIR`/`USERPROFILE` + 假上游，不要碰真实配置）。
 3. UI 改动：`pnpm build` → `pwsh -File scripts/edge-test.ps1`（干净 Edge + CDP，默认打开 `127.0.0.1:8811/article.html`，需要自己先把 `test/` 静态服务在 8811 端口）；用 `scripts/cdp-eval.mjs`、`cdp-key.mjs`、`cdp-dark.mjs` 检查侧栏与深浅色。
-4. 专项脚本：`test-cache.mjs`（前缀缓存）、`test-shot.mjs`（截图落盘/回放）、`test-pdf-prompt.mjs`、`test-selection-context.mjs`、`test-hist-time.mjs`、`test-turn-integrity.mjs` / `test-turn-abort.mjs`（工具轮次与中止）、`test-empty-stream.mjs`（空流）、`test-incomplete-and-bad-body.mjs`（截断/坏请求）、`test-lifecycle-recover.mjs`（异常退出/断尾提问恢复）。
+4. 专项脚本：`test-cache.mjs`（前缀缓存）、`test-shot.mjs`（截图落盘/回放）、`test-pdf-prompt.mjs`、`test-selection-context.mjs`、`test-hist-time.mjs`、`test-turn-integrity.mjs` / `test-turn-abort.mjs`（工具轮次与中止）、`test-empty-stream.mjs`（空流）、`test-incomplete-and-bad-body.mjs`（截断/坏请求）、`test-lifecycle-recover.mjs`（异常退出/断尾提问恢复）、`test-settings-webui.mjs`（配置页文案/错误码/清空 Key/token 同源）。
 5. 有新决策或踩坑，写进 `docs/` 或提交说明；`PLAN.md` 已归档，不要再回填。
 
 ## 8. 不要再走的路（已实测否掉）
