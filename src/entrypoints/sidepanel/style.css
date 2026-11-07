@@ -664,6 +664,31 @@ button.primary.sm {
   word-break: break-word;
 }
 
+/* 读历史/删会话失败：留在列表顶部，不替换当前对话 */
+.load-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 0 10px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bad) 8%, transparent);
+  color: var(--bad);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.load-error > span {
+  flex: 1;
+  word-break: break-word;
+}
+
+.load-error .icon-btn {
+  flex: none;
+  color: var(--bad);
+}
+
 /* ---------- 思考过程 ---------- */
 
 .think {

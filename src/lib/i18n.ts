@@ -162,6 +162,7 @@ export const zhCN = {
 
   // 右键菜单
   'menu.askThisPage': '用 PageAsk 询问本页',
+  'action.dismiss': '关闭提示',
   'action.openPanel': '打开 PageAsk 侧栏',
 } as const;
 

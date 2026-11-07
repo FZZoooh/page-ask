@@ -333,6 +333,8 @@ export default function App() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
+  /** 读历史/切会话失败时挂在列表顶部的提示；不替换当前消息 */
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -353,6 +355,10 @@ export default function App() {
   /** 编辑器内最后一次光标位置：去别处选文字会顶掉文档选区，插入引用时要能回到原位 */
   const savedRange = useRef<Range | null>(null);
   const stickToBottom = useRef(true);
+  /** 异步回调里要判断“用户是否已经先发了消息”，读 ref 才能拿到最新值 */
+  const messagesRef = useRef<Message[]>([]);
+  /** 会话加载序号：切页、连点历史时只认最后一次请求的结果 */
+  const loadSeqRef = useRef(0);
 
   /** 把恢复出来的提问填回输入框；消息里序列化的 <q>…</q> 还原成引用 chip */
   const fillEditor = useCallback((text: string) => {
@@ -383,6 +389,10 @@ export default function App() {
 
   /** 输入框里已经有用户草稿时不要用恢复内容覆盖它 */
   const editorHasDraft = useCallback(() => Boolean(editorRef.current?.textContent?.trim()), []);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     if (settings?.backendUrl) backendRef.current = settings.backendUrl;
@@ -450,26 +460,40 @@ export default function App() {
 
   useEffect(() => {
     if (!pageUrl || !settings) return;
-    if (abortRef.current) return; // 正在生成时不打断
 
+    // 换页/换后端后，上一页的回答已经不属于当前画面。直接中止并作废旧 run：
+    // 服务端会把已生成的部分按 aborted 落库，但新页面绝不接收旧 run 的事件。
+    if (abortRef.current || sendingRef.current) {
+      runSeqRef.current += 1;
+      abortRef.current?.abort();
+      abortRef.current = null;
+      sendingRef.current = false;
+      setBusy(false);
+    }
+
+    const mine = ++loadSeqRef.current;
     let cancelled = false;
     setConversationId(null);
     setMessages([]);
     setHistoryOpen(false);
+    setLoadError(null);
 
     void (async () => {
       const list = await refreshConversations(pageUrl, settings);
       const latest = list[0];
-      if (cancelled || !latest) return;
+      if (cancelled || mine !== loadSeqRef.current || !latest) return;
       // 自动续上这一页最近的一次对话
       try {
         const conv = await getConversation(settings, latest.id);
-        if (cancelled) return;
+        if (cancelled || mine !== loadSeqRef.current) return;
+        // 两次网络往返期间用户可能已经发了新问题，不能再整体覆盖消息列表
+        if (sendingRef.current || messagesRef.current.length > 0) return;
         let stored = conv.messages;
         // 上次进程中途退出会留下“最后一条 user 没有回答”，把问题取回输入框并从历史里删掉
         if (!editorHasDraft()) {
           const recovered = await recoverPendingQuestion(settings, conv.id).catch(() => null);
-          if (cancelled) return;
+          if (cancelled || mine !== loadSeqRef.current) return;
+          if (sendingRef.current || messagesRef.current.length > 0) return;
           if (recovered) {
             stored = stored.filter((m) => m.id !== recovered.messageId);
             fillEditor(recovered.text);
@@ -477,16 +501,18 @@ export default function App() {
           }
         }
         setConversationId(conv.id);
-        setMessages(toMessages(stored, pageState.kind === 'ready' && pageState.page.kind === 'pdf'));
-      } catch {
-        /* 读历史失败就当作新对话 */
+        setMessages(toMessages(stored, page?.kind === 'pdf'));
+      } catch (err) {
+        if (cancelled || mine !== loadSeqRef.current) return;
+        setLoadError(t('error.historyLoad', { message: errText(err) }));
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [pageUrl, settings, refreshConversations, fillEditor, editorHasDraft]);
+    // verbose 不进依赖：改显示偏好不该重载会话；只有换页或换后端才重新归属
+  }, [pageUrl, settings?.backendUrl, refreshConversations, fillEditor, editorHasDraft, page?.kind]);
 
   /* ---------------- 滚动 ---------------- */
 
@@ -750,6 +776,8 @@ export default function App() {
           regenerate,
           signal: controller.signal,
         })) {
+          // 切页会 abort 并将 runSeq 递增；这里再兜一层，旧 run 的事件绝不写进新页面
+          if (runSeqRef.current !== runId) break;
           if (ev.type === 'meta') {
             convId = ev.conversationId;
             setConversationId(ev.conversationId);
@@ -833,7 +861,7 @@ export default function App() {
             );
           }
         }
-        if (!sawDone) {
+        if (runSeqRef.current === runId && !sawDone) {
           if (controller.signal.aborted) {
             // 响应头还没到就被停止：streamChat 会静默返回，这里擦掉空气泡
             setMessages((prev) =>
@@ -847,6 +875,7 @@ export default function App() {
           }
         }
       } catch (err) {
+        if (runSeqRef.current !== runId) return;
         flush();
         // done 之后只剩自动标题/连接收尾；这时断流不影响已经完整收到的回答
         if (sawDone) return;
@@ -877,8 +906,8 @@ export default function App() {
           abortRef.current = null;
           sendingRef.current = false;
           setBusy(false);
+          if (convId) void refreshConversations(page.url, settings);
         }
-        if (convId) void refreshConversations(page.url, settings);
       }
     },
     [busy, conversationId, input, page, refreshConversations, serialize, settings],
@@ -920,9 +949,11 @@ export default function App() {
 
   const newConversation = () => {
     if (busy) return;
+    loadSeqRef.current += 1; // 作废还在路上的历史加载，避免它把空会话又填满
     setConversationId(null);
     setMessages([]);
     setHistoryOpen(false);
+    setLoadError(null);
     stickToBottom.current = true;
   };
 
@@ -931,11 +962,14 @@ export default function App() {
       setHistoryOpen(false);
       return;
     }
+    const mine = ++loadSeqRef.current;
     try {
       const conv = await getConversation(settings, id);
+      if (mine !== loadSeqRef.current) return;
       let stored = conv.messages;
       if (!editorHasDraft()) {
         const recovered = await recoverPendingQuestion(settings, conv.id).catch(() => null);
+        if (mine !== loadSeqRef.current) return;
         if (recovered) {
           stored = stored.filter((m) => m.id !== recovered.messageId);
           fillEditor(recovered.text);
@@ -944,17 +978,13 @@ export default function App() {
       }
       setConversationId(conv.id);
       setMessages(toMessages(stored, page?.kind === 'pdf'));
+      setLoadError(null);
       setHistoryOpen(false);
       stickToBottom.current = true;
     } catch (err) {
-      setMessages([
-        {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: '',
-          error: t('error.historyLoad', { message: errText(err) }),
-        },
-      ]);
+      if (mine !== loadSeqRef.current) return;
+      // 失败时保留当前对话，只在顶部挂一条提示；不能把消息列表替换成错误气泡
+      setLoadError(t('error.historyLoad', { message: errText(err) }));
     }
   };
 
@@ -968,15 +998,10 @@ export default function App() {
         setConversationId(null);
         setMessages([]);
       }
+      setLoadError(null);
     } catch (err) {
-      setMessages([
-        {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: '',
-          error: t('error.historyDelete', { message: errText(err) }),
-        },
-      ]);
+      // 删除失败同样不动当前对话
+      setLoadError(t('error.historyDelete', { message: errText(err) }));
     }
   };
 
@@ -1212,6 +1237,20 @@ export default function App() {
 
       {/* 对话区 */}
       <div className="list" ref={listRef} onScroll={onScroll}>
+        {loadError && (
+          <div className="load-error" role="alert">
+            <span>{loadError}</span>
+            <button
+              type="button"
+              className="icon-btn"
+              title={t('action.dismiss')}
+              aria-label={t('action.dismiss')}
+              onClick={() => setLoadError(null)}
+            >
+              ×
+            </button>
+          </div>
+        )}
         {messages.length === 0 && (
           <div className="empty">
             <p className="muted">
