@@ -72,6 +72,8 @@
 | 第四批 P2 | `53e4057` | F8/F10/F12/F19（截屏并行、删无效授权入口、折叠块、PDF 标题兜底） | compile/build |
 | 复核修复 | `408ae0b` | 截断回答可见提示、切页/历史加载竞态、流取消、`baseUrl` 归一、失败码映射、`readJson` 超限不再断连 | compile/build、`test:server` 全过 |
 | 收尾批 | `44595cf` | B8（重生成只删调用前已存在的行、`addMessage` SAVEPOINT）、B13（final 与 delta 不一致发 `replace`、首次也 `store`）、P3（删除按钮焦点可见、`prefers-reduced-motion`、输入框 aria-label） | compile/build、`test:server` 全过 |
+| B20 批 | `3d3a35b` | `statsFor` 改 COUNT/LIMIT 查询、截图按内容哈希去重、删除前校验其它行引用 | compile/build、`test:server` 全过 |
+| P3 元数据批 | `561a4ab` | 会话轮数按 user 消息计、`normalizeUrl` 去 utm/fbclid 等追踪参数 | compile/build、`test:server` 全过 |
 | 后续 | — | 其余 P2/P3（见第三、四节） | 每批更新 |
 
 > 表里的提交只是“已修”的记录；正文行号仍是**审查时**的位置，已在后续修复中漂移，定位请以当前代码为准。
