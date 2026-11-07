@@ -9,8 +9,8 @@
 // 配置：settings.json（后端提供 /settings 配置页，托盘菜单与扩展设置页都能打开）
 // 只有「服务怎么起来」还在环境变量：PAGEASK_PORT、PAGEASK_EXTENSION_ID、PAGEASK_TOKEN、PAGEASK_DATA_DIR
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
-import { readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -27,6 +27,7 @@ import {
   imagePathsFor,
   lastResponseAnchor,
   listConversations,
+  pruneShots,
   recoverLastUserMessage,
   shotsDir,
   statsFor,
@@ -285,15 +286,11 @@ async function handle(req, res) {
       return conv ? sendJson(res, 200, conv) : sendJson(res, 404, { error: 'not found' });
     }
     if (req.method === 'DELETE') {
-      // 连同这个会话的截图文件一起删，别在盘上留孤儿文件
-      for (const name of imagePathsFor(id)) {
-        try {
-          unlinkSync(join(shotsDir, name));
-        } catch {
-          /* 文件可能已被手动删掉 */
-        }
-      }
-      return sendJson(res, deleteConversation(id) ? 200 : 404, { ok: true });
+      // 连同这个会话的截图文件一起删；先删会话行，再只清理不再被引用的文件
+      const paths = imagePathsFor(id);
+      const removed = deleteConversation(id);
+      if (removed) pruneShots(paths);
+      return sendJson(res, removed ? 200 : 404, { ok: true });
     }
   }
 
@@ -1017,15 +1014,19 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
   };
 }
 
-/** 把 data URL 形式的截图写成 data/shots/<uuid>.jpg，返回文件名；失败返回 null */
+/** 把 data URL 形式的截图写成 data/shots/<内容哈希>.jpg，返回文件名；失败返回 null */
 function saveShot(dataUrl) {
   const m = /^data:image\/(jpeg|png|webp);base64,(.+)$/i.exec(dataUrl ?? '');
   if (!m) return null;
-  const name = `${randomUUID()}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
+  const buf = Buffer.from(m[2], 'base64');
+  // 按内容寻址：模型在同一轮里重复调用 screenshot 时，同一张图只落一个文件。
+  // 删除时 db 会先确认没有别的行引用它，避免把共享文件删掉。
+  const digest = createHash('sha256').update(buf).digest('hex').slice(0, 32);
+  const name = `${digest}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
   const target = join(shotsDir, name);
   const tmp = `${target}.tmp-${process.pid}`;
   try {
-    const buf = Buffer.from(m[2], 'base64');
+    if (existsSync(target)) return name;
     // 先写临时文件再 rename：崩溃时留下的是可清理的 .tmp，而不是一张半截图
     writeFileSync(tmp, buf, { mode: 0o600 });
     renameSync(tmp, target);

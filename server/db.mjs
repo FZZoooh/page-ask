@@ -280,15 +280,23 @@ export function truncateAfterLastUser(conversationId) {
     throw err;
   }
 
-  // 重新生成会丢掉旧回答：把只被这些行引用的截图一并删掉，别留孤儿文件
-  for (const row of doomed) {
+  // 重新生成会丢掉旧回答：把不再被任何行引用的截图一并删掉，别留孤儿文件。
+  pruneShots(doomed.map((row) => row.image_path));
+  return { id: last.id };
+}
+
+/** 删除一组截图文件，但只删已经没有任何消息引用的（截图按内容寻址，可能被多行共享） */
+export function pruneShots(paths) {
+  for (const path of paths) {
+    if (!path) continue;
+    const stillUsed = db.prepare('SELECT COUNT(*) AS n FROM messages WHERE image_path = ?').get(path).n;
+    if (stillUsed > 0) continue;
     try {
-      unlinkSync(join(shotsDir, row.image_path));
+      unlinkSync(join(shotsDir, path));
     } catch {
       /* 文件可能已不在 */
     }
   }
-  return { id: last.id };
 }
 
 /**
@@ -516,18 +524,25 @@ export function closeDb() {
 
 /** 会话里问了几轮、最后一句用户话和最近一条助手正文（自动标题用） */
 export function statsFor(conversationId) {
-  const rows = db
-    .prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC')
-    .all(conversationId);
-  const users = [];
-  const answers = [];
-  for (const r of rows) {
-    const text = (r.content ?? '').trim();
-    if (!text) continue;
-    if (r.role === 'user') users.push(text);
-    else if (r.role === 'assistant') answers.push(text);
-  }
-  return { users: users.length, answers: answers.length, lastUser: users.at(-1) ?? '', lastAnswer: answers.at(-1) ?? '' };
+  // 只取计数与最后一条正文：不要把整个会话的消息正文读进内存
+  const count = (role) =>
+    db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role = ? AND TRIM(content) <> ''",
+      )
+      .get(conversationId, role).n;
+  const last = (role) =>
+    db
+      .prepare(
+        "SELECT content FROM messages WHERE conversation_id = ? AND role = ? AND TRIM(content) <> '' ORDER BY created_at DESC, rowid DESC LIMIT 1",
+      )
+      .get(conversationId, role)?.content ?? '';
+  return {
+    users: count('user'),
+    answers: count('assistant'),
+    lastUser: last('user'),
+    lastAnswer: last('assistant'),
+  };
 }
 
 /* ---------------- 行 → 对象 ---------------- */

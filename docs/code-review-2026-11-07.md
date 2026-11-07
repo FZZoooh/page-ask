@@ -71,6 +71,7 @@
 | 工程化批 | `a6af2ca` | F18、E1（`compile` 串 `.mjs` 语法检查）、E2（Node ≥22.13）、E4（README 依赖/版本）、E5（PLAN 历史横幅）、E6（版本单一来源） | `check:server` 30 个 `.mjs`、compile/build |
 | 第四批 P2 | `53e4057` | F8/F10/F12/F19（截屏并行、删无效授权入口、折叠块、PDF 标题兜底） | compile/build |
 | 复核修复 | `408ae0b` | 截断回答可见提示、切页/历史加载竞态、流取消、`baseUrl` 归一、失败码映射、`readJson` 超限不再断连 | compile/build、`test:server` 全过 |
+| 收尾批 | `44595cf` | B8（重生成只删调用前已存在的行、`addMessage` SAVEPOINT）、B13（final 与 delta 不一致发 `replace`、首次也 `store`）、P3（删除按钮焦点可见、`prefers-reduced-motion`、输入框 aria-label） | compile/build、`test:server` 全过 |
 | 后续 | — | 其余 P2/P3（见第三、四节） | 每批更新 |
 
 > 表里的提交只是“已修”的记录；正文行号仍是**审查时**的位置，已在后续修复中漂移，定位请以当前代码为准。
