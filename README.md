@@ -1,110 +1,109 @@
 # PageAsk
 
-Edge 侧栏扩展：就**当前标签页**的内容向 AI 提问（网页 / PDF 都行）。AI 的 Key 只放在本地后端，浏览器里没有 Key。
+PageAsk 是一款专为 Microsoft Edge 设计的侧栏 AI 助手扩展。无需离开当前网页或阅读界面，即可一键解析当前标签页（支持普通网页与本地/在线 PDF）并向大语言模型提问。
 
-- 扩展：WXT + React + Defuddle（正文提取）
-- 后端：`node server/index.mjs`，只监听 `127.0.0.1:8787`；核心零第三方依赖（`node:sqlite`），PDF 文字层用 `pdfjs-dist`（与扩展共用同一份依赖）
+---
 
-## 0. 前置条件
+## 核心特性
 
-| 需要 | 说明 |
-| --- | --- |
-| Node.js **≥ 22.13** | 内置 `node:sqlite` 要求 22.5+；`pdfjs-dist` 6.x 实际要求 22.13+（本机实测 24.18） |
-| pnpm | `corepack enable` 或单独安装 |
-| Microsoft Edge | 用「加载解压缩扩展」方式安装，**开发者模式必须打开** |
+- **多格式内容提取**：自动提取普通网页正文；支持本地与在线 PDF 文档的文字解析。
+- **划词引用问答**：支持在回答中选中文本进行二次引用提问，保持多轮上下文连贯。
+- **轻量本地服务**：数据存储与模型转发均在本地完成，无多余第三方云端中转依赖。
+- **系统托盘集成**：支持 Windows 系统托盘后台静默运行、进程守护及开机自启。
+- **详细统计指标**：提供上下文 Token 计算、耗时监控及性能统计。
 
-## 1. 装依赖 + 构建扩展
+---
+
+## 环境要求
+
+- **Node.js**：`≥ 22.13`（后端依赖原生 `node:sqlite` 及现代 PDF 解析能力）
+- **包管理器**：`pnpm`
+- **浏览器**：Microsoft Edge（需开启“开发人员模式”）
+
+---
+
+## 快速上手
+
+### 1. 安装依赖并构建扩展
 
 ```powershell
 pnpm install
-pnpm build          # 产物：.output\chrome-mv3
+pnpm build
 ```
 
-## 2. 起后端（第一次会因为没有 Key 而提示）
+构建完成后，扩展产物将输出至 `.output/chrome-mv3` 目录。
+
+### 2. 启动本地服务
 
 ```powershell
-pnpm server:win     # 或 pnpm server；想让它脱离终端见下面的「托盘」
+pnpm server:win
+# 或直接启动常驻托盘（推荐）：
+# pnpm tray:bg
 ```
 
-第一次运行时后端会自己生成配置文件：
+> 服务默认监听 `127.0.0.1:8787`。首次启动会自动在 `%USERPROFILE%\.config\pageask\` 下生成配置文件。
 
-```
-C:\Users\<你>\.config\pageask\settings.json
-```
+### 3. 配置 API Key
 
-内容是默认值（`baseUrl` / `model` / 空的 `apiKey`）。目录不存在会自动创建。
+1. 浏览器访问 **<http://127.0.0.1:8787/settings>**（或在系统托盘右键菜单中点击“配置”）。
+2. 输入模型提供商的 API Key（如 DeepSeek 等兼容 OpenAI 格式的接口）。
+3. 点击“保存”即可即时生效，无需重启后端服务。
 
-## 3. 填 API Key
+### 4. 安装 Edge 侧栏扩展
 
-浏览器打开 **<http://127.0.0.1:8787/settings>**（后端启动日志里也会打印这个地址），填 DeepSeek 的 Key，点「保存」。
+1. 打开 Edge，在地址栏输入 `edge://extensions`。
+2. 开启页面左侧的 **开发人员模式** 开关。
+3. 点击 **加载解压缩的扩展**，选择项目根目录下的 `.output/chrome-mv3`。
 
-- 保存即生效，**不用重启后端**
-- 已保存的 Key 只显示头尾（`sk-554…f398`），留空保存表示「不修改」
-- 「测试连接」会拿当前配置请求一次上游 `/models`
+---
 
-> 没填 Key 就想提问时，扩展里会直接显示：
-> `还没有配置 API Key：打开 http://127.0.0.1:8787/settings 填一个（或在托盘菜单里点「配置…」）`
+## 使用说明
 
-## 4. 把扩展加载进 Edge
+- **打开侧栏**：在任意网页或 PDF 阅读器中 **右键 → 选择“用 PageAsk 询问本页”**，或直接点击浏览器工具栏的 PageAsk 图标。
+- **提问交互**：侧栏顶部会自动展示提取到的页面标题、字符数及 Token 预估，直接在输入框中提问即可。
+- **系统托盘**：若使用 `pnpm tray:bg` 启动，系统托盘右键菜单提供服务启停、配置修改、开机自启切换以及日志查看等功能。
 
-1. 地址栏输入 `edge://extensions`
-2. 打开左下角（或页面侧栏）的**开发人员模式**
-3. 点「加载解压缩的扩展」，选 `.output\chrome-mv3`
+---
 
-> 每次重新 `pnpm build` 之后，要在扩展页点一次「重新加载」；`pnpm dev` 则会自己热更新。
+## 技术架构
 
-## 5. 开始用
+| 模块           | 技术选型                  | 说明                                                                         |
+| :------------- | :------------------------ | :--------------------------------------------------------------------------- |
+| **前端扩展**   | WXT + React + TypeScript  | 采用 WXT 框架构建 Manifest V3 侧栏扩展；正文清洗基于 Defuddle。              |
+| **后端服务**   | Node.js 原生运行时        | 核心采用 `node:http` 与原生 `node:sqlite` 构建，保持轻量与零额外运行时开销。 |
+| **PDF 解析**   | `pdfjs-dist`              | 前后端共享依赖，负责本地 `file://` 与远程 PDF 文件的文本层抽取。             |
+| **进程与托盘** | PowerShell / Windows Tray | 提供本地守护进程管理，异常崩溃自动恢复，支持随系统自启。                     |
 
-- **右键网页 →「用 PageAsk 询问本页」**（PDF 阅读器里也有这一项），或点工具栏上的 PageAsk 图标：右侧会打开侧栏
-- 侧栏顶部显示当前页面（标题 / 字数 / tokens / 提取耗时），下面直接提问
-- 选中回答里的文字会出现「引用」按钮；输入框里可以引用多段，退格一次删掉整块
-- 每条回答下面有复制 / 重新生成，以及本轮耗时与 token 统计（「显示详细信息」关掉后这些都不显示）
+---
 
-## 6. （可选）托盘常驻 + 开机自启
+## 文件存储
+
+| 内容                          | 路径                                                |
+| :---------------------------- | :-------------------------------------------------- |
+| 基础配置（API Key、模型参数） | `%USERPROFILE%\.config\pageask\settings.json`       |
+| 本地会话库与日志数据          | `server\data\pageask.db`、`server\data\pageask.log` |
+| 扩展构建产物                  | `.output\chrome-mv3\`                               |
+
+---
+
+## 常见问题 (FAQ)
+
+**Q：侧栏提示“读不到这个页面”？**  
+A：受限于浏览器安全策略，`edge://*` 内部页面及扩展商店不支持内容脚本注入，请在常规网页或 PDF 页面中使用。
+
+**Q：本地 PDF（`file://`）无法解析？**  
+A：由于浏览器扩展自身的沙盒权限限制，本地 PDF 由后端服务直接读取磁盘文件解析。请确保本地后端服务处于运行状态。
+
+**Q：切换标签页后侧栏空白或消失？**  
+A：此为 Edge 侧栏当前版本的已知交互行为，再次点击工具栏的 PageAsk 图标即可唤回当前激活标签页的状态。
+
+---
+
+## 开发指南
 
 ```powershell
-pnpm tray:bg        # 后台运行，不占终端（等价于前台 pnpm tray）
+pnpm dev:edge     # 启动 Edge 开发调试模式（支持热重载）
+pnpm compile      # 类型检查与语法校验
+pnpm test:server  # 后端独立测试套件
+pnpm verify       # 提交前验证（编译 + 测试 + 构建）
 ```
-
-托盘图标右键可：启动 / 停止 / 重启后端、配置…、打开日志、打开数据目录、开机自启、退出。
-
-- 「停止后端」是**真的停**：看门狗不会把它拉起来，直到你点「启动后端」或「重启后端」
-- 后端崩溃（不是你停的）时，看门狗 4 秒内自动重启
-- 开机自启会写一个 Startup 快捷方式，优先用 PowerShell 7（`pwsh`）运行
-
-## 文件都在哪
-
-| 内容 | 位置 |
-| --- | --- |
-| 配置（Key / 上游地址 / 默认模型） | `%USERPROFILE%\.config\pageask\settings.json` |
-| 会话数据库、截图、日志 | `server\data\`（`pageask.db`、`shots\`、`pageask.log`、`tray.log`） |
-| 扩展构建产物 | `.output\chrome-mv3` |
-
-## 常见问题
-
-**侧栏说「读不到这个页面」**：当前标签是 `edge://` 内部页 / 扩展商店 / PDF 的某些状态，浏览器不允许脚本注入。换普通网页即可。
-
-**PDF 打不开**：`file://` 的 PDF 由后端读盘解析，需要同一台机器上的后端在跑；扩展页自己 `fetch` 不了 `file:`。
-
-**切了标签，侧栏不见了**：Edge 的已知缺陷（microsoft/MicrosoftEdge-Extensions#142），再点一次图标即可。
-
-**改了代码不生效**：扩展要「重新加载」，后端要重启（`pnpm server:win`），改的是 `settings.json` 则不用重启。
-
-**后端说「还没有 API Key」**：见第 3 步，或托盘菜单「配置…」。
-
-## 开发
-
-```powershell
-pnpm dev            # WXT dev（Chrome）
-pnpm dev:edge       # WXT dev（Edge）
-pnpm compile        # tsc 类型检查 + server/scripts 的 .mjs 语法检查
-pnpm test:server    # 后端回归脚本（数据目录全部用临时目录）
-pnpm verify         # compile + test:server + build，提交前跑这个
-pnpm build          # 生产构建
-```
-
-侧栏代码按职责拆分：`App.tsx` 只编排状态机与请求生命周期，消息模型在 `messages.ts`，contenteditable 操作在 `editorDom.ts`，展示组件为 `Composer` / `HistoryPanel` / `PageCard` / `RoundPanel` / `SettingsPanel`。
-
-CI 在 `.github/workflows/ci.yml`：Windows + Node 22.13 + `pnpm verify`，`push` 到 `main` 或开 PR 时运行（仓库当前没有 remote，推送后才会生效）。
-
-设计与决策的早期记录已归档在 [`PLAN.md`](PLAN.md)（仅历史参考，不再维护）；现行架构与协作规则见 [`AGENTS.md`](AGENTS.md)，审查与修复记录见 [`docs/code-review-2026-11-07.md`](docs/code-review-2026-11-07.md)。
