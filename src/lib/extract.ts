@@ -385,12 +385,20 @@ export function estimateTokens(chars: number): number {
 /**
  * 截当前活动标签页的可见区域，缩到 maxWidth 以内并转成 JPEG data URL。
  * 失败（无权限、浏览器内部页面、canvas 不可用）返回 null，不影响主流程。
+ *
+ * expectedUrl：发起提问时那一页的 URL。captureVisibleTab 只能截“聚焦窗口的活动标签”，
+ * 发送瞬间切页/切窗口会截到别的页面，所以先核对 URL，不一致就放弃这张图。
  */
 export async function captureScreenshot(
+  expectedUrl?: string,
   maxWidth = 1280,
 ): Promise<{ dataUrl: string; width: number; height: number } | null> {
   try {
-    const raw = await browser.tabs.captureVisibleTab({ format: 'jpeg', quality: 80 });
+    const [tab] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
+    const stripHash = (url?: string) => (url ? url.split('#')[0] : '');
+    if (expectedUrl && stripHash(tab?.url) !== stripHash(expectedUrl)) return null;
+
+    const raw = await browser.tabs.captureVisibleTab(tab?.windowId, { format: 'jpeg', quality: 80 });
     if (!raw) return null;
 
     const blob = await (await fetch(raw)).blob();

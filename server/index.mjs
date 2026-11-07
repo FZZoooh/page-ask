@@ -296,7 +296,12 @@ async function handle(req, res) {
 
   // POST /conversations  {url,title}  → 显式开新对话
   if (req.method === 'POST' && url.pathname === '/conversations') {
-    const body = await readJson(req);
+    let body;
+    try {
+      body = await readJson(req);
+    } catch (err) {
+      return sendJson(res, 400, { error: `bad request body: ${err?.message ?? err}` });
+    }
     if (!body?.url) return sendJson(res, 400, { error: 'missing url' });
     return sendJson(res, 200, createConversation({ url: body.url, title: body.title ?? '' }));
   }
@@ -464,7 +469,12 @@ function cleanTitle(raw) {
 /* ---------------- /chat ---------------- */
 
 async function handleChat(req, res) {
-  const body = await readJson(req);
+  let body;
+  try {
+    body = await readJson(req);
+  } catch (err) {
+    return sendJson(res, 400, { error: `bad request body: ${err?.message ?? err}` });
+  }
   const page = body?.page;
   const text = (body?.text ?? '').trim();
   if (!text) return sendJson(res, 400, { error: 'empty text' });
@@ -587,6 +597,12 @@ async function handleChat(req, res) {
         throw new UpstreamError(504, `上游在 ${Math.round(UPSTREAM_TIMEOUT / 1000)} 秒内没有返回内容`);
       }
 
+      // 上游用 response.incomplete 结束（常见于 max_output_tokens 截断）：
+      // 已生成的内容照常落库，但必须标记为不完整，不能当成功回答。
+      if (turn.incomplete) {
+        logEvent('turn_incomplete', { conversationId: conv.id, chars: turn.content.length, calls: turn.calls.length });
+      }
+
       // 本轮要落库的行先攒在内存里：assistant 与它引发的全部 tool 行必须在
       // 同一个事务里写下去，否则工具执行到一半被中止，历史里会留下
       // “有 function_call、没有 function_call_output”的悬空对，之后每轮都会 400。
@@ -603,7 +619,7 @@ async function handleChat(req, res) {
         // 「思考 + 工具调用」阶段耗时只落在最终那段回答上（工具调用段为 null）
         processMs: turn.calls.length ? null : phaseMs,
         responseId: turn.responseId,
-        aborted: Boolean(turn.aborted || turn.timedOut),
+        aborted: Boolean(turn.aborted || turn.timedOut || turn.incomplete),
       };
 
       // 先决定下一跳的上下文，再执行工具（入参顺序与旧逻辑保持一致）
@@ -641,12 +657,12 @@ async function handleChat(req, res) {
           usage: turn.usage,
           totals,
           steps,
-          aborted: Boolean(turn.aborted || turn.timedOut),
+          aborted: Boolean(turn.aborted || turn.timedOut || turn.incomplete),
           ms: Date.now() - started,
         });
-        // 第一轮问答结束后起标题（失败不影响主流程）；中止/超时的不起，
+        // 第一轮问答结束后起标题（失败不影响主流程）；中止/超时/截断的不起，
         // 否则半截回答会被拿去总结，标题反而误导。
-        if (!turn.aborted && !turn.timedOut) {
+        if (!turn.aborted && !turn.timedOut && !turn.incomplete) {
           const title = await autoTitle({ conversationId: conv.id, model, user: text, answer: turn.content });
           if (title) emit('title', { conversationId: conv.id, title });
         }
@@ -836,6 +852,7 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
   let failure = null;
   let interrupted = false;
   let timedOut = false;
+  let incomplete = false;
 
   try {
     for await (const { event, data } of parseSseEvents(upstream.body)) {
@@ -870,6 +887,7 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
       }
 
       if (event === 'response.completed' || event === 'response.incomplete') {
+        incomplete = event === 'response.incomplete';
         final = json.response ?? json;
         continue;
       }
@@ -889,9 +907,11 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
     }
   }
 
-  // 上游明确报了 failed/error：即使已经流了一些字，也不能当成功
+  // 上游明确报了 failed/error：即使已经流了一些字，也不能当成功。
+  // 有真实状态码就沿用它，friendly() 才能给出 401/429 这类准确提示。
   if (failure || final?.status === 'failed') {
-    throw new UpstreamError(500, JSON.stringify(failure ?? final?.error ?? { message: '上游返回失败' }));
+    const status = Number.isInteger(failure?.status) ? failure.status : 502;
+    throw new UpstreamError(status, JSON.stringify(failure ?? final?.error ?? { message: '上游返回失败' }));
   }
 
   // 已经收到 completed/incomplete 就算这一轮正常结束，即使随后被 abort。
@@ -939,6 +959,7 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
     responseId: final?.id ?? null,
     aborted: turnAborted && !turnTimedOut,
     timedOut: turnTimedOut,
+    incomplete,
   };
 }
 

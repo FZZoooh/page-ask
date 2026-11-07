@@ -354,12 +354,15 @@ function rowsToItems(rows) {
       if (r.content && r.content.trim()) {
         out.push({ role: 'assistant', content: [{ type: 'output_text', text: r.content }] });
       }
-      for (const call of safeJson(r.tool_calls) ?? []) {
-        const name = call.name ?? call.function?.name;
-        const args = call.arguments ?? call.function?.arguments ?? '{}';
-        if (!name || !call.id) continue;
-        if (!answeredCalls.has(call.id)) continue;
-        out.push({ type: 'function_call', call_id: call.id, name, arguments: args });
+      const calls = safeJson(r.tool_calls);
+      if (Array.isArray(calls)) {
+        for (const call of calls) {
+          const name = call.name ?? call.function?.name;
+          const args = call.arguments ?? call.function?.arguments ?? '{}';
+          if (!name || !call.id) continue;
+          if (!answeredCalls.has(call.id)) continue;
+          out.push({ type: 'function_call', call_id: call.id, name, arguments: args });
+        }
       }
       continue;
     }

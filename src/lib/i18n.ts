@@ -139,12 +139,16 @@ export const zhCN = {
   'error.conversationBusy': '请等待此轮对话结束',
   'error.historyLoad': '加载历史失败：{message}',
   'error.historyDelete': '删除失败：{message}',
+  'answer.copyFailed': '复制失败，请手动选中文字',
 
   // 设置面板
   'settings.title': '设置',
   'settings.close': '收起',
   'settings.backendUrl': '后端地址',
   'settings.backendHint': '本地后端',
+  'settings.invalidUrl': '后端地址无效，请填 http://127.0.0.1:8787 这样的地址',
+  'settings.remoteHint': '非本机后端（{host}）：页面正文、选区和截图都会发到这台机器',
+  'settings.remoteConfirm': '后端不在本机（{host}）。页面正文、选区和截图会离开这台电脑，确定保存？',
   'settings.token': '访问令牌',
   'settings.tokenPlaceholder': '后端没设 PAGEASK_TOKEN 就留空',
   'settings.tokenHint': '需与后端环境变量 PAGEASK_TOKEN 一致；只存在本机浏览器里',

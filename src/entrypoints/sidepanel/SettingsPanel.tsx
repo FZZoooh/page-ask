@@ -11,6 +11,20 @@ interface Props {
 
 type Probe = { ok: true; key: MessageKey; params?: Record<string, string | number> } | { ok: false; text: string };
 
+/** 只认 http(s) URL；解析失败返回 null，避免把整页内容发到非法地址 */
+function parseBackendUrl(raw: string): URL | null {
+  try {
+    const url = new URL(raw.trim());
+    if (!['http:', 'https:'].includes(url.protocol) || !url.hostname) return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+/** 默认只信本机后端；别的地址要用户二次确认 */
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+
 export function SettingsPanel({ value, onDone, onClose }: Props) {
   const [draft, setDraft] = useState<Settings>(value);
   const [saving, setSaving] = useState(false);
@@ -25,7 +39,22 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
     token: draft.token.trim(),
   });
 
+  /** 校验草稿地址；失败时直接写进 probe，调用方返回即可 */
+  const validated = (): URL | null => {
+    const parsed = parseBackendUrl(normalized().backendUrl);
+    if (!parsed) setProbe({ ok: false, text: t('settings.invalidUrl') });
+    return parsed;
+  };
+
+  const parsedDraft = parseBackendUrl(normalized().backendUrl);
+  const remoteHost = parsedDraft && !LOOPBACK_HOSTS.has(parsedDraft.hostname) ? parsedDraft.host : null;
+
   const handleSave = async () => {
+    const parsed = validated();
+    if (!parsed) return;
+    if (!LOOPBACK_HOSTS.has(parsed.hostname) && !window.confirm(t('settings.remoteConfirm', { host: parsed.host }))) {
+      return;
+    }
     setSaving(true);
     const next = normalized();
     try {
@@ -39,6 +68,7 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
   };
 
   const handleTest = async () => {
+    if (!validated()) return;
     setProbing(true);
     setProbe(null);
     try {
@@ -69,6 +99,7 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
           placeholder={DEFAULT_SETTINGS.backendUrl}
         />
         <small>{t('settings.backendHint')}</small>
+        {remoteHost && <small className="warn">{t('settings.remoteHint', { host: remoteHost })}</small>}
       </label>
 
       <label className="field">
@@ -110,8 +141,10 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
       <button
         className="console-link"
         onClick={() => {
-          const url = `${normalized().backendUrl.replace(/\/+$/, '')}/settings`;
-          void browser.tabs.create({ url });
+          const parsed = validated();
+          if (!parsed) return;
+          const base = parsed.origin + parsed.pathname.replace(/\/+$/, '');
+          void browser.tabs.create({ url: `${base}/settings` });
         }}
       >
         <span>{t('settings.console')}</span>

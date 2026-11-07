@@ -30,8 +30,8 @@ import {
 } from '@/lib/settings';
 import { SettingsPanel } from './SettingsPanel';
 
-/** 输入框最大高度（超过就内部滚动），与 style.css 里的 max-height 对应 */
-const MAX_BOX_H = 168;
+/** 输入框最大高度（超过就内部滚动），必须与 style.css 的 .editor max-height 一致 */
+const MAX_BOX_H = 156;
 
 type PageState =
   | { kind: 'loading' }
@@ -750,14 +750,17 @@ export default function App() {
       let convId = conversationId;
       /** 服务端用 done 结束一轮；没等到 done 就断流，不能当成功 */
       let sawDone = false;
+      /** 服务端已经发过 error：收尾时别再把它覆盖成笼统的“连接中断” */
+      let sawError = false;
 
       // 先截一张当前可见画面：模型调用 screenshot 工具时才有得用，不调用就不发上游
-      const shot = await captureScreenshot();
-      // 现取一次选中文字：用户常常是「先选中、再提问」，页面加载时缓存的那份可能已经过期
-      const sel = await readSelection();
-      const selected = sel?.text || page.selection || '';
-
+      // 截屏与选区读取都放在 try 里：任一失败也要走 finally 释放发送闸门
       try {
+        const shot = await captureScreenshot(page.url);
+        // 现取一次选中文字：用户常常是「先选中、再提问」，页面加载时缓存的那份可能已经过期
+        const sel = await readSelection();
+        const selected = sel?.text || page.selection || '';
+
         for await (const ev of streamChat({
           settings,
           conversationId,
@@ -853,6 +856,7 @@ export default function App() {
             );
             setTitlePulse(true);
           } else if (ev.type === 'error') {
+            sawError = true;
             flush();
             ensureTarget();
             const text = serverErrorText(ev.code, ev.message);
@@ -861,7 +865,7 @@ export default function App() {
             );
           }
         }
-        if (runSeqRef.current === runId && !sawDone) {
+        if (runSeqRef.current === runId && !sawDone && !sawError) {
           if (controller.signal.aborted) {
             // 响应头还没到就被停止：streamChat 会静默返回，这里擦掉空气泡
             setMessages((prev) =>
@@ -878,7 +882,7 @@ export default function App() {
         if (runSeqRef.current !== runId) return;
         flush();
         // done 之后只剩自动标题/连接收尾；这时断流不影响已经完整收到的回答
-        if (sawDone) return;
+        if (sawDone || sawError) return;
         const stopped = controller.signal.aborted;
         setMessages((prev) => {
           // 还没产出任何文字就被停掉时，别留一个空气泡
@@ -927,16 +931,20 @@ export default function App() {
       .map((a) => a.content.trim())
       .filter(Boolean)
       .join('\n\n');
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopiedId(anchorId);
-      window.setTimeout(() => setCopiedId((cur) => (cur === anchorId ? null : cur)), 1400);
-    });
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopiedId(anchorId);
+        window.setTimeout(() => setCopiedId((cur) => (cur === anchorId ? null : cur)), 1400);
+      })
+      .catch(() => setLoadError(t('answer.copyFailed')));
   }, []);
 
   /** 重新生成某一轮：本地删掉这一轮的回答，再带 regenerate 重跑同一个问题 */
   const regenerateRound = useCallback(
     (r: Round) => {
-      if (busy) return;
+      // 先把 send 的所有前置条件查一遍，避免 UI 已截断、请求却没发出去
+      if (busy || sendingRef.current || !settings || !isConfigured(settings) || !page) return;
       const question = r.user?.content ?? '';
       if (!question) return;
       // 只保留这条 user 之前的消息
@@ -944,7 +952,7 @@ export default function App() {
       if (cutAt >= 0) setMessages((prev) => prev.slice(0, cutAt + 1));
       void send(question, { regenerate: true });
     },
-    [busy, messages, send],
+    [busy, messages, page, send, settings],
   );
 
   const newConversation = () => {
@@ -1354,7 +1362,7 @@ export default function App() {
                     </div>
                   ) : null}
                   {m.error && <p className="err">{m.error}</p>}
-                  {isLastAnswer && !busy && m.content && (
+                  {isLastAnswer && m.content && (
                     <div className="answer-actions">
                       <button
                         type="button"
