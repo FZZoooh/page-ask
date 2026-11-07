@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { MarkdownView } from '@/components/MarkdownView';
 import { IconCheck, IconChevron, IconCopy, IconQuote, IconReload, IconSend, IconStop } from '@/components/icons';
 import {
@@ -14,7 +14,6 @@ import {
 import {
   estimateTokens,
   captureScreenshot,
-  grantOrigin,
   readActiveTab,
   readSelection,
   type ExtractedPage,
@@ -318,6 +317,25 @@ function ThinkingFade({ show }: { show: boolean }) {
 
   if (!mounted) return null;
   return <div className={`thinking${closing ? ' out' : ''}`}>{t('answer.thinking')}</div>;
+}
+
+/** 思考/工具折叠块：流式时展开，结束后自动收起；流式期间用户手动收起不会被下一批 token 顶开 */
+function RoundPanel({ active, summary, children }: { active: boolean; summary: ReactNode; children: ReactNode }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  const wasActive = useRef(active);
+
+  useEffect(() => {
+    if (wasActive.current === active) return;
+    wasActive.current = active;
+    if (ref.current) ref.current.open = active;
+  }, [active]);
+
+  return (
+    <details ref={ref} className="round" open={active}>
+      <summary>{summary}</summary>
+      {children}
+    </details>
+  );
 }
 export default function App() {
   const [pageState, setPageState] = useState<PageState>({ kind: 'loading' });
@@ -756,9 +774,8 @@ export default function App() {
       // 先截一张当前可见画面：模型调用 screenshot 工具时才有得用，不调用就不发上游
       // 截屏与选区读取都放在 try 里：任一失败也要走 finally 释放发送闸门
       try {
-        const shot = await captureScreenshot(page.url);
-        // 现取一次选中文字：用户常常是「先选中、再提问」，页面加载时缓存的那份可能已经过期
-        const sel = await readSelection();
+        // 截屏与选区互不依赖，并行取，少一次串行等待
+        const [shot, sel] = await Promise.all([captureScreenshot(page.url), readSelection()]);
         const selected = sel?.text || page.selection || '';
 
         for await (const ev of streamChat({
@@ -1037,12 +1054,6 @@ export default function App() {
 
   /* ---------------- 杂项 ---------------- */
 
-  const handleGrant = async () => {
-    const url = pageState.kind === 'failed' ? pageState.failure.url : undefined;
-    const ok = await grantOrigin(url);
-    if (ok) void load();
-  };
-
   const handleCopy = async () => {
     if (!page) return;
     await navigator.clipboard.writeText(page.markdown);
@@ -1234,11 +1245,6 @@ export default function App() {
         <section className="card error">
           <div className="card-title">{t('page.failure.title')}</div>
           <p>{t(REASON_HINT[pageState.failure.reason])}</p>
-          {pageState.failure.reason === 'permission' && pageState.failure.url && (
-            <button className="primary" onClick={() => void handleGrant()}>
-              {t('page.failure.grant')}
-            </button>
-          )}
           <pre className="raw">{pageState.failure.message}</pre>
         </section>
       )}
@@ -1309,22 +1315,21 @@ export default function App() {
               </>
             )}
 
-            {/* 一轮里的「思考 + 工具调用」收进一个折叠块：流式时展开，答完自动收起（key 变化即重新挂载） */}
+            {/* 一轮里的「思考 + 工具调用」收进一个折叠块：流式时展开，答完自动收起 */}
             {verbose && (r.reasoning || r.steps.length > 0) && (
-              <details
-                key={`${r.key}:${active ? 'run' : 'done'}`}
-                className="round"
-                open={active || undefined}
-              >
-                <summary>
-                  {active
+              <RoundPanel
+                key={r.key}
+                active={active}
+                summary={
+                  active
                     ? t('round.running')
                     : r.steps.length > 0 && r.reasoning
                       ? t('round.both', { tools: r.steps.length, secs: seconds(r.processMs) })
                       : r.steps.length > 0
                         ? t('round.toolsOnly', { tools: r.steps.length })
-                        : t('round.thinkOnly', { secs: seconds(r.processMs) })}
-                </summary>
+                        : t('round.thinkOnly', { secs: seconds(r.processMs) })
+                }
+              >
                 {r.reasoning && <pre className="think-text">{r.reasoning}</pre>}
                 {r.steps.map((m) => (
                   <div key={m.id} className="step">
@@ -1344,7 +1349,7 @@ export default function App() {
                     ) : null}
                   </div>
                 ))}
-              </details>
+              </RoundPanel>
             )}
 
             {/* 清爽模式的占位：整轮只有一个，多轮工具调用也不会重复 */}

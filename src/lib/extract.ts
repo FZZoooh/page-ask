@@ -212,8 +212,10 @@ export async function readActiveTab(opts: { backendUrl?: string } = {}): Promise
     };
   }
 
-  // PDF 走另一条路：浏览器内嵌查看器读不到 DOM，只能取字节交给后端解析
-  if (looksLikePdfUrl(tab.url) && tab.url) {
+  // PDF 走另一条路：浏览器内嵌查看器读不到 DOM，只能取字节交给后端解析。
+  // 有些站点（如 arxiv 的 /pdf/2401.12345）URL 没有 .pdf，此时用标签页标题兜底。
+  const pdfByTitle = /\.pdf\s*$/i.test((tab.title ?? '').trim());
+  if ((looksLikePdfUrl(tab.url) || pdfByTitle) && tab.url) {
     return readPdfTab(tab.url, tab.title, opts.backendUrl);
   }
 
@@ -354,26 +356,6 @@ export async function readSelection(): Promise<SelectionInfo | null> {
   } catch (err) {
     const message = err instanceof PdfReadError ? err.message : errMsg(err);
     return { ok: false, reason: 'unknown', message, url };
-  }
-}
-
-/** 让用户为当前站点授权（activeTab 失效、或从侧栏菜单直接打开时用） */
-export async function grantOrigin(url?: string): Promise<boolean> {
-  if (!url) return false;
-  if (url.startsWith('file://')) {
-    // file:// 无法动态授权，需在扩展详情页手动勾选「允许访问文件 URL」
-    return false;
-  }
-  let origin: string;
-  try {
-    origin = `${new URL(url).origin}/*`;
-  } catch {
-    return false;
-  }
-  try {
-    return await browser.permissions.request({ origins: [origin] });
-  } catch {
-    return false;
   }
 }
 

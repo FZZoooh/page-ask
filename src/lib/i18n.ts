@@ -57,10 +57,9 @@ export const zhCN = {
   'page.failure.restricted':
     '浏览器内部页面由于安全限制，不允许扩展读取。换一个普通网页试试',
   'page.failure.permission':
-    '未获得该页面的读取权限，请在扩展设置中授权当前站点',
+    '未获得该页面的读取权限。刷新页面后重试；若仍失败，请在扩展详情页确认已允许访问该站点',
   'page.failure.empty': '页面返回了空内容，可能还在加载，或这是一个空白页',
   'page.failure.unknown': '读取失败',
-  'page.failure.grant': '授权此站点并重试',
   'page.failure.queryTabs': '查询标签页失败：{message}',
   'page.failure.noTab': '未找到当前标签页',
   'page.failure.internalPage': '该页面属于浏览器内部页面或扩展商店，不允许扩展读取',
