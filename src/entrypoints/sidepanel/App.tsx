@@ -44,6 +44,8 @@ interface Message {
   reasoning?: string;
   /** 正在流式接收 */
   streaming?: boolean;
+  /** 服务端标记：本轮被中止或上游截断（回答可能不完整） */
+  aborted?: boolean;
   error?: string;
   ms?: number;
   /** 本轮「思考 + 工具调用」阶段耗时（毫秒），只有最终那段回答带 */
@@ -276,6 +278,7 @@ function toMessage(m: StoredMessage, pdf = false): Message | null {
     reasoning: m.reasoning,
     ms: m.ms ?? undefined,
     processMs: m.processMs ?? undefined,
+    aborted: m.aborted === true,
     createdAt: m.createdAt,
     tokensIn: m.tokensIn,
     tokensOut: m.tokensOut,
@@ -425,13 +428,13 @@ export default function App() {
   /* ---------------- 会话列表 ---------------- */
 
   const refreshConversations = useCallback(
-    async (url: string, s: Settings) => {
+    async (url: string, s: Settings, commit = true) => {
       try {
         const list = await listConversations(s, url);
-        setConversations(list);
+        if (commit) setConversations(list);
         return list;
       } catch {
-        setConversations([]);
+        if (commit) setConversations([]);
         return [];
       }
     },
@@ -477,10 +480,7 @@ export default function App() {
   /* ---------------- 换页 → 换会话 ---------------- */
 
   useEffect(() => {
-    if (!pageUrl || !settings) return;
-
-    // 换页/换后端后，上一页的回答已经不属于当前画面。直接中止并作废旧 run：
-    // 服务端会把已生成的部分按 aborted 落库，但新页面绝不接收旧 run 的事件。
+    // 页面切走时（哪怕新页面不可读）也要先中止旧 run，避免它继续把事件写进新页面
     if (abortRef.current || sendingRef.current) {
       runSeqRef.current += 1;
       abortRef.current?.abort();
@@ -489,6 +489,10 @@ export default function App() {
       setBusy(false);
     }
 
+    if (!pageUrl || !settings) return;
+
+    // 换页/换后端后，上一页的回答已经不属于当前画面。服务端会把已生成的部分按 aborted 落库，
+    // 但新页面绝不接收旧 run 的事件。
     const mine = ++loadSeqRef.current;
     let cancelled = false;
     setConversationId(null);
@@ -497,9 +501,11 @@ export default function App() {
     setLoadError(null);
 
     void (async () => {
-      const list = await refreshConversations(pageUrl, settings);
+      const list = await refreshConversations(pageUrl, settings, false);
       const latest = list[0];
-      if (cancelled || mine !== loadSeqRef.current || !latest) return;
+      if (cancelled || mine !== loadSeqRef.current) return;
+      setConversations(list);
+      if (!latest) return;
       // 自动续上这一页最近的一次对话
       try {
         const conv = await getConversation(settings, latest.id);
@@ -715,6 +721,7 @@ export default function App() {
       if (!isConfigured(settings) || !page) return;
 
       const runId = ++runSeqRef.current;
+      abortRef.current?.abort();
       sendingRef.current = true;
       setInput('');
       if (!regenerate && editorRef.current) editorRef.current.innerHTML = '';
@@ -861,6 +868,7 @@ export default function App() {
                   streaming: false,
                   ms: ev.message?.ms ?? ev.ms,
                   processMs: ev.message?.processMs ?? m.processMs,
+                  aborted: ev.aborted === true || m.aborted,
                   tokensIn: ev.totals?.tokensIn ?? m.tokensIn,
                   tokensOut: ev.totals?.tokensOut ?? m.tokensOut,
                   usage: ev.usage ?? m.usage,
@@ -991,6 +999,10 @@ export default function App() {
     try {
       const conv = await getConversation(settings, id);
       if (mine !== loadSeqRef.current) return;
+      if (pageUrl && conv.url !== normalizeUrl(pageUrl)) {
+        setLoadError(t('error.historyLoad', { message: t('error.pageMismatch') }));
+        return;
+      }
       let stored = conv.messages;
       if (!editorHasDraft()) {
         const recovered = await recoverPendingQuestion(settings, conv.id).catch(() => null);
@@ -1367,7 +1379,8 @@ export default function App() {
                     </div>
                   ) : null}
                   {m.error && <p className="err">{m.error}</p>}
-                  {isLastAnswer && m.content && (
+                  {m.aborted && !m.streaming && <p className="muted small">{t('answer.truncated')}</p>}
+                  {isLastAnswer && m.content && !m.streaming && (
                     <div className="answer-actions">
                       <button
                         type="button"

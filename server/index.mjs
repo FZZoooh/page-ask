@@ -366,8 +366,13 @@ async function handlePdf(req, res) {
     return sendJson(res, 200, out);
   } catch (err) {
     const code = err instanceof PdfError ? err.code : 'pdf_failed';
+    // 本地路径类错误属于“请求有问题”，回 400，且不要把绝对路径回显给客户端
+    const clientError = ['pdf_bad_file_url', 'pdf_not_found', 'pdf_not_file', 'pdf_too_big'].includes(code);
     logError('pdf_extract_failed', { message: String(err?.message ?? err) });
-    return sendJson(res, 502, { error: code, message: String(err?.message ?? err) });
+    return sendJson(res, clientError ? 400 : 502, {
+      error: code,
+      message: clientError ? '无法读取这个本地文件' : String(err?.message ?? err),
+    });
   }
 }
 
@@ -951,7 +956,7 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
   // 上游明确报了 failed/error：即使已经流了一些字，也不能当成功。
   // 有真实状态码就沿用它，friendly() 才能给出 401/429 这类准确提示。
   if (failure || final?.status === 'failed') {
-    const status = Number.isInteger(failure?.status) ? failure.status : 502;
+    const status = failureStatus(failure ?? final?.error);
     const err = new UpstreamError(status, JSON.stringify(failure ?? final?.error ?? { message: '上游返回失败' }));
     // 标记是否已经流给前端过：调用方据此决定能不能安全重试
     err.streamed = Boolean(content || reasoning);
@@ -1039,6 +1044,17 @@ function parseArgs(raw) {
   } catch {
     return {};
   }
+}
+
+/** Responses API 的 failed 事件只有 error.code，没有 HTTP status；按 code 映射，别一律 502 */
+function failureStatus(failure) {
+  if (Number.isInteger(failure?.status)) return failure.status;
+  const code = String(failure?.code ?? failure?.error?.code ?? '');
+  if (/invalid_api_key|authentication/i.test(code)) return 401;
+  if (/insufficient_quota|billing/i.test(code)) return 402;
+  if (/rate_limit/i.test(code)) return 429;
+  if (/context_length|invalid_request/i.test(code)) return 400;
+  return 502;
 }
 
 class UpstreamError extends Error {
@@ -1255,19 +1271,27 @@ function checkToken(req) {
 
 function sendJson(res, status, data) {
   const body = JSON.stringify(data);
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body) });
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(body),
+    'X-Content-Type-Options': 'nosniff',
+  });
   res.end(body);
 }
 
 async function readJson(req, res, maxBytes = MAX_BODY) {
   return new Promise((resolve, reject) => {
     let size = 0;
+    let tooLarge = false;
     const chunks = [];
     req.on('data', (c) => {
+      if (tooLarge) return;
       size += c.length;
       if (size > maxBytes) {
+        // 不要 destroy：那会让客户端只看到 fetch failed。让请求自然结束，
+        // 调用方拿到 400 后正常回包，剩下的字节直接丢弃。
+        tooLarge = true;
         reject(new Error('body too large'));
-        req.destroy();
         return;
       }
       chunks.push(c);

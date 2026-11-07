@@ -137,6 +137,7 @@ export const zhCN = {
   'error.unknown': '未知错误',
   'error.conversationBusy': '请等待此轮对话结束',
   'error.historyLoad': '加载历史失败：{message}',
+  'error.pageMismatch': '这个会话属于另一个页面',
   'error.historyDelete': '删除失败：{message}',
   'answer.copyFailed': '复制失败，请手动选中文字',
 
@@ -158,6 +159,7 @@ export const zhCN = {
   'settings.verbose': '显示详细信息',
   'settings.verboseHint': '显示页面信息、思考过程、工具调用和统计',
   'answer.thinking': '正在思考',
+  'answer.truncated': '本轮被中断，回答可能不完整',
   'settings.reset': '恢复默认',
   'settings.probeOk': '已连接到 {model}',
   'settings.console': '打开后端配置页',

@@ -236,7 +236,34 @@ export function truncateAfterLastUser(conversationId) {
     )
     .get(conversationId);
   if (!last) return null;
-  db.prepare('DELETE FROM messages WHERE conversation_id = ? AND rowid > ?').run(conversationId, last.rowid);
+
+  const doomed = db
+    .prepare(
+      'SELECT image_path FROM messages WHERE conversation_id = ? AND rowid > ? AND image_path IS NOT NULL',
+    )
+    .all(conversationId, last.rowid);
+
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.prepare('DELETE FROM messages WHERE conversation_id = ? AND rowid > ?').run(conversationId, last.rowid);
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      /* ignore */
+    }
+    throw err;
+  }
+
+  // 重新生成会丢掉旧回答：把只被这些行引用的截图一并删掉，别留孤儿文件
+  for (const row of doomed) {
+    try {
+      unlinkSync(join(shotsDir, row.image_path));
+    } catch {
+      /* 文件可能已不在 */
+    }
+  }
   return { id: last.id };
 }
 
@@ -357,6 +384,7 @@ function rowsToItems(rows) {
       const calls = safeJson(r.tool_calls);
       if (Array.isArray(calls)) {
         for (const call of calls) {
+          if (!call || typeof call !== 'object') continue;
           const name = call.name ?? call.function?.name;
           const args = call.arguments ?? call.function?.arguments ?? '{}';
           if (!name || !call.id) continue;

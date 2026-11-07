@@ -17,7 +17,7 @@ function safeHref(href: string | undefined): string | null {
   if (href.startsWith('#')) return href;
   try {
     const url = new URL(href, 'https://pageask.invalid');
-    return ['http:', 'https:', 'mailto:'].includes(url.protocol) ? href : null;
+    return ['http:', 'https:', 'mailto:'].includes(url.protocol) ? url.href : null;
   } catch {
     return null;
   }
