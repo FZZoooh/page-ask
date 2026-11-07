@@ -30,7 +30,7 @@ const freePort = () =>
 const upstreamPort = await freePort();
 const upstream = createServer((req, res) => {
   req.resume();
-  if (req.url === '/responses') {
+  if (req.url.endsWith('/responses')) {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
     res.write(
       `event: response.completed\ndata: ${JSON.stringify({

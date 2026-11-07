@@ -164,7 +164,7 @@ function migrateLegacySettings() {
 export function maskKey(key) {
   const k = String(key ?? '');
   if (!k) return '';
-  if (k.length <= 10) return `${k.slice(0, 2)}${'*'.repeat(Math.max(0, k.length - 2))}`;
+  if (k.length <= 10) return `…${k.slice(-2)}`;
   return `${k.slice(0, 6)}…${k.slice(-4)}`;
 }
 

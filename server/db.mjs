@@ -382,18 +382,41 @@ export function imagePathsFor(conversationId) {
 
 /** 截图文件名 → data URL；文件不在就返回 null（历史里只是少张图，不该报错） */
 const shotCache = new Map();
+// 截图是 base64 data URL，单条可能有几百 KB。缓存只保留最近用到的若干张：
+// 不设上限时长会话会把每条历史截图都钉在内存里，删会话也不会释放。
+const SHOT_CACHE_MAX = 16;
+
+function imageMime(buf) {
+  if (buf[0] === 0xff && buf[1] === 0xd8) return 'image/jpeg';
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+  if (buf.subarray(0, 4).toString('ascii') === 'RIFF' && buf.subarray(8, 12).toString('ascii') === 'WEBP') {
+    return 'image/webp';
+  }
+  return 'image/jpeg';
+}
+
 function shotToDataUrl(name) {
   if (!name) return null;
-  if (shotCache.has(name)) return shotCache.get(name);
+  if (shotCache.has(name)) {
+    // LRU：命中后挪到队尾
+    const hit = shotCache.get(name);
+    shotCache.delete(name);
+    shotCache.set(name, hit);
+    return hit;
+  }
+  let url = null;
   try {
     const buf = readFileSync(join(shotsDir, name));
-    const url = `data:image/jpeg;base64,${buf.toString('base64')}`;
-    shotCache.set(name, url);
-    return url;
+    url = `data:${imageMime(buf)};base64,${buf.toString('base64')}`;
   } catch {
-    shotCache.set(name, null);
-    return null;
+    url = null;
   }
+  shotCache.set(name, url);
+  if (shotCache.size > SHOT_CACHE_MAX) {
+    const oldest = shotCache.keys().next().value;
+    if (oldest !== undefined) shotCache.delete(oldest);
+  }
+  return url;
 }
 
 /**
