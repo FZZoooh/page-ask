@@ -16,6 +16,8 @@ function parseBackendUrl(raw: string): URL | null {
   try {
     const url = new URL(raw.trim());
     if (!['http:', 'https:'].includes(url.protocol) || !url.hostname) return null;
+    // `localhost.` / `127.0.0.1.` 是合法写法，去掉尾点后再判断是否回环
+    url.hostname = url.hostname.replace(/\.+$/, '');
     return url;
   } catch {
     return null;
@@ -68,7 +70,12 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
   };
 
   const handleTest = async () => {
-    if (!validated()) return;
+    const parsed = validated();
+    if (!parsed) return;
+    // 测试连接会把当前令牌发给该地址：非本机先让用户确认
+    if (!LOOPBACK_HOSTS.has(parsed.hostname) && !window.confirm(t('settings.remoteConfirm', { host: parsed.host }))) {
+      return;
+    }
     setProbing(true);
     setProbe(null);
     try {
