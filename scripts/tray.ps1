@@ -244,7 +244,14 @@ if ($RemoveAutostart) { Remove-Autostart; Write-Host '已取消开机自启'; ex
 # ---------- 单实例 ----------
 
 $mutex = New-Object System.Threading.Mutex($false, 'PageAskTraySingleton')
-if (-not $mutex.WaitOne(0)) {
+$acquired = $false
+try {
+  $acquired = $mutex.WaitOne(0)
+} catch [System.Threading.AbandonedMutexException] {
+  # 上一个托盘崩溃时没 ReleaseMutex，这里接管，不要因此拒绝启动
+  $acquired = $true
+}
+if (-not $acquired) {
   Write-Host 'PageAsk 托盘已经在运行了。'
   exit 0
 }

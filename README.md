@@ -97,7 +97,9 @@ pnpm tray:bg        # 后台运行，不占终端（等价于前台 pnpm tray）
 ```powershell
 pnpm dev            # WXT dev（Chrome）
 pnpm dev:edge       # WXT dev（Edge）
-pnpm compile        # tsc 类型检查
+pnpm compile        # tsc 类型检查 + server/scripts 的 .mjs 语法检查
+pnpm test:server    # 后端回归脚本（数据目录全部用临时目录）
+pnpm verify         # compile + test:server + build，提交前跑这个
 pnpm build          # 生产构建
 ```
 
