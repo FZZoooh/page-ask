@@ -104,12 +104,11 @@ export function settingsPageHtml({ version, locale = DEFAULT_LOCALE }) {
       <button class="danger" id="clearKey" type="button" hidden>${t('webui.clearKey')}</button>
     </div>
     <p id="msg" role="status" aria-live="polite" aria-atomic="true"></p>
-    <p class="note">${t('webui.note')}</p>
   </div>
 
   <p class="meta">
     ${t('webui.metaFile')}<code id="file">…</code><br>
-    ${t('webui.metaBackend')}<code id="hBase">…</code><br>
+    ${t('webui.metaProvider')}<code id="hBase">…</code><br>
     ${t('webui.metaModel')}<code id="hModel">…</code><br>
     ${t('webui.metaKey')}<code id="hKey">…</code><br>
     ${t('webui.metaState')}<code id="hState">…</code>

@@ -10,7 +10,7 @@ export const locale = 'zh-CN';
 export const messages = {
   // ---------------- 配置页 ----------------
   'webui.title': 'PageAsk 配置',
-  'webui.subtitle': '后端 {version} · 保存后立即生效',
+  'webui.subtitle': 'PageAsk 后端 {version} · 保存后立即生效',
   'webui.apiKey': 'API Key',
   'webui.apiKeyPlaceholderMissing': '未设置',
   'webui.apiKeyPlaceholderSet': '已设置：{masked}',
@@ -25,13 +25,13 @@ export const messages = {
   'webui.stateHint': '是否启用 Responses API 服务端会话状态保持特性',
   'webui.save': '保存',
   'webui.test': '测试连接',
-  'webui.clearKey': '清除 Key',
-  'webui.saving': '保存中…',
+  'webui.clearKey': '清除 API Key',
+  'webui.saving': '正在保存…',
   'webui.saved': '已保存',
   'webui.saveFailed': '保存失败：{message}',
   'webui.testing': '正在请求上游…',
   'webui.testOk': '连接正常 · {detail}',
-  'webui.testFail': '连不通 · {detail}',
+  'webui.testFail': '连接失败 · {detail}',
   'webui.testError': '测试失败：{message}',
   'webui.testHint': '测试使用表单里当前的地址与 Key，不会保存。',
   'webui.clearConfirm': '确定清除已保存的 API Key？清除后需要重新填写才能提问。',
@@ -42,7 +42,7 @@ export const messages = {
   'webui.healthUnavailable': '无法连接',
   'webui.healthTokenRequired': '需要访问令牌（PAGEASK_TOKEN），状态信息不可用',
   'webui.metaFile': '配置文件：',
-  'webui.metaBackend': '后端：',
+  'webui.metaProvider': '提供商：',
   'webui.metaModel': '模型：',
   'webui.metaKey': 'API Key：',
   'webui.metaState': 'Responses API 功能：',
@@ -50,7 +50,6 @@ export const messages = {
   'webui.keyMissing': '缺失',
   'webui.stateful': '有状态',
   'webui.stateless': '无状态',
-  'webui.note': 'Key 只保存在本机配置文件里，页面不会回显明文。',
   'webui.errorUnknown': '未知错误',
 
   // ---------------- 后端错误码 ----------------
