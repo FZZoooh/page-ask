@@ -69,11 +69,26 @@ export function baseUrl(s: Settings): string {
   }
 }
 
-/** 去掉 #hash：同一篇文章的锚点不该算成两个会话 */
+/** 去掉 #hash 与纯追踪参数：同一篇文章的锚点/utm 不该算成两个会话 */
+const TRACKING_PARAMS = new Set([
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'utm_term',
+  'utm_content',
+  'fbclid',
+  'gclid',
+  'spm',
+  'ref',
+]);
+
 export function normalizeUrl(raw: string): string {
   try {
     const u = new URL(raw);
     u.hash = '';
+    for (const key of [...u.searchParams.keys()]) {
+      if (TRACKING_PARAMS.has(key.toLowerCase())) u.searchParams.delete(key);
+    }
     return u.toString();
   } catch {
     return raw;
