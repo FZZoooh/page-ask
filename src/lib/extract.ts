@@ -212,8 +212,10 @@ export async function readActiveTab(opts: { backendUrl?: string } = {}): Promise
     };
   }
 
-  // PDF 走另一条路：浏览器内嵌查看器读不到 DOM，只能取字节交给后端解析
-  if (looksLikePdfUrl(tab.url) && tab.url) {
+  // PDF 走另一条路：浏览器内嵌查看器读不到 DOM，只能取字节交给后端解析。
+  // 有些站点（如 arxiv 的 /pdf/2401.12345）URL 没有 .pdf，此时用标签页标题兜底。
+  const pdfByTitle = /\.pdf\s*$/i.test((tab.title ?? '').trim());
+  if ((looksLikePdfUrl(tab.url) || pdfByTitle) && tab.url) {
     return readPdfTab(tab.url, tab.title, opts.backendUrl);
   }
 
@@ -357,26 +359,6 @@ export async function readSelection(): Promise<SelectionInfo | null> {
   }
 }
 
-/** 让用户为当前站点授权（activeTab 失效、或从侧栏菜单直接打开时用） */
-export async function grantOrigin(url?: string): Promise<boolean> {
-  if (!url) return false;
-  if (url.startsWith('file://')) {
-    // file:// 无法动态授权，需在扩展详情页手动勾选「允许访问文件 URL」
-    return false;
-  }
-  let origin: string;
-  try {
-    origin = `${new URL(url).origin}/*`;
-  } catch {
-    return false;
-  }
-  try {
-    return await browser.permissions.request({ origins: [origin] });
-  } catch {
-    return false;
-  }
-}
-
 /** 粗略 token 估算：中文约 1 字 ≈ 1 token，纯英文 ≈ 4 字符 / token，混合取 0.6 */
 export function estimateTokens(chars: number): number {
   return Math.round(chars * 0.6);
@@ -385,13 +367,26 @@ export function estimateTokens(chars: number): number {
 /**
  * 截当前活动标签页的可见区域，缩到 maxWidth 以内并转成 JPEG data URL。
  * 失败（无权限、浏览器内部页面、canvas 不可用）返回 null，不影响主流程。
+ *
+ * expectedUrl：发起提问时那一页的 URL。captureVisibleTab 只能截“聚焦窗口的活动标签”，
+ * 发送瞬间切页/切窗口会截到别的页面，所以先核对 URL，不一致就放弃这张图。
  */
 export async function captureScreenshot(
+  expectedUrl?: string,
   maxWidth = 1280,
 ): Promise<{ dataUrl: string; width: number; height: number } | null> {
   try {
-    const raw = await browser.tabs.captureVisibleTab({ format: 'jpeg', quality: 80 });
+    const [tab] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
+    const stripHash = (url?: string) => (url ? url.split('#')[0] : '');
+    if (expectedUrl && stripHash(tab?.url) !== stripHash(expectedUrl)) return null;
+
+    const raw = await browser.tabs.captureVisibleTab(tab?.windowId, { format: 'jpeg', quality: 80 });
     if (!raw) return null;
+
+    // 截图是异步的：拍完再看一眼当前活动页，期间切了标签就丢掉这张，别把 A 页发给 B 页的提问
+    const [after] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
+    if (tab?.id != null && after?.id !== tab.id) return null;
+    if (expectedUrl && stripHash(after?.url) !== stripHash(expectedUrl)) return null;
 
     const blob = await (await fetch(raw)).blob();
     const bmp = await createImageBitmap(blob);

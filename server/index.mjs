@@ -9,8 +9,8 @@
 // 配置：settings.json（后端提供 /settings 配置页，托盘菜单与扩展设置页都能打开）
 // 只有「服务怎么起来」还在环境变量：PAGEASK_PORT、PAGEASK_EXTENSION_ID、PAGEASK_TOKEN、PAGEASK_DATA_DIR
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
-import { readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -27,6 +27,7 @@ import {
   imagePathsFor,
   lastResponseAnchor,
   listConversations,
+  pruneShots,
   recoverLastUserMessage,
   shotsDir,
   statsFor,
@@ -36,6 +37,7 @@ import {
 import { lifecycleInfo, markCleanExit, startLifecycle } from './lifecycle.mjs';
 import { logError, logEvent } from './log.mjs';
 import { assertPublicHttpUrl, readBodyCapped } from './net.mjs';
+import { withV1 } from './upstream.mjs';
 import { extractPdfText, PdfError } from './pdf.mjs';
 import { publicSettings, readSettings, settingsFile, writeSettings } from './settings.mjs';
 import { RESPONSES_TOOLS, runTool, ToolError } from './tools.mjs';
@@ -90,6 +92,8 @@ const MAX_OUTPUT_TOKENS = 8192;
 /** 工具名 → 前端步骤条上显示的中文名（失败/中止路径也要用，别退回英文函数名） */
 const TOOL_LABELS = { read_page: '读取页面', screenshot: '截图', web_search: '联网搜索', fetch_url: '抓取网页' };
 const UPSTREAM_TIMEOUT = 300_000; // 单次上游请求 5 分钟，工具循环由用户点「停止」控制
+const TOOL_TIMEOUT = 60_000; // 单个工具 1 分钟，避免 web_search/fetch 把整轮挂死
+const MAX_TOOL_FAILURES = 3; // 连续失败 3 次就熔断剩余工具，让模型用已有信息收尾
 
 // 没有 Key 也照常起来：配置页（/settings）要能打开，用户填完立刻生效
 {
@@ -218,7 +222,7 @@ async function handle(req, res) {
     if (!s.apiKey) return sendJson(res, 200, { ok: false, detail: '还没有填 API Key' });
     const started = Date.now();
     try {
-      const r = await fetch(`${s.baseUrl}/models`, {
+      const r = await fetch(`${withV1(s.baseUrl)}/models`, {
         headers: { Authorization: `Bearer ${s.apiKey}` },
         signal: AbortSignal.timeout(10_000),
       });
@@ -282,21 +286,22 @@ async function handle(req, res) {
       return conv ? sendJson(res, 200, conv) : sendJson(res, 404, { error: 'not found' });
     }
     if (req.method === 'DELETE') {
-      // 连同这个会话的截图文件一起删，别在盘上留孤儿文件
-      for (const name of imagePathsFor(id)) {
-        try {
-          unlinkSync(join(shotsDir, name));
-        } catch {
-          /* 文件可能已被手动删掉 */
-        }
-      }
-      return sendJson(res, deleteConversation(id) ? 200 : 404, { ok: true });
+      // 连同这个会话的截图文件一起删；先删会话行，再只清理不再被引用的文件
+      const paths = imagePathsFor(id);
+      const removed = deleteConversation(id);
+      if (removed) pruneShots(paths);
+      return sendJson(res, removed ? 200 : 404, { ok: true });
     }
   }
 
   // POST /conversations  {url,title}  → 显式开新对话
   if (req.method === 'POST' && url.pathname === '/conversations') {
-    const body = await readJson(req);
+    let body;
+    try {
+      body = await readJson(req);
+    } catch (err) {
+      return sendJson(res, 400, { error: `bad request body: ${err?.message ?? err}` });
+    }
     if (!body?.url) return sendJson(res, 400, { error: 'missing url' });
     return sendJson(res, 200, createConversation({ url: body.url, title: body.title ?? '' }));
   }
@@ -358,8 +363,13 @@ async function handlePdf(req, res) {
     return sendJson(res, 200, out);
   } catch (err) {
     const code = err instanceof PdfError ? err.code : 'pdf_failed';
+    // 本地路径类错误属于“请求有问题”，回 400，且不要把绝对路径回显给客户端
+    const clientError = ['pdf_bad_file_url', 'pdf_not_found', 'pdf_not_file', 'pdf_too_big'].includes(code);
     logError('pdf_extract_failed', { message: String(err?.message ?? err) });
-    return sendJson(res, 502, { error: code, message: String(err?.message ?? err) });
+    return sendJson(res, clientError ? 400 : 502, {
+      error: code,
+      message: clientError ? '无法读取这个本地文件' : String(err?.message ?? err),
+    });
   }
 }
 
@@ -464,7 +474,12 @@ function cleanTitle(raw) {
 /* ---------------- /chat ---------------- */
 
 async function handleChat(req, res) {
-  const body = await readJson(req);
+  let body;
+  try {
+    body = await readJson(req);
+  } catch (err) {
+    return sendJson(res, 400, { error: `bad request body: ${err?.message ?? err}` });
+  }
   const page = body?.page;
   const text = (body?.text ?? '').trim();
   if (!text) return sendJson(res, 400, { error: 'empty text' });
@@ -557,7 +572,7 @@ async function handleChat(req, res) {
 
       let turn;
       try {
-        turn = await streamTurn({ input, instructions, model, signal: controller.signal, emit, previousResponseId: anchor });
+        turn = await streamTurn({ input, instructions, model, signal: controller.signal, emit, previousResponseId: anchor, store: wantChain });
       } catch (err) {
         // 链断了：上游把那条 response 删了/过期了（OpenAI 存 30 天，也可能被组织策略清掉），
         // 或者这个上游压根不认 previous_response_id（DeepSeek 就会 400：
@@ -566,13 +581,17 @@ async function handleChat(req, res) {
         // 判定方式刻意不用报错文案：只要「这一轮带了 previous_response_id」且是 4xx，
         // 就退回无状态重发一次——猜错文案会漏判，而多试一次是无害的（真错还会再错）。
         const chainGone = anchor != null && err instanceof UpstreamError && [400, 404, 409, 422].includes(err.status);
-        if (!chainGone || anchor == null) throw err;
+        // 已经流给前端的内容不能重发：重试会把同一段文字再追加一遍。
+        // 只有「还没吐字就失败」才值得退回无状态重跑。
+        if (!chainGone || anchor == null || err.streamed) throw err;
         logEvent('stateful_fallback', {
           conversationId: conv.id,
           status: err.status,
           detail: String(err.detail ?? '').slice(0, 200),
         });
-        statefulUnsupported = true;
+        // 只有 404（端点/响应不存在）才值得永久关掉有状态；400/409/422 可能只是这一次
+        // 的上下文对不上（比如上游临时丢了 response），下轮还可以再试，别一棒子打死。
+        if (err.status === 404) statefulUnsupported = true;
         anchor = null;
         input = historyItems(conv.id);
         turn = await streamTurn({ input, instructions, model, signal: controller.signal, emit });
@@ -585,6 +604,12 @@ async function handleChat(req, res) {
       // 超时且一个字都没拿到：没有可保留的内容，按错误处理，别写一条空回答。
       if (turn.timedOut && !turn.content && !turn.reasoning) {
         throw new UpstreamError(504, `上游在 ${Math.round(UPSTREAM_TIMEOUT / 1000)} 秒内没有返回内容`);
+      }
+
+      // 上游用 response.incomplete 结束（常见于 max_output_tokens 截断）：
+      // 已生成的内容照常落库，但必须标记为不完整，不能当成功回答。
+      if (turn.incomplete) {
+        logEvent('turn_incomplete', { conversationId: conv.id, chars: turn.content.length, calls: turn.calls.length });
       }
 
       // 本轮要落库的行先攒在内存里：assistant 与它引发的全部 tool 行必须在
@@ -603,7 +628,7 @@ async function handleChat(req, res) {
         // 「思考 + 工具调用」阶段耗时只落在最终那段回答上（工具调用段为 null）
         processMs: turn.calls.length ? null : phaseMs,
         responseId: turn.responseId,
-        aborted: Boolean(turn.aborted || turn.timedOut),
+        aborted: Boolean(turn.aborted || turn.timedOut || turn.incomplete),
       };
 
       // 先决定下一跳的上下文，再执行工具（入参顺序与旧逻辑保持一致）
@@ -641,12 +666,12 @@ async function handleChat(req, res) {
           usage: turn.usage,
           totals,
           steps,
-          aborted: Boolean(turn.aborted || turn.timedOut),
+          aborted: Boolean(turn.aborted || turn.timedOut || turn.incomplete),
           ms: Date.now() - started,
         });
-        // 第一轮问答结束后起标题（失败不影响主流程）；中止/超时的不起，
+        // 第一轮问答结束后起标题（失败不影响主流程）；中止/超时/截断的不起，
         // 否则半截回答会被拿去总结，标题反而误导。
-        if (!turn.aborted && !turn.timedOut) {
+        if (!turn.aborted && !turn.timedOut && !turn.incomplete) {
           const title = await autoTitle({ conversationId: conv.id, model, user: text, answer: turn.content });
           if (title) emit('title', { conversationId: conv.id, title });
         }
@@ -657,18 +682,35 @@ async function handleChat(req, res) {
       const toolRows = [];
       const answered = new Set();
       const stopRequested = () => controller.signal.aborted || res.destroyed;
+      // 连续失败就熔断：模型偶尔会反复用同样参数撞同一堵墙，没必要把整轮拖死。
+      let consecutiveFailures = 0;
+      let haltReason = null;
 
       for (const call of turn.calls) {
-        if (stopRequested()) break;
+        if (stopRequested()) {
+          haltReason = 'aborted';
+          break;
+        }
         const args = parseArgs(call.arguments);
         emit('tool', { phase: 'start', id: call.call_id, name: call.name, args });
 
+        // 单个工具也要有上限：web_search/fetch 卡住时不能把整轮挂到 300 秒超时。
+        const timeout = AbortSignal.timeout(TOOL_TIMEOUT);
+        const toolSignal = AbortSignal.any([controller.signal, timeout]);
         let result;
         try {
-          result = await runTool(call.name, args, toolCtx);
+          result = await runTool(call.name, args, { ...toolCtx, signal: toolSignal });
         } catch (err) {
           if (stopRequested()) {
             result = { text: '用户在工具执行期间停止了这一轮。', label: TOOL_LABELS[call.name] ?? call.name, detail: '已停止', failed: true };
+          } else if (timeout.aborted) {
+            logError('tool_timeout', err, { conversationId: conv.id, tool: call.name, args, seconds: TOOL_TIMEOUT / 1000 });
+            result = {
+              text: `工具 ${call.name} 超过 ${TOOL_TIMEOUT / 1000} 秒没有返回，已放弃。可以换个更小的范围重试，或直接说明拿不到。`,
+              label: TOOL_LABELS[call.name] ?? call.name,
+              detail: '超时',
+              failed: true,
+            };
           } else {
             const message = err instanceof ToolError ? err.userMessage() : String(err?.message ?? err);
             // 详情只进日志文件，前端只看到「失败」
@@ -681,6 +723,8 @@ async function handleChat(req, res) {
             };
           }
         }
+
+        consecutiveFailures = result.failed ? consecutiveFailures + 1 : 0;
 
         // 截图落盘一份，历史回放时还能再看（其余工具只有文本）
         let imagePath = null;
@@ -717,28 +761,37 @@ async function handleChat(req, res) {
           chars: result.text.length,
         });
 
-        if (stopRequested()) break;
-      }
-
-      // 中止时，没来得及执行的 call 也要补一条 output。悬空 call 比“没执行”
-      // 更糟：它会永久污染历史，之后每一轮请求都可能被上游拒绝。
-      if (stopRequested()) {
-        aborted = true;
-        for (const call of turn.calls) {
-          if (answered.has(call.call_id)) continue;
-          const note = '用户已中止本轮，这个工具没有执行。';
-          toolRows.push({
-            content: note,
-            toolCallId: call.call_id,
-            toolName: call.name,
-            toolArgs: parseArgs(call.arguments),
-            toolFailed: false,
-            imagePath: null,
-          });
-          input.push({ type: 'function_call_output', call_id: call.call_id, output: note });
+        if (stopRequested()) {
+          haltReason = 'aborted';
+          break;
+        }
+        if (consecutiveFailures >= MAX_TOOL_FAILURES) {
+          haltReason = 'circuit';
+          logEvent('tool_circuit_break', { conversationId: conv.id, failures: consecutiveFailures });
+          break;
         }
       }
 
+      // 中止/熔断时，没来得及执行的 call 也要补一条 output。悬空 call 比“没执行”
+      // 更糟：它会永久污染历史，之后每一轮请求都可能被上游拒绝。
+      for (const call of turn.calls) {
+        if (answered.has(call.call_id)) continue;
+        const note =
+          haltReason === 'circuit'
+            ? `连续 ${MAX_TOOL_FAILURES} 个工具调用失败，本轮剩余工具已熔断。`
+            : '用户已中止本轮，这个工具没有执行。';
+        toolRows.push({
+          content: note,
+          toolCallId: call.call_id,
+          toolName: call.name,
+          toolArgs: parseArgs(call.arguments),
+          toolFailed: false,
+          imagePath: null,
+        });
+        input.push({ type: 'function_call_output', call_id: call.call_id, output: note });
+      }
+
+      if (haltReason === 'aborted') aborted = true;
       if (aborted) assistantFields.aborted = true;
       addTurn({ conversationId: conv.id, assistant: assistantFields, tools: toolRows });
 
@@ -750,7 +803,13 @@ async function handleChat(req, res) {
     }
   } catch (err) {
     const isAbort = controller.signal.aborted;
-    const message = isAbort ? '已停止' : err instanceof UpstreamError ? err.friendly() : String(err?.message ?? err);
+    const message = isAbort
+      ? '已停止'
+      : err instanceof UpstreamError
+        ? err.friendly()
+        : err?.name === 'TimeoutError'
+          ? `上游在 ${Math.round(UPSTREAM_TIMEOUT / 1000)} 秒内没有响应`
+          : String(err?.message ?? err);
     if (isAbort) {
       logEvent('chat_abort', { conversationId: conv.id, steps });
       emit('done', { conversationId: conv.id, aborted: true, totals, steps });
@@ -776,7 +835,7 @@ async function handleChat(req, res) {
  * response.output_item.* / response.completed；但为了不被细节差异卡住，
  * 文本与工具调用最终以 response.completed 里的 `output` 为准（delta 只用于实时显示）。
  */
-async function streamTurn({ input, instructions, model, signal, emit, previousResponseId = null }) {
+async function streamTurn({ input, instructions, model, signal, emit, previousResponseId = null, store = false }) {
   const cfg = readSettings();
   /** @type {Record<string, unknown>} */
   const body = {
@@ -792,8 +851,9 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
     // 有状态模式：上游只发「锚点之后」的新 items，前面的历史由它自己存着。
     // store 必须为 true，否则这次响应不会被保存、下一轮就找不到它了。
     body.previous_response_id = previousResponseId;
-    body.store = true;
   }
+  // 首次建锚也要显式 store：不能赌上游默认值（自建网关默认 false 时第二轮必 404）
+  if (store || previousResponseId) body.store = true;
   // 用户停止与 300s 超时都可能把这条流掐断。两者都不该丢已经流给用户的正文：
   // 停止看 signal，超时看同时挂上的 timeout；读到一半就返回部分结果，
   // 由调用方落库并标记 aborted，而不是把整轮丢掉。
@@ -812,7 +872,7 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
   const stopSignal = AbortSignal.any([signal, timeoutSignal]);
   let upstream;
   try {
-    upstream = await fetch(`${cfg.baseUrl}/responses`, {
+    upstream = await fetch(`${withV1(cfg.baseUrl)}/responses`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
       body: JSON.stringify(body),
@@ -836,6 +896,7 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
   let failure = null;
   let interrupted = false;
   let timedOut = false;
+  let incomplete = false;
 
   try {
     for await (const { event, data } of parseSseEvents(upstream.body)) {
@@ -870,6 +931,7 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
       }
 
       if (event === 'response.completed' || event === 'response.incomplete') {
+        incomplete = event === 'response.incomplete';
         final = json.response ?? json;
         continue;
       }
@@ -889,9 +951,14 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
     }
   }
 
-  // 上游明确报了 failed/error：即使已经流了一些字，也不能当成功
+  // 上游明确报了 failed/error：即使已经流了一些字，也不能当成功。
+  // 有真实状态码就沿用它，friendly() 才能给出 401/429 这类准确提示。
   if (failure || final?.status === 'failed') {
-    throw new UpstreamError(500, JSON.stringify(failure ?? final?.error ?? { message: '上游返回失败' }));
+    const status = failureStatus(failure ?? final?.error);
+    const err = new UpstreamError(status, JSON.stringify(failure ?? final?.error ?? { message: '上游返回失败' }));
+    // 标记是否已经流给前端过：调用方据此决定能不能安全重试
+    err.streamed = Boolean(content || reasoning);
+    throw err;
   }
 
   // 已经收到 completed/incomplete 就算这一轮正常结束，即使随后被 abort。
@@ -909,6 +976,10 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
       emit('content', { delta: finalText });
     } else if (finalText.startsWith(content)) {
       emit('content', { delta: finalText.slice(content.length) });
+    } else {
+      // 上游最终文本和流出来的 delta 对不上（内容过滤/重新生成），整段替换，
+      // 否则前端显示的是旧 delta、库里存的是 finalText，两边永久分叉
+      emit('replace', { text: finalText });
     }
     content = finalText;
   }
@@ -939,18 +1010,23 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
     responseId: final?.id ?? null,
     aborted: turnAborted && !turnTimedOut,
     timedOut: turnTimedOut,
+    incomplete,
   };
 }
 
-/** 把 data URL 形式的截图写成 data/shots/<uuid>.jpg，返回文件名；失败返回 null */
+/** 把 data URL 形式的截图写成 data/shots/<内容哈希>.jpg，返回文件名；失败返回 null */
 function saveShot(dataUrl) {
   const m = /^data:image\/(jpeg|png|webp);base64,(.+)$/i.exec(dataUrl ?? '');
   if (!m) return null;
-  const name = `${randomUUID()}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
+  const buf = Buffer.from(m[2], 'base64');
+  // 按内容寻址：模型在同一轮里重复调用 screenshot 时，同一张图只落一个文件。
+  // 删除时 db 会先确认没有别的行引用它，避免把共享文件删掉。
+  const digest = createHash('sha256').update(buf).digest('hex').slice(0, 32);
+  const name = `${digest}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
   const target = join(shotsDir, name);
   const tmp = `${target}.tmp-${process.pid}`;
   try {
-    const buf = Buffer.from(m[2], 'base64');
+    if (existsSync(target)) return name;
     // 先写临时文件再 rename：崩溃时留下的是可清理的 .tmp，而不是一张半截图
     writeFileSync(tmp, buf, { mode: 0o600 });
     renameSync(tmp, target);
@@ -974,6 +1050,17 @@ function parseArgs(raw) {
   } catch {
     return {};
   }
+}
+
+/** Responses API 的 failed 事件只有 error.code，没有 HTTP status；按 code 映射，别一律 502 */
+function failureStatus(failure) {
+  if (Number.isInteger(failure?.status)) return failure.status;
+  const code = String(failure?.code ?? failure?.error?.code ?? '');
+  if (/invalid_api_key|authentication/i.test(code)) return 401;
+  if (/insufficient_quota|billing/i.test(code)) return 402;
+  if (/rate_limit/i.test(code)) return 429;
+  if (/context_length|invalid_request/i.test(code)) return 400;
+  return 502;
 }
 
 class UpstreamError extends Error {
@@ -1005,16 +1092,33 @@ class UpstreamError extends Error {
 
 /* ---------------- 提示词 ---------------- */
 
+/** 标题/URL 来自网页，不能带换行或控制字符——否则会伪造出新的“提示词段落” */
+function oneLine(value, max) {
+  return String(value ?? '')
+    .replace(/[\r\n\t]+/g, ' ')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .trim()
+    .slice(0, max);
+}
+
+/** 只转义会提前闭合 <untrusted_content> 的片段，其余原文保持可读 */
+function escapeUntrusted(text) {
+  return String(text ?? '').replace(/<(\/?\s*untrusted_content)/gi, '&lt;$1');
+}
+
 function buildSystemPrompt(page) {
   const chars = (page?.markdown ?? '').length;
   const isPdf = page?.kind === 'pdf';
   const selection = typeof page?.selection === 'string' ? page.selection.trim() : '';
+  const title = oneLine(page?.title, 200) || '(无标题)';
+  const pageUrl = oneLine(page?.url, 500);
 
   const lines = [
     '你是 PageAsk，浏览器侧栏里的阅读助手。用户正在看一个网页，就这个页面提问题。',
     '',
-    `当前页面：${page?.title || '(无标题)'}`,
-    `网址：${page?.url ?? ''}`,
+    `当前页面：${title}`,
+    `网址：${pageUrl}`,
     isPdf
       ? `这是一个 PDF（共 ${page?.pages ?? '?'} 页），正文是从 PDF 文字层抽出来的，约 ${chars} 字。`
       : `正文长度：约 ${chars} 字`,
@@ -1032,10 +1136,12 @@ function buildSystemPrompt(page) {
     const e = Number.isInteger(sc?.end) ? sc.end : -1;
     // 只有「确实切得出来、且切出来跟选区一字不差」时才附上下文，防止标错位置
     if (ctx && s >= 0 && e > s && e <= ctx.length && ctx.slice(s, e) === selection) {
-      lines2.push(`选中部分（« » 之间）：${selection}`);
-      lines2.push(`它所在的段落（« » 为选中处，供判断语气/指代）：${ctx.slice(0, s)}«${selection}»${ctx.slice(e)}`);
+      lines2.push(`选中部分（« » 之间）：${escapeUntrusted(selection)}`);
+      lines2.push(
+        `它所在的段落（« » 为选中处，供判断语气/指代）：${escapeUntrusted(ctx.slice(0, s))}«${escapeUntrusted(selection)}»${escapeUntrusted(ctx.slice(e))}`,
+      );
     } else {
-      lines2.push(selection);
+      lines2.push(escapeUntrusted(selection));
     }
     lines2.push('</untrusted_content>');
     lines2.push(
@@ -1171,19 +1277,27 @@ function checkToken(req) {
 
 function sendJson(res, status, data) {
   const body = JSON.stringify(data);
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body) });
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(body),
+    'X-Content-Type-Options': 'nosniff',
+  });
   res.end(body);
 }
 
 async function readJson(req, res, maxBytes = MAX_BODY) {
   return new Promise((resolve, reject) => {
     let size = 0;
+    let tooLarge = false;
     const chunks = [];
     req.on('data', (c) => {
+      if (tooLarge) return;
       size += c.length;
       if (size > maxBytes) {
+        // 不要 destroy：那会让客户端只看到 fetch failed。让请求自然结束，
+        // 调用方拿到 400 后正常回包，剩下的字节直接丢弃。
+        tooLarge = true;
         reject(new Error('body too large'));
-        req.destroy();
         return;
       }
       chunks.push(c);

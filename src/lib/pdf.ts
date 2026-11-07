@@ -67,6 +67,7 @@ async function readLocalPdf(fileUrl: string, backendUrl: string): Promise<PdfExt
       t('error.unreachable', { baseUrl: backendUrl }) + `（${err instanceof Error ? err.message : String(err)}）`,
     );
   }
+  if (!parsed.ok) throw await pdfHttpError(parsed);
   return finishPdf(parsed);
 }
 
@@ -108,18 +109,21 @@ export async function readPdfFromTab(url: string, backendUrl: string): Promise<P
     );
   }
 
-  if (!parsed.ok) {
-    let detail = `HTTP ${parsed.status}`;
-    try {
-      const body = (await parsed.json()) as { message?: string; error?: string };
-      detail = body.message ?? body.error ?? detail;
-    } catch {
-      /* 后端没给 JSON 就用状态码 */
-    }
-    throw new PdfReadError(t('page.failure.pdfParse', { message: detail }));
-  }
+  if (!parsed.ok) throw await pdfHttpError(parsed);
 
   return finishPdf(parsed);
+}
+
+/** 后端 /pdf 的 4xx/5xx 统一翻成可读文案（别再把 500 说成“没有文字层”） */
+async function pdfHttpError(parsed: Response): Promise<PdfReadError> {
+  let detail = `HTTP ${parsed.status}`;
+  try {
+    const body = (await parsed.json()) as { message?: string; error?: string };
+    detail = body.message ?? body.error ?? detail;
+  } catch {
+    /* 后端没给 JSON 就用状态码 */
+  }
+  return new PdfReadError(t('page.failure.pdfParse', { message: detail }));
 }
 
 /** 校验 /pdf 的响应并把正文返给上层 */

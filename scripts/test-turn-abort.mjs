@@ -34,7 +34,7 @@ const upstream = createServer((req, res) => {
   let raw = '';
   req.on('data', (c) => (raw += c));
   req.on('end', () => {
-    if (req.url === '/responses') {
+    if (req.url.endsWith('/responses')) {
       const body = JSON.parse(raw || '{}');
       const userText = (body.input ?? [])
         .filter((i) => i?.role === 'user')

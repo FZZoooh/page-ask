@@ -63,6 +63,7 @@ export type ChatEvent =
   | { type: 'meta'; conversationId: string; messageId: string; model: string }
   | { type: 'reasoning'; delta: string }
   | { type: 'content'; delta: string }
+  | { type: 'replace'; text: string }
   | { type: 'usage'; usage: Usage }
   | {
       type: 'tool';
@@ -241,10 +242,11 @@ export async function* streamChat(req: ChatRequest): AsyncGenerator<ChatEvent> {
   const decoder = new TextDecoder();
   let buffer = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
     let idx: number;
     while ((idx = buffer.indexOf('\n\n')) >= 0) {
@@ -275,6 +277,9 @@ export async function* streamChat(req: ChatRequest): AsyncGenerator<ChatEvent> {
           break;
         case 'content':
           yield { type: 'content', delta: String(payload.delta ?? '') };
+          break;
+        case 'replace':
+          yield { type: 'replace', text: String(payload.text ?? '') };
           break;
         case 'usage':
           yield { type: 'usage', usage: payload as Usage };
@@ -322,5 +327,9 @@ export async function* streamChat(req: ChatRequest): AsyncGenerator<ChatEvent> {
           break;
       }
     }
+    }
+  } finally {
+    // 调用方中途 break 时也要把连接收掉，别让服务端继续挂着自动标题的连接
+    reader.cancel().catch(() => {});
   }
 }

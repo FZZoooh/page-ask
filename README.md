@@ -3,13 +3,13 @@
 Edge 侧栏扩展：就**当前标签页**的内容向 AI 提问（网页 / PDF 都行）。AI 的 Key 只放在本地后端，浏览器里没有 Key。
 
 - 扩展：WXT + React + Defuddle（正文提取）
-- 后端：`node server/index.mjs`，只监听 `127.0.0.1:8787`，零第三方依赖（用 `node:sqlite`）
+- 后端：`node server/index.mjs`，只监听 `127.0.0.1:8787`；核心零第三方依赖（`node:sqlite`），PDF 文字层用 `pdfjs-dist`（与扩展共用同一份依赖）
 
 ## 0. 前置条件
 
 | 需要 | 说明 |
 | --- | --- |
-| Node.js **≥ 22.5** | 后端用了内置的 `node:sqlite`（本机实测 24.18） |
+| Node.js **≥ 22.13** | 内置 `node:sqlite` 要求 22.5+；`pdfjs-dist` 6.x 实际要求 22.13+（本机实测 24.18） |
 | pnpm | `corepack enable` 或单独安装 |
 | Microsoft Edge | 用「加载解压缩扩展」方式安装，**开发者模式必须打开** |
 
@@ -97,7 +97,9 @@ pnpm tray:bg        # 后台运行，不占终端（等价于前台 pnpm tray）
 ```powershell
 pnpm dev            # WXT dev（Chrome）
 pnpm dev:edge       # WXT dev（Edge）
-pnpm compile        # tsc 类型检查
+pnpm compile        # tsc 类型检查 + server/scripts 的 .mjs 语法检查
+pnpm test:server    # 后端回归脚本（数据目录全部用临时目录）
+pnpm verify         # compile + test:server + build，提交前跑这个
 pnpm build          # 生产构建
 ```
 

@@ -8,33 +8,6 @@ export default defineBackground(() => {
     });
   };
 
-  const openPanel = async (tabId?: number) => {
-    const remember = (msg: string) => {
-      // 打开失败时留个痕迹，便于在扩展的存储里排查（也会用 console 打出来）
-      void browser.storage.local.set({ lastPanelOpen: msg }).catch(() => {});
-    };
-    // 兜底路径（非用户手势驱动时用）：tabId 优先，不行就按窗口开。
-    if (typeof tabId === 'number' && tabId > 0) {
-      try {
-        await browser.sidePanel.open({ tabId });
-        remember(`ok tabId=${tabId}`);
-        return;
-      } catch (err) {
-        remember(`tabId 失败，改试窗口：${String(err)}`);
-      }
-    }
-    try {
-      const win = await browser.windows.getLastFocused();
-      if (win.id == null) throw new Error('no focused window');
-      await browser.sidePanel.open({ windowId: win.id });
-      remember(`ok windowId=${win.id}`);
-    } catch (err) {
-      remember(`fail: ${String(err)}`);
-      console.warn('[pageask] 打开侧栏失败', err);
-    }
-  };
-  void openPanel;
-
   // 右键菜单：在页面任意位置右键都能开侧栏。
   // 菜单点击算用户手势，sidePanel.open 才被允许。
   //
@@ -42,15 +15,17 @@ export default defineBackground(() => {
   // chrome-extension://mhjfb... 的嵌入 frame，只声明 page/selection 时
   // 菜单项不会出现在 PDF 上；'all' 才行（WeTab 这类扩展也是这么做的）。
   const ensureMenu = () => {
-    try {
-      browser.contextMenus.create({
-        id: 'ask-page',
-        title: t('menu.askThisPage'),
-        contexts: ['all'],
-      });
-    } catch {
-      /* 已存在时忽略 */
-    }
+    // 先 removeAll 再 create：扩展重载后重复 id 不会留下未捕获的 rejection
+    void browser.contextMenus
+      .removeAll()
+      .then(() =>
+        browser.contextMenus.create({
+          id: 'ask-page',
+          title: t('menu.askThisPage'),
+          contexts: ['all'],
+        }),
+      )
+      .catch((err: unknown) => console.warn('[pageask] 创建右键菜单失败', err));
   };
 
   enableActionToOpen();
@@ -71,18 +46,14 @@ export default defineBackground(() => {
       void browser.storage.local.set({ lastPanelOpen: msg }).catch(() => {});
     };
     const where = `tabId=${tab?.id} windowId=${tab?.windowId} url=${tab?.url ?? info.pageUrl ?? '?'}`;
+    // 同步决定参数后只调用一次：catch 里再重试已经跨了 microtask，手势通常已失效。
+    const target =
+      typeof tab?.id === 'number' && tab.id > 0
+        ? { tabId: tab.id }
+        : { windowId: browser.windows.WINDOW_ID_CURRENT };
     browser.sidePanel
-      .open({ windowId: browser.windows.WINDOW_ID_CURRENT })
-      .then(() => remember(`ok current-window（${where}）`))
-      .catch((err: unknown) => {
-        remember(`current-window 失败：${String(err)}（${where}）`);
-        // 再试一次 tabId（普通页面这条路更精确）
-        if (typeof tab?.id === 'number' && tab.id > 0) {
-          browser.sidePanel
-            .open({ tabId: tab.id })
-            .then(() => remember(`ok tabId=${tab.id}`))
-            .catch((err2: unknown) => remember(`tabId 也失败：${String(err2)}（${where}）`));
-        }
-      });
+      .open(target)
+      .then(() => remember(`ok ${JSON.stringify(target)}（${where}）`))
+      .catch((err: unknown) => remember(`fail ${JSON.stringify(target)}：${String(err)}（${where}）`));
   });
 });

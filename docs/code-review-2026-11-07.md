@@ -60,6 +60,27 @@
 
 > 说明：P0 只有一条，但它不是“更严重的 P1”，而是性质不同——悬空的 `function_call` 一旦写进历史，后续每一轮都会带着残缺上下文，连回退到无状态都救不回来。P1 的 10 条里，前 4 条来自前端/脚本，后 6 条来自后端第二轮复核；P2 中有若干条（如 `busy` 滞留、切页串会话）在用户感知上接近 P1，只是有自愈路径或触发条件更窄。
 
+### 1.3.1 修复进度
+
+| 批次 | 提交 | 内容 | 验证 |
+|---|---|---|---|
+| 初始 | `013ab05` | P0-1、P1-1..P1-10、崩溃恢复（`run.json`/`/api/shutdown`/断尾提问恢复） | 回归脚本 10 + 12 项，compile/build |
+| 第一批 P2 | `0676c5e` | F2–F5（切页/改设置不再串会话，历史加载序号与失败横幅） | compile，4 个回归脚本 |
+| 第二批 P2 | `138a3f0` | F6/F7/F9/F11/F13/F14/F15/F16/F17、B1/B3/B7 | compile/build，`test-incomplete-and-bad-body` 10 项 |
+| 第三批 P2 | `7ce466f` | B4/B11/B12/B14/B16/B17/B19（工具超时与熔断、回退策略、提示词隔离、`/v1` 统一、短 Key 掩码） | 4 个回归脚本全过 |
+| 工程化批 | `a6af2ca` | F18、E1（`compile` 串 `.mjs` 语法检查）、E2（Node ≥22.13）、E4（README 依赖/版本）、E5（PLAN 历史横幅）、E6（版本单一来源） | `check:server` 30 个 `.mjs`、compile/build |
+| 第四批 P2 | `53e4057` | F8/F10/F12/F19（截屏并行、删无效授权入口、折叠块、PDF 标题兜底） | compile/build |
+| 复核修复 | `408ae0b` | 截断回答可见提示、切页/历史加载竞态、流取消、`baseUrl` 归一、失败码映射、`readJson` 超限不再断连 | compile/build、`test:server` 全过 |
+| 收尾批 | `44595cf` | B8（重生成只删调用前已存在的行、`addMessage` SAVEPOINT）、B13（final 与 delta 不一致发 `replace`、首次也 `store`）、P3（删除按钮焦点可见、`prefers-reduced-motion`、输入框 aria-label） | compile/build、`test:server` 全过 |
+| B20 批 | `3d3a35b` | `statsFor` 改 COUNT/LIMIT 查询、截图按内容哈希去重、删除前校验其它行引用 | compile/build、`test:server` 全过 |
+| P3 元数据批 | `561a4ab` | 会话轮数按 user 消息计、`normalizeUrl` 去 utm/fbclid 等追踪参数 | compile/build、`test:server` 全过 |
+| P3 设置批 | `48001bf` | 测试连接前确认远端地址（避免令牌外发）、回环判断容忍 `localhost.` 尾点 | compile/build |
+| P3 清理批 | `fc21cd4` | 删除死 CSS 与未用文案、换行/粘贴改用 Range、复制失败改轻提示、流式结束 `aria-live` | compile/build |
+| P3 脚本批 | `c9e5774` | 托盘 Mutex 接管、Edge 路径多候选、`args` 改名、`verify`/`zip:edge` 脚本、截图二次校验 | `pnpm verify` 全过 |
+| 后续 | — | 无阻断项；架构级项（`App.tsx` 拆分、CI、更多 UI 自动化）未做，见第三、四节 | 每批更新 |
+
+> 表里的提交只是“已修”的记录；正文行号仍是**审查时**的位置，已在后续修复中漂移，定位请以当前代码为准。
+
 ### 1.4 最该先修的 9 件事
 
 1. **修 P0-1：回合结束时一次性事务写入 assistant + tool 行，中止时为未执行的 call 补 `function_call_output`**，别让会话历史永久缺一条输出。

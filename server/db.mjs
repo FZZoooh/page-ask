@@ -80,7 +80,8 @@ export function listConversations(url) {
   const rows = db
     .prepare(
       `SELECT c.id, c.url, c.title, c.created_at, c.updated_at,
-              (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.role IN ('user','assistant')) AS message_count,
+              -- 「轮」按用户提问数算：工具调用会额外产生 assistant 段，按 user+assistant 数会虚高
+              (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user') AS message_count,
               (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id) AS last_message_at,
               (SELECT m.content FROM messages m
                 WHERE m.conversation_id = c.id AND m.role = 'user'
@@ -153,33 +154,47 @@ export function addMessage({
 }) {
   const id = randomUUID();
   const ts = now();
-  db.prepare(
-    `INSERT INTO messages
-       (id, conversation_id, role, content, reasoning, created_at,
-        tokens_in, tokens_out, ms, process_ms, tool_calls, tool_call_id, tool_name, tool_args,
-        aborted, tool_failed, image_path, response_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    conversationId,
-    role,
-    content,
-    reasoning,
-    ts,
-    tokensIn,
-    tokensOut,
-    ms,
-    processMs,
-    toolCalls ? JSON.stringify(toolCalls) : null,
-    toolCallId,
-    toolName,
-    toolArgs ? JSON.stringify(toolArgs) : null,
-    aborted ? 1 : 0,
-    toolFailed == null ? null : toolFailed ? 1 : 0,
-    imagePath,
-    responseId,
-  );
-  touchConversation(conversationId);
+  // 用 SAVEPOINT 而不是 BEGIN：addTurn 已经开了事务，这里必须能嵌进去；
+  // 单独调用时它自己就是一次完整事务，INSERT 与 touch 不会只成一半。
+  db.exec('SAVEPOINT add_message');
+  try {
+    db.prepare(
+      `INSERT INTO messages
+         (id, conversation_id, role, content, reasoning, created_at,
+          tokens_in, tokens_out, ms, process_ms, tool_calls, tool_call_id, tool_name, tool_args,
+          aborted, tool_failed, image_path, response_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      conversationId,
+      role,
+      content,
+      reasoning,
+      ts,
+      tokensIn,
+      tokensOut,
+      ms,
+      processMs,
+      toolCalls ? JSON.stringify(toolCalls) : null,
+      toolCallId,
+      toolName,
+      toolArgs ? JSON.stringify(toolArgs) : null,
+      aborted ? 1 : 0,
+      toolFailed == null ? null : toolFailed ? 1 : 0,
+      imagePath,
+      responseId,
+    );
+    touchConversation(conversationId);
+    db.exec('RELEASE add_message');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK TO add_message');
+      db.exec('RELEASE add_message');
+    } catch {
+      // 事务可能已经被外层回滚，保留原始错误
+    }
+    throw err;
+  }
   return toMessage({
     id,
     conversation_id: conversationId,
@@ -236,8 +251,53 @@ export function truncateAfterLastUser(conversationId) {
     )
     .get(conversationId);
   if (!last) return null;
-  db.prepare('DELETE FROM messages WHERE conversation_id = ? AND rowid > ?').run(conversationId, last.rowid);
+
+  const doomed = db
+    .prepare(
+      'SELECT image_path FROM messages WHERE conversation_id = ? AND rowid > ? AND image_path IS NOT NULL',
+    )
+    .all(conversationId, last.rowid);
+
+  // 只删「调用发生前已经存在」的行：另一个侧栏在两次查询之间插入的新行
+  // （rowid 更大且超过 boundary）必须留下，否则双面板同时重生成会误删对方刚写的内容。
+  const boundary = db
+    .prepare('SELECT COALESCE(MAX(rowid), 0) AS maxRowid FROM messages WHERE conversation_id = ?')
+    .get(conversationId).maxRowid;
+
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.prepare('DELETE FROM messages WHERE conversation_id = ? AND rowid > ? AND rowid <= ?').run(
+      conversationId,
+      last.rowid,
+      boundary,
+    );
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      /* ignore */
+    }
+    throw err;
+  }
+
+  // 重新生成会丢掉旧回答：把不再被任何行引用的截图一并删掉，别留孤儿文件。
+  pruneShots(doomed.map((row) => row.image_path));
   return { id: last.id };
+}
+
+/** 删除一组截图文件，但只删已经没有任何消息引用的（截图按内容寻址，可能被多行共享） */
+export function pruneShots(paths) {
+  for (const path of paths) {
+    if (!path) continue;
+    const stillUsed = db.prepare('SELECT COUNT(*) AS n FROM messages WHERE image_path = ?').get(path).n;
+    if (stillUsed > 0) continue;
+    try {
+      unlinkSync(join(shotsDir, path));
+    } catch {
+      /* 文件可能已不在 */
+    }
+  }
 }
 
 /**
@@ -354,12 +414,16 @@ function rowsToItems(rows) {
       if (r.content && r.content.trim()) {
         out.push({ role: 'assistant', content: [{ type: 'output_text', text: r.content }] });
       }
-      for (const call of safeJson(r.tool_calls) ?? []) {
-        const name = call.name ?? call.function?.name;
-        const args = call.arguments ?? call.function?.arguments ?? '{}';
-        if (!name || !call.id) continue;
-        if (!answeredCalls.has(call.id)) continue;
-        out.push({ type: 'function_call', call_id: call.id, name, arguments: args });
+      const calls = safeJson(r.tool_calls);
+      if (Array.isArray(calls)) {
+        for (const call of calls) {
+          if (!call || typeof call !== 'object') continue;
+          const name = call.name ?? call.function?.name;
+          const args = call.arguments ?? call.function?.arguments ?? '{}';
+          if (!name || !call.id) continue;
+          if (!answeredCalls.has(call.id)) continue;
+          out.push({ type: 'function_call', call_id: call.id, name, arguments: args });
+        }
       }
       continue;
     }
@@ -379,18 +443,41 @@ export function imagePathsFor(conversationId) {
 
 /** 截图文件名 → data URL；文件不在就返回 null（历史里只是少张图，不该报错） */
 const shotCache = new Map();
+// 截图是 base64 data URL，单条可能有几百 KB。缓存只保留最近用到的若干张：
+// 不设上限时长会话会把每条历史截图都钉在内存里，删会话也不会释放。
+const SHOT_CACHE_MAX = 16;
+
+function imageMime(buf) {
+  if (buf[0] === 0xff && buf[1] === 0xd8) return 'image/jpeg';
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+  if (buf.subarray(0, 4).toString('ascii') === 'RIFF' && buf.subarray(8, 12).toString('ascii') === 'WEBP') {
+    return 'image/webp';
+  }
+  return 'image/jpeg';
+}
+
 function shotToDataUrl(name) {
   if (!name) return null;
-  if (shotCache.has(name)) return shotCache.get(name);
+  if (shotCache.has(name)) {
+    // LRU：命中后挪到队尾
+    const hit = shotCache.get(name);
+    shotCache.delete(name);
+    shotCache.set(name, hit);
+    return hit;
+  }
+  let url = null;
   try {
     const buf = readFileSync(join(shotsDir, name));
-    const url = `data:image/jpeg;base64,${buf.toString('base64')}`;
-    shotCache.set(name, url);
-    return url;
+    url = `data:${imageMime(buf)};base64,${buf.toString('base64')}`;
   } catch {
-    shotCache.set(name, null);
-    return null;
+    url = null;
   }
+  shotCache.set(name, url);
+  if (shotCache.size > SHOT_CACHE_MAX) {
+    const oldest = shotCache.keys().next().value;
+    if (oldest !== undefined) shotCache.delete(oldest);
+  }
+  return url;
 }
 
 /**
@@ -438,18 +525,25 @@ export function closeDb() {
 
 /** 会话里问了几轮、最后一句用户话和最近一条助手正文（自动标题用） */
 export function statsFor(conversationId) {
-  const rows = db
-    .prepare('SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC')
-    .all(conversationId);
-  const users = [];
-  const answers = [];
-  for (const r of rows) {
-    const text = (r.content ?? '').trim();
-    if (!text) continue;
-    if (r.role === 'user') users.push(text);
-    else if (r.role === 'assistant') answers.push(text);
-  }
-  return { users: users.length, answers: answers.length, lastUser: users.at(-1) ?? '', lastAnswer: answers.at(-1) ?? '' };
+  // 只取计数与最后一条正文：不要把整个会话的消息正文读进内存
+  const count = (role) =>
+    db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role = ? AND TRIM(content) <> ''",
+      )
+      .get(conversationId, role).n;
+  const last = (role) =>
+    db
+      .prepare(
+        "SELECT content FROM messages WHERE conversation_id = ? AND role = ? AND TRIM(content) <> '' ORDER BY created_at DESC, rowid DESC LIMIT 1",
+      )
+      .get(conversationId, role)?.content ?? '';
+  return {
+    users: count('user'),
+    answers: count('assistant'),
+    lastUser: last('user'),
+    lastAnswer: last('assistant'),
+  };
 }
 
 /* ---------------- 行 → 对象 ---------------- */

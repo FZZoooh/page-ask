@@ -1,13 +1,16 @@
 import { defineConfig } from 'wxt';
+import pkg from './package.json' with { type: 'json' };
 
 export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-react'],
   manifest: {
     name: 'PageAsk',
-    version: '0.1.0',
+    // 版本号只维护 package.json 一处，manifest 跟着走
+    version: pkg.version,
     description: '就当前标签页内容向 AI 助手提问（侧栏）',
-    minimum_chrome_version: '114',
+    // sidePanel.open() 需要 Chrome/Edge 116+
+    minimum_chrome_version: '116',
     permissions: ['sidePanel', 'scripting', 'activeTab', 'storage', 'contextMenus'],
     // 自用扩展不上架：直接常驻全站读取权限。
     // 若日后要上架，改成 optional_host_permissions + 面板内按站点授权。

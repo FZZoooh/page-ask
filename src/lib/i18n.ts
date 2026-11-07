@@ -57,21 +57,17 @@ export const zhCN = {
   'page.failure.restricted':
     '浏览器内部页面由于安全限制，不允许扩展读取。换一个普通网页试试',
   'page.failure.permission':
-    '未获得该页面的读取权限，请在扩展设置中授权当前站点',
+    '未获得该页面的读取权限。刷新页面后重试；若仍失败，请在扩展详情页确认已允许访问该站点',
   'page.failure.empty': '页面返回了空内容，可能还在加载，或这是一个空白页',
   'page.failure.unknown': '读取失败',
-  'page.failure.grant': '授权此站点并重试',
   'page.failure.queryTabs': '查询标签页失败：{message}',
   'page.failure.noTab': '未找到当前标签页',
-  'page.failure.internalPage': '该页面属于浏览器内部页面或扩展商店，不允许扩展读取',
   'page.failure.noContent': '页面没有内容',
   'page.failure.blockedRaw':
     'Blocked by the browser: internal pages and the extension gallery cannot be scripted.',
 
   // PDF
   'page.failure.pdfNeedBackend': '请启动后端程序并重试',
-  'page.failure.pdfFileAccess':
-    '请到扩展详情页勾选“允许访问文件 URL”',
   'page.failure.pdfTooBig': 'PDF 太大了（{size}），不应大于 64 MB',
   'page.failure.pdfNotPdf': '未获取到 PDF 文件，请检查是否发生跳转或需要登录',
   'page.failure.pdfParse': 'PDF 解析失败：{message}',
@@ -102,10 +98,6 @@ export const zhCN = {
   'tool.chars': '{count} 字',
   'tool.failed': '失败',
 
-  // 思考过程
-  'think.streaming': '正在思考…',
-  'think.done': '已思考 {count} 字',
-
   // 一轮回答里折叠起来的「思考 + 工具调用」
   'round.running': '正在思考与调用工具…',
   'round.both': '调用了 {tools} 次工具，思考了 {secs} 秒',
@@ -127,8 +119,6 @@ export const zhCN = {
   // 选中回答里的文字时弹出的快捷菜单
   'quote.action': '引用',
   'quote.action.title': '引用回答以追问',
-  'quote.prefix': '针对上面这段：',
-  'quote.remove': '移除这条引用',
 
   // 错误
   'error.unreachable': '连接后端 {baseUrl} 失败，请先启动后端',
@@ -138,13 +128,18 @@ export const zhCN = {
   'error.unknown': '未知错误',
   'error.conversationBusy': '请等待此轮对话结束',
   'error.historyLoad': '加载历史失败：{message}',
+  'error.pageMismatch': '这个会话属于另一个页面',
   'error.historyDelete': '删除失败：{message}',
+  'answer.copyFailed': '复制失败，请手动选中文字',
 
   // 设置面板
   'settings.title': '设置',
   'settings.close': '收起',
   'settings.backendUrl': '后端地址',
   'settings.backendHint': '本地后端',
+  'settings.invalidUrl': '后端地址无效，请填 http://127.0.0.1:8787 这样的地址',
+  'settings.remoteHint': '非本机后端（{host}）：页面正文、选区和截图都会发到这台机器',
+  'settings.remoteConfirm': '后端不在本机（{host}）。页面正文、选区和截图会离开这台电脑，确定保存？',
   'settings.token': '访问令牌',
   'settings.tokenPlaceholder': '后端没设 PAGEASK_TOKEN 就留空',
   'settings.tokenHint': '需与后端环境变量 PAGEASK_TOKEN 一致；只存在本机浏览器里',
@@ -155,6 +150,7 @@ export const zhCN = {
   'settings.verbose': '显示详细信息',
   'settings.verboseHint': '显示页面信息、思考过程、工具调用和统计',
   'answer.thinking': '正在思考',
+  'answer.truncated': '本轮被中断，回答可能不完整',
   'settings.reset': '恢复默认',
   'settings.probeOk': '已连接到 {model}',
   'settings.console': '打开后端配置页',
@@ -162,7 +158,7 @@ export const zhCN = {
 
   // 右键菜单
   'menu.askThisPage': '用 PageAsk 询问本页',
-  'action.openPanel': '打开 PageAsk 侧栏',
+  'action.dismiss': '关闭提示',
 } as const;
 
 export type MessageKey = keyof typeof zhCN;

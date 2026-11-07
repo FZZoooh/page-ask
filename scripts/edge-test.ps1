@@ -1,4 +1,4 @@
-﻿# 起一个干净的 Edge 测试实例（加载未打包扩展 + 开 CDP）。
+# 起一个干净的 Edge 测试实例（加载未打包扩展 + 开 CDP）。
 # 关键在 --disable-sync：不关同步的话，每次新建 profile 都会弹「在所有设备上同步你的浏览数据」。
 # 这个开关只影响本进程，不会动你自己那份 Edge 的同步设置。
 #
@@ -33,10 +33,15 @@ if (-not $Reuse -and (Test-Path $profileDir)) {
   Remove-Item -Recurse -Force $profileDir -ErrorAction SilentlyContinue
 }
 
-$exe = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
-if (-not (Test-Path $exe)) { throw "找不到 Edge：$exe" }
+$candidates = @(
+  (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'),
+  (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe'),
+  (Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\Application\msedge.exe')
+)
+$exe = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+if (-not $exe) { throw "找不到 Edge，试过：`n$($candidates -join "`n")" }
 
-$args = @(
+$edgeArgs = @(
   "--user-data-dir=$profileDir"
   "--load-extension=$ext"
   "--remote-debugging-port=$DebugPort"
@@ -49,7 +54,7 @@ $args = @(
   $Url
 )
 
-$p = Start-Process $exe -PassThru -ArgumentList $args
+$p = Start-Process $exe -PassThru -ArgumentList $edgeArgs
 Write-Host "edge pid=$($p.Id) profile=$profileDir port=$DebugPort"
 
 # 等 CDP 起来，顺带确认扩展确实加载了

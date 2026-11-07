@@ -5,6 +5,7 @@
 import { assertPublicHttpUrl, readBodyCapped } from './net.mjs';
 import { extractPdfText } from './pdf.mjs';
 import { findParagraphs } from './text.mjs';
+import { withV1 } from './upstream.mjs';
 
 export const RESULT_CAP = 8000;
 
@@ -242,7 +243,7 @@ async function webSearch(args, { apiKey, baseUrl, signal }) {
   const count = Math.min(Math.max(Number(args?.count) || 5, 1), 10);
   const needContent = args?.need_content === true;
 
-  const res = await fetchJson(`${baseUrl}/v1/tools/search`, { query, count, need_content: needContent }, apiKey, signal);
+  const res = await fetchJson(`${withV1(baseUrl)}/tools/search`, { query, count, need_content: needContent }, apiKey, signal);
   const results = Array.isArray(res?.results) ? res.results : [];
   if (!results.length) {
     return { text: `No results found for "${query}".`, label: 'Web Search', detail: query };
@@ -259,7 +260,7 @@ async function webSearch(args, { apiKey, baseUrl, signal }) {
 
   const text = cap(`Search results for "${query}":\n\n${lines.join('\n\n')}`, `Total ${results.length} results.`);
   return {
-    text: `<untrusted_content source="web_search" query="${escapeAttr(query)}">\n${text}\n</untrusted_content>`,
+    text: untrusted(`source="web_search" query="${escapeAttr(query)}"`, text),
     label: 'Web Search',
     detail: query,
   };
@@ -286,20 +287,20 @@ async function fetchUrl(args, { apiKey, baseUrl, signal }) {
       : `(PDF: ${out.pageCount} pages)`;
     const text = cap(out.text, note);
     return {
-      text: `<untrusted_content source="fetch_url" url="${escapeAttr(url)}" kind="pdf">\n${note}\n\n${text}\n</untrusted_content>`,
+      text: untrusted(`source="fetch_url" url="${escapeAttr(url)}" kind="pdf"`, `${note}\n\n${text}`),
       label: 'Read PDF',
       detail: `${out.pageCount} pages · ${out.chars} chars`,
     };
   }
 
-  const res = await fetchJson(`${baseUrl}/v1/tools/fetch`, { url }, apiKey, signal);
+  const res = await fetchJson(`${withV1(baseUrl)}/tools/fetch`, { url }, apiKey, signal);
   const title = res?.title || '';
   const content = res?.content || '';
   if (!content) return { text: `URL fetched successfully, but no content was extracted: ${url}`, label: 'Fetch URL', detail: url };
 
   const text = cap(content, `(Original length: ${content.length} chars, truncated)`);
   return {
-    text: `<untrusted_content source="fetch_url" url="${escapeAttr(url)}" title="${escapeAttr(title)}">\n${text}\n</untrusted_content>`,
+    text: untrusted(`source="fetch_url" url="${escapeAttr(url)}" title="${escapeAttr(title)}"`, text),
     label: 'Fetch URL',
     detail: title || url,
   };
@@ -351,12 +352,26 @@ async function fetchPdf(url, signal) {
 
 function wrap(page, text) {
   const kind = page?.kind === 'pdf' ? ' kind="pdf"' : '';
-  return `<untrusted_content source="page"${kind} url="${escapeAttr(page?.url ?? '')}" title="${escapeAttr(page?.title ?? '')}">\n${text}\n</untrusted_content>`;
+  return untrusted(
+    `source="page"${kind} url="${escapeAttr(page?.url ?? '')}" title="${escapeAttr(page?.title ?? '')}"`,
+    text,
+  );
+}
+
+/**
+ * 外部内容统一包一层。正文里如果出现 </untrusted_content>，模型会以为容器提前结束，
+ * 后半段网页文字就被当成“系统/用户指令”——这里先把它转义掉。
+ */
+function untrusted(attrs, text) {
+  const body = String(text ?? '').replace(/<(\/?\s*untrusted_content)/gi, '&lt;$1');
+  return `<untrusted_content ${attrs}>\n${body}\n</untrusted_content>`;
 }
 
 function cap(text, note) {
   if (text.length <= RESULT_CAP) return text;
-  return `${text.slice(0, RESULT_CAP)}\n\n[Truncated: output limited to first ${RESULT_CAP} chars. ${note} Narrow the query or range to retrieve more.]`;
+  const suffix = `\n\n[Truncated: output limited to first ${RESULT_CAP} chars. ${note} Narrow the query or range to retrieve more.]`;
+  const room = Math.max(0, RESULT_CAP - suffix.length);
+  return `${text.slice(0, room)}${suffix}`;
 }
 
 async function fetchJson(url, payload, apiKey, signal) {

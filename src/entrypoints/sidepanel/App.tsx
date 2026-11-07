@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { MarkdownView } from '@/components/MarkdownView';
 import { IconCheck, IconChevron, IconCopy, IconQuote, IconReload, IconSend, IconStop } from '@/components/icons';
 import {
@@ -14,7 +14,6 @@ import {
 import {
   estimateTokens,
   captureScreenshot,
-  grantOrigin,
   readActiveTab,
   readSelection,
   type ExtractedPage,
@@ -30,8 +29,8 @@ import {
 } from '@/lib/settings';
 import { SettingsPanel } from './SettingsPanel';
 
-/** 输入框最大高度（超过就内部滚动），与 style.css 里的 max-height 对应 */
-const MAX_BOX_H = 168;
+/** 输入框最大高度（超过就内部滚动），必须与 style.css 的 .editor max-height 一致 */
+const MAX_BOX_H = 156;
 
 type PageState =
   | { kind: 'loading' }
@@ -45,6 +44,8 @@ interface Message {
   reasoning?: string;
   /** 正在流式接收 */
   streaming?: boolean;
+  /** 服务端标记：本轮被中止或上游截断（回答可能不完整） */
+  aborted?: boolean;
   error?: string;
   ms?: number;
   /** 本轮「思考 + 工具调用」阶段耗时（毫秒），只有最终那段回答带 */
@@ -277,6 +278,7 @@ function toMessage(m: StoredMessage, pdf = false): Message | null {
     reasoning: m.reasoning,
     ms: m.ms ?? undefined,
     processMs: m.processMs ?? undefined,
+    aborted: m.aborted === true,
     createdAt: m.createdAt,
     tokensIn: m.tokensIn,
     tokensOut: m.tokensOut,
@@ -319,6 +321,25 @@ function ThinkingFade({ show }: { show: boolean }) {
   if (!mounted) return null;
   return <div className={`thinking${closing ? ' out' : ''}`}>{t('answer.thinking')}</div>;
 }
+
+/** 思考/工具折叠块：流式时展开，结束后自动收起；流式期间用户手动收起不会被下一批 token 顶开 */
+function RoundPanel({ active, summary, children }: { active: boolean; summary: ReactNode; children: ReactNode }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  const wasActive = useRef(active);
+
+  useEffect(() => {
+    if (wasActive.current === active) return;
+    wasActive.current = active;
+    if (ref.current) ref.current.open = active;
+  }, [active]);
+
+  return (
+    <details ref={ref} className="round" open={active}>
+      <summary>{summary}</summary>
+      {children}
+    </details>
+  );
+}
 export default function App() {
   const [pageState, setPageState] = useState<PageState>({ kind: 'loading' });
   const [showPageText, setShowPageText] = useState(false);
@@ -333,6 +354,8 @@ export default function App() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
+  /** 读历史/切会话失败时挂在列表顶部的提示；不替换当前消息 */
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -353,6 +376,10 @@ export default function App() {
   /** 编辑器内最后一次光标位置：去别处选文字会顶掉文档选区，插入引用时要能回到原位 */
   const savedRange = useRef<Range | null>(null);
   const stickToBottom = useRef(true);
+  /** 异步回调里要判断“用户是否已经先发了消息”，读 ref 才能拿到最新值 */
+  const messagesRef = useRef<Message[]>([]);
+  /** 会话加载序号：切页、连点历史时只认最后一次请求的结果 */
+  const loadSeqRef = useRef(0);
 
   /** 把恢复出来的提问填回输入框；消息里序列化的 <q>…</q> 还原成引用 chip */
   const fillEditor = useCallback((text: string) => {
@@ -385,6 +412,10 @@ export default function App() {
   const editorHasDraft = useCallback(() => Boolean(editorRef.current?.textContent?.trim()), []);
 
   useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
     if (settings?.backendUrl) backendRef.current = settings.backendUrl;
   }, [settings]);
 
@@ -397,13 +428,13 @@ export default function App() {
   /* ---------------- 会话列表 ---------------- */
 
   const refreshConversations = useCallback(
-    async (url: string, s: Settings) => {
+    async (url: string, s: Settings, commit = true) => {
       try {
         const list = await listConversations(s, url);
-        setConversations(list);
+        if (commit) setConversations(list);
         return list;
       } catch {
-        setConversations([]);
+        if (commit) setConversations([]);
         return [];
       }
     },
@@ -449,27 +480,44 @@ export default function App() {
   /* ---------------- 换页 → 换会话 ---------------- */
 
   useEffect(() => {
-    if (!pageUrl || !settings) return;
-    if (abortRef.current) return; // 正在生成时不打断
+    // 页面切走时（哪怕新页面不可读）也要先中止旧 run，避免它继续把事件写进新页面
+    if (abortRef.current || sendingRef.current) {
+      runSeqRef.current += 1;
+      abortRef.current?.abort();
+      abortRef.current = null;
+      sendingRef.current = false;
+      setBusy(false);
+    }
 
+    if (!pageUrl || !settings) return;
+
+    // 换页/换后端后，上一页的回答已经不属于当前画面。服务端会把已生成的部分按 aborted 落库，
+    // 但新页面绝不接收旧 run 的事件。
+    const mine = ++loadSeqRef.current;
     let cancelled = false;
     setConversationId(null);
     setMessages([]);
     setHistoryOpen(false);
+    setLoadError(null);
 
     void (async () => {
-      const list = await refreshConversations(pageUrl, settings);
+      const list = await refreshConversations(pageUrl, settings, false);
       const latest = list[0];
-      if (cancelled || !latest) return;
+      if (cancelled || mine !== loadSeqRef.current) return;
+      setConversations(list);
+      if (!latest) return;
       // 自动续上这一页最近的一次对话
       try {
         const conv = await getConversation(settings, latest.id);
-        if (cancelled) return;
+        if (cancelled || mine !== loadSeqRef.current) return;
+        // 两次网络往返期间用户可能已经发了新问题，不能再整体覆盖消息列表
+        if (sendingRef.current || messagesRef.current.length > 0) return;
         let stored = conv.messages;
         // 上次进程中途退出会留下“最后一条 user 没有回答”，把问题取回输入框并从历史里删掉
         if (!editorHasDraft()) {
           const recovered = await recoverPendingQuestion(settings, conv.id).catch(() => null);
-          if (cancelled) return;
+          if (cancelled || mine !== loadSeqRef.current) return;
+          if (sendingRef.current || messagesRef.current.length > 0) return;
           if (recovered) {
             stored = stored.filter((m) => m.id !== recovered.messageId);
             fillEditor(recovered.text);
@@ -477,16 +525,18 @@ export default function App() {
           }
         }
         setConversationId(conv.id);
-        setMessages(toMessages(stored, pageState.kind === 'ready' && pageState.page.kind === 'pdf'));
-      } catch {
-        /* 读历史失败就当作新对话 */
+        setMessages(toMessages(stored, page?.kind === 'pdf'));
+      } catch (err) {
+        if (cancelled || mine !== loadSeqRef.current) return;
+        setLoadError(t('error.historyLoad', { message: errText(err) }));
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [pageUrl, settings, refreshConversations, fillEditor, editorHasDraft]);
+    // verbose 不进依赖：改显示偏好不该重载会话；只有换页或换后端才重新归属
+  }, [pageUrl, settings?.backendUrl, refreshConversations, fillEditor, editorHasDraft, page?.kind]);
 
   /* ---------------- 滚动 ---------------- */
 
@@ -607,6 +657,48 @@ export default function App() {
     return out.s.replace(/\n{3,}$/, '\n');
   }, []);
 
+  /** 在光标处插入纯文本（\n → <br>）：不再依赖已废弃的 execCommand */
+  const insertTextAtCaret = useCallback(
+    (text: string) => {
+      const el = editorRef.current;
+      if (!el) return;
+      el.focus();
+      const sel = window.getSelection();
+      let range: Range | null = null;
+      if (sel && sel.rangeCount > 0) {
+        const cur = sel.getRangeAt(0);
+        if (el.contains(cur.commonAncestorContainer)) range = cur;
+      }
+      const saved = savedRange.current;
+      if (!range && saved && el.contains(saved.startContainer)) range = saved.cloneRange();
+      if (!range) {
+        range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+      }
+      range.deleteContents();
+      const frag = document.createDocumentFragment();
+      text.split('\n').forEach((line, i) => {
+        if (i > 0) frag.appendChild(document.createElement('br'));
+        if (line) frag.appendChild(document.createTextNode(line));
+      });
+      const tail = frag.lastChild;
+      range.insertNode(frag);
+      if (tail) {
+        const after = document.createRange();
+        after.setStartAfter(tail);
+        after.collapse(true);
+        savedRange.current = after.cloneRange();
+        if (sel) {
+          sel.removeAllRanges();
+          sel.addRange(after);
+        }
+      }
+      setInput(serialize());
+    },
+    [serialize],
+  );
+
   /** 在光标处插入一个引用 chip：contenteditable=false，编辑时相当于一个字符 */
   const insertQuoteChip = (text: string) => {
     const el = editorRef.current;
@@ -671,6 +763,7 @@ export default function App() {
       if (!isConfigured(settings) || !page) return;
 
       const runId = ++runSeqRef.current;
+      abortRef.current?.abort();
       sendingRef.current = true;
       setInput('');
       if (!regenerate && editorRef.current) editorRef.current.innerHTML = '';
@@ -724,14 +817,16 @@ export default function App() {
       let convId = conversationId;
       /** 服务端用 done 结束一轮；没等到 done 就断流，不能当成功 */
       let sawDone = false;
+      /** 服务端已经发过 error：收尾时别再把它覆盖成笼统的“连接中断” */
+      let sawError = false;
 
       // 先截一张当前可见画面：模型调用 screenshot 工具时才有得用，不调用就不发上游
-      const shot = await captureScreenshot();
-      // 现取一次选中文字：用户常常是「先选中、再提问」，页面加载时缓存的那份可能已经过期
-      const sel = await readSelection();
-      const selected = sel?.text || page.selection || '';
-
+      // 截屏与选区读取都放在 try 里：任一失败也要走 finally 释放发送闸门
       try {
+        // 截屏与选区互不依赖，并行取，少一次串行等待
+        const [shot, sel] = await Promise.all([captureScreenshot(page.url), readSelection()]);
+        const selected = sel?.text || page.selection || '';
+
         for await (const ev of streamChat({
           settings,
           conversationId,
@@ -750,12 +845,19 @@ export default function App() {
           regenerate,
           signal: controller.signal,
         })) {
+          // 切页会 abort 并将 runSeq 递增；这里再兜一层，旧 run 的事件绝不写进新页面
+          if (runSeqRef.current !== runId) break;
           if (ev.type === 'meta') {
             convId = ev.conversationId;
             setConversationId(ev.conversationId);
           } else if (ev.type === 'content') {
             ensureTarget();
             contentBuf += ev.delta;
+            schedule();
+          } else if (ev.type === 'replace') {
+            // 最终 output 与流式 delta 不一致：以最终文本为准整段替换，避免落库与界面分叉
+            ensureTarget();
+            contentBuf = ev.text;
             schedule();
           } else if (ev.type === 'reasoning') {
             ensureTarget();
@@ -813,6 +915,7 @@ export default function App() {
                   streaming: false,
                   ms: ev.message?.ms ?? ev.ms,
                   processMs: ev.message?.processMs ?? m.processMs,
+                  aborted: ev.aborted === true || m.aborted,
                   tokensIn: ev.totals?.tokensIn ?? m.tokensIn,
                   tokensOut: ev.totals?.tokensOut ?? m.tokensOut,
                   usage: ev.usage ?? m.usage,
@@ -825,6 +928,7 @@ export default function App() {
             );
             setTitlePulse(true);
           } else if (ev.type === 'error') {
+            sawError = true;
             flush();
             ensureTarget();
             const text = serverErrorText(ev.code, ev.message);
@@ -833,7 +937,7 @@ export default function App() {
             );
           }
         }
-        if (!sawDone) {
+        if (runSeqRef.current === runId && !sawDone && !sawError) {
           if (controller.signal.aborted) {
             // 响应头还没到就被停止：streamChat 会静默返回，这里擦掉空气泡
             setMessages((prev) =>
@@ -847,9 +951,10 @@ export default function App() {
           }
         }
       } catch (err) {
+        if (runSeqRef.current !== runId) return;
         flush();
         // done 之后只剩自动标题/连接收尾；这时断流不影响已经完整收到的回答
-        if (sawDone) return;
+        if (sawDone || sawError) return;
         const stopped = controller.signal.aborted;
         setMessages((prev) => {
           // 还没产出任何文字就被停掉时，别留一个空气泡
@@ -877,14 +982,21 @@ export default function App() {
           abortRef.current = null;
           sendingRef.current = false;
           setBusy(false);
+          if (convId) void refreshConversations(page.url, settings);
         }
-        if (convId) void refreshConversations(page.url, settings);
       }
     },
     [busy, conversationId, input, page, refreshConversations, serialize, settings],
   );
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<number | null>(null);
+  const showToast = useCallback((message: string) => {
+    setToast(message);
+    if (toastTimer.current != null) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 2200);
+  }, []);
 
   const stop = () => abortRef.current?.abort();
 
@@ -898,16 +1010,20 @@ export default function App() {
       .map((a) => a.content.trim())
       .filter(Boolean)
       .join('\n\n');
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopiedId(anchorId);
-      window.setTimeout(() => setCopiedId((cur) => (cur === anchorId ? null : cur)), 1400);
-    });
-  }, []);
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopiedId(anchorId);
+        window.setTimeout(() => setCopiedId((cur) => (cur === anchorId ? null : cur)), 1400);
+      })
+      .catch(() => showToast(t('answer.copyFailed')));
+  }, [showToast]);
 
   /** 重新生成某一轮：本地删掉这一轮的回答，再带 regenerate 重跑同一个问题 */
   const regenerateRound = useCallback(
     (r: Round) => {
-      if (busy) return;
+      // 先把 send 的所有前置条件查一遍，避免 UI 已截断、请求却没发出去
+      if (busy || sendingRef.current || !settings || !isConfigured(settings) || !page) return;
       const question = r.user?.content ?? '';
       if (!question) return;
       // 只保留这条 user 之前的消息
@@ -915,14 +1031,16 @@ export default function App() {
       if (cutAt >= 0) setMessages((prev) => prev.slice(0, cutAt + 1));
       void send(question, { regenerate: true });
     },
-    [busy, messages, send],
+    [busy, messages, page, send, settings],
   );
 
   const newConversation = () => {
     if (busy) return;
+    loadSeqRef.current += 1; // 作废还在路上的历史加载，避免它把空会话又填满
     setConversationId(null);
     setMessages([]);
     setHistoryOpen(false);
+    setLoadError(null);
     stickToBottom.current = true;
   };
 
@@ -931,11 +1049,18 @@ export default function App() {
       setHistoryOpen(false);
       return;
     }
+    const mine = ++loadSeqRef.current;
     try {
       const conv = await getConversation(settings, id);
+      if (mine !== loadSeqRef.current) return;
+      if (pageUrl && conv.url !== normalizeUrl(pageUrl)) {
+        setLoadError(t('error.historyLoad', { message: t('error.pageMismatch') }));
+        return;
+      }
       let stored = conv.messages;
       if (!editorHasDraft()) {
         const recovered = await recoverPendingQuestion(settings, conv.id).catch(() => null);
+        if (mine !== loadSeqRef.current) return;
         if (recovered) {
           stored = stored.filter((m) => m.id !== recovered.messageId);
           fillEditor(recovered.text);
@@ -944,17 +1069,13 @@ export default function App() {
       }
       setConversationId(conv.id);
       setMessages(toMessages(stored, page?.kind === 'pdf'));
+      setLoadError(null);
       setHistoryOpen(false);
       stickToBottom.current = true;
     } catch (err) {
-      setMessages([
-        {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: '',
-          error: t('error.historyLoad', { message: errText(err) }),
-        },
-      ]);
+      if (mine !== loadSeqRef.current) return;
+      // 失败时保留当前对话，只在顶部挂一条提示；不能把消息列表替换成错误气泡
+      setLoadError(t('error.historyLoad', { message: errText(err) }));
     }
   };
 
@@ -968,15 +1089,10 @@ export default function App() {
         setConversationId(null);
         setMessages([]);
       }
+      setLoadError(null);
     } catch (err) {
-      setMessages([
-        {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: '',
-          error: t('error.historyDelete', { message: errText(err) }),
-        },
-      ]);
+      // 删除失败同样不动当前对话
+      setLoadError(t('error.historyDelete', { message: errText(err) }));
     }
   };
 
@@ -986,8 +1102,7 @@ export default function App() {
       e.preventDefault();
       if (e.shiftKey) {
         // 换行插成纯文本 \n（配合 white-space: pre-wrap），别让浏览器插 <div>
-        document.execCommand('insertText', false, '\n');
-        setInput(serialize());
+        insertTextAtCaret('\n');
         return;
       }
       if (canSend) void send();
@@ -998,17 +1113,10 @@ export default function App() {
   const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
     const text = e.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
-    document.execCommand('insertText', false, text);
-    setInput(serialize());
+    insertTextAtCaret(text);
   };
 
   /* ---------------- 杂项 ---------------- */
-
-  const handleGrant = async () => {
-    const url = pageState.kind === 'failed' ? pageState.failure.url : undefined;
-    const ok = await grantOrigin(url);
-    if (ok) void load();
-  };
 
   const handleCopy = async () => {
     if (!page) return;
@@ -1201,17 +1309,26 @@ export default function App() {
         <section className="card error">
           <div className="card-title">{t('page.failure.title')}</div>
           <p>{t(REASON_HINT[pageState.failure.reason])}</p>
-          {pageState.failure.reason === 'permission' && pageState.failure.url && (
-            <button className="primary" onClick={() => void handleGrant()}>
-              {t('page.failure.grant')}
-            </button>
-          )}
           <pre className="raw">{pageState.failure.message}</pre>
         </section>
       )}
 
       {/* 对话区 */}
       <div className="list" ref={listRef} onScroll={onScroll}>
+        {loadError && (
+          <div className="load-error" role="alert">
+            <span>{loadError}</span>
+            <button
+              type="button"
+              className="icon-btn"
+              title={t('action.dismiss')}
+              aria-label={t('action.dismiss')}
+              onClick={() => setLoadError(null)}
+            >
+              ×
+            </button>
+          </div>
+        )}
         {messages.length === 0 && (
           <div className="empty">
             <p className="muted">
@@ -1262,22 +1379,21 @@ export default function App() {
               </>
             )}
 
-            {/* 一轮里的「思考 + 工具调用」收进一个折叠块：流式时展开，答完自动收起（key 变化即重新挂载） */}
+            {/* 一轮里的「思考 + 工具调用」收进一个折叠块：流式时展开，答完自动收起 */}
             {verbose && (r.reasoning || r.steps.length > 0) && (
-              <details
-                key={`${r.key}:${active ? 'run' : 'done'}`}
-                className="round"
-                open={active || undefined}
-              >
-                <summary>
-                  {active
+              <RoundPanel
+                key={r.key}
+                active={active}
+                summary={
+                  active
                     ? t('round.running')
                     : r.steps.length > 0 && r.reasoning
                       ? t('round.both', { tools: r.steps.length, secs: seconds(r.processMs) })
                       : r.steps.length > 0
                         ? t('round.toolsOnly', { tools: r.steps.length })
-                        : t('round.thinkOnly', { secs: seconds(r.processMs) })}
-                </summary>
+                        : t('round.thinkOnly', { secs: seconds(r.processMs) })
+                }
+              >
                 {r.reasoning && <pre className="think-text">{r.reasoning}</pre>}
                 {r.steps.map((m) => (
                   <div key={m.id} className="step">
@@ -1297,7 +1413,7 @@ export default function App() {
                     ) : null}
                   </div>
                 ))}
-              </details>
+              </RoundPanel>
             )}
 
             {/* 清爽模式的占位：整轮只有一个，多轮工具调用也不会重复 */}
@@ -1308,14 +1424,15 @@ export default function App() {
               const isLastAnswer = ai === r.answers.length - 1;
               return (
               <div key={m.id} className="msg assistant">
-                <div className="answer">
+                <div className="answer" aria-live={m.streaming ? undefined : 'polite'}>
                   {m.content ? (
                     <div className={`md-wrap${m.streaming ? ' streaming' : ''}`}>
                       <MarkdownView text={m.content} />
                     </div>
                   ) : null}
                   {m.error && <p className="err">{m.error}</p>}
-                  {isLastAnswer && !busy && m.content && (
+                  {m.aborted && !m.streaming && <p className="muted small">{t('answer.truncated')}</p>}
+                  {isLastAnswer && m.content && !m.streaming && (
                     <div className="answer-actions">
                       <button
                         type="button"
@@ -1385,6 +1502,7 @@ export default function App() {
             contentEditable={configured && pageState.kind === 'ready'}
             role="textbox"
             aria-multiline="true"
+            aria-label={t('composer.placeholder.ready')}
             suppressContentEditableWarning
             data-placeholder={
               !configured
@@ -1419,6 +1537,12 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {toast && (
+        <div className="toast" role="status">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

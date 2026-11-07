@@ -45,17 +45,50 @@ export async function saveSettings(next: Settings): Promise<void> {
   await browser.storage.local.set({ [KEY]: next });
 }
 
-export const isConfigured = (s: Settings | null): s is Settings => !!s?.backendUrl?.trim();
+export const isConfigured = (s: Settings | null): s is Settings => {
+  const raw = s?.backendUrl?.trim();
+  if (!raw) return false;
+  try {
+    const u = new URL(raw);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
 
 export function baseUrl(s: Settings): string {
-  return s.backendUrl.trim().replace(/\/+$/, '');
+  const raw = s.backendUrl.trim();
+  try {
+    const u = new URL(raw);
+    // 后端地址只取 origin + pathname：`?a=1` 拼上 `/chat` 会变成 `?a=1/chat`，打到根路径
+    u.search = '';
+    u.hash = '';
+    return u.toString().replace(/\/+$/, '');
+  } catch {
+    return raw.replace(/\/+$/, '');
+  }
 }
 
-/** 去掉 #hash：同一篇文章的锚点不该算成两个会话 */
+/** 去掉 #hash 与纯追踪参数：同一篇文章的锚点/utm 不该算成两个会话 */
+const TRACKING_PARAMS = new Set([
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'utm_term',
+  'utm_content',
+  'fbclid',
+  'gclid',
+  'spm',
+  'ref',
+]);
+
 export function normalizeUrl(raw: string): string {
   try {
     const u = new URL(raw);
     u.hash = '';
+    for (const key of [...u.searchParams.keys()]) {
+      if (TRACKING_PARAMS.has(key.toLowerCase())) u.searchParams.delete(key);
+    }
     return u.toString();
   } catch {
     return raw;
