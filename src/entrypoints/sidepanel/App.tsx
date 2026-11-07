@@ -682,9 +682,6 @@ export default function App() {
         if (i > 0) frag.appendChild(document.createElement('br'));
         if (line) frag.appendChild(document.createTextNode(line));
       });
-      // 末尾的 <br> 后面没有可见字符时，浏览器不会为这一行建立 line box，
-      // 表现就是第一次 Shift+Enter 像没反应。塞一个零宽空格占位；serialize 会把它去掉。
-      if (text.endsWith('\n')) frag.appendChild(document.createTextNode('\u200b'));
       const tail = frag.lastChild;
       range.insertNode(frag);
       if (tail) {
@@ -1104,8 +1101,10 @@ export default function App() {
     if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
       e.preventDefault();
       if (e.shiftKey) {
-        // 换行插成纯文本 \n（配合 white-space: pre-wrap），别让浏览器插 <div>
-        insertTextAtCaret('\n');
+        // 用浏览器原生命令插换行：它会自己维护行尾占位 <br>，
+        // 首次按就能看到空行，方向键也不会被零宽字符卡住。
+        document.execCommand('insertLineBreak');
+        setInput(serialize());
         return;
       }
       if (canSend) void send();
