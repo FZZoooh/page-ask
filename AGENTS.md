@@ -18,21 +18,25 @@ PageAsk：Edge 侧栏扩展 + 本机 Node 后端。侧栏就**当前标签页**�
 | `pnpm install` | 安装（`postinstall` 会跑 `wxt prepare`） |
 | `pnpm dev:edge` | WXT dev + 拉起 Edge（`wxt -b edge`） |
 | `pnpm build` | 生产构建 → `.output/chrome-mv3` |
-| `pnpm compile` | `tsc --noEmit`，**改完必须过** |
+| `pnpm compile` | `tsc --noEmit` + `scripts/check-syntax.mjs`（后端/脚本 `.mjs` 语法），**改完必须过** |
+| `pnpm test:server` | 串跑 `scripts/test-*.mjs` 后端回归（临时目录 + 假上游，不碰真实配置） |
+| `pnpm verify` | `compile` + `test:server` + `build`，提交前跑这个 |
 | `pnpm server` | 前台起后端（`node server/index.mjs`） |
 | `pnpm server:win` | 用 PowerShell 脚本起后端 |
 | `pnpm tray:bg` | WinForms 托盘 + 看门狗，后台常驻 |
 
-- Node **≥ 22.5**（`node:sqlite`），包管理器用 pnpm。
-- 无 lint / formatter / 测试框架 / CI / git 仓库，别擅自引入。
+- Node **≥ 22.13**（`node:sqlite` + pdfjs-dist 6.x），包管理器用 pnpm（11.x）。
+- 有 git 仓库与 GitHub Actions（`.github/workflows/ci.yml`，windows-latest + Node 22.13 + `pnpm verify`），但仓库暂无 remote，推送后 CI 才会真正跑。
 - 改扩展代码后要在 `edge://extensions` 点「重新加载」；改后端要重启进程；只改 `~/.config/pageask/settings.json` 不用重启（后端每次请求都重读）。
-- 版本号在 `package.json` 与 `wxt.config.ts` 的 `manifest.version` 两处，保持一致。
+- 版本号只在 `package.json` 维护，`wxt.config.ts` 通过 JSON import 读取；别再手写第二份。
 
 ## 3. 目录
 
 ```
 src/entrypoints/background.ts     service worker：sidePanel 行为、右键菜单
-src/entrypoints/sidepanel/        侧栏页面（App.tsx 是全部 UI，约 50KB）
+src/entrypoints/sidepanel/        侧栏：App.tsx 编排状态机；messages.ts 纯消息模型，
+                                  editorDom.ts contenteditable 适配，Composer/HistoryPanel/
+                                  PageCard/RoundPanel/SettingsPanel 为展示组件
 src/lib/                          chat.ts / extract.ts / pdf.ts / settings.ts / i18n.ts
 src/components/                   MarkdownView.tsx、icons.tsx
 server/                           后端：index.mjs 路由 + db/tools/pdf/text/log/webui/net/lifecycle
@@ -88,12 +92,12 @@ PLAN.md                           按版本的落地记录与决策（部分早�
 
 ## 7. 验证方式
 
-没有单测，靠类型检查 + 手测脚本，改动后至少做到：
+提交前先跑 `pnpm verify`（类型 + 30 个 `.mjs` 语法 + 5 个后端回归 + 构建）；CI 用同一命令。仍没有前端单测，UI 靠类型检查 + 手测：
 
-1. `pnpm compile` 通过。
-2. 后端改动：`pnpm server` 起服务，`curl http://127.0.0.1:8787/health`；必要时 `node scripts/test-chat.mjs "问题"` 看 SSE 事件。
+1. `pnpm verify` 通过；只改前端时至少 `pnpm compile` + `pnpm build`。
+2. 后端改动：`pnpm server` 起服务，`curl http://127.0.0.1:8787/health`；必要时 `node scripts/test-chat.mjs "问题"` 看 SSE 事件；新增行为优先补进 `scripts/test-*.mjs`（临时 `PAGEASK_DATA_DIR`/`USERPROFILE` + 假上游，不要碰真实配置）。
 3. UI 改动：`pnpm build` → `pwsh -File scripts/edge-test.ps1`（干净 Edge + CDP，默认打开 `127.0.0.1:8811/article.html`，需要自己先把 `test/` 静态服务在 8811 端口）；用 `scripts/cdp-eval.mjs`、`cdp-key.mjs`、`cdp-dark.mjs` 检查侧栏与深浅色。
-4. 专项脚本：`test-cache.mjs`（前缀缓存）、`test-shot.mjs`（截图落盘/回放）、`test-pdf-prompt.mjs`、`test-selection-context.mjs`、`test-hist-time.mjs`、`test-turn-integrity.mjs` / `test-turn-abort.mjs`（工具轮次与中止）、`test-empty-stream.mjs`（空流）、`test-lifecycle-recover.mjs`（异常退出/断尾提问恢复）。
+4. 专项脚本：`test-cache.mjs`（前缀缓存）、`test-shot.mjs`（截图落盘/回放）、`test-pdf-prompt.mjs`、`test-selection-context.mjs`、`test-hist-time.mjs`、`test-turn-integrity.mjs` / `test-turn-abort.mjs`（工具轮次与中止）、`test-empty-stream.mjs`（空流）、`test-incomplete-and-bad-body.mjs`（截断/坏请求）、`test-lifecycle-recover.mjs`（异常退出/断尾提问恢复）。
 5. 有新决策或踩坑，按现有习惯补进 `PLAN.md` 对应版本小节，而不是散落在提交说明里。
 
 ## 8. 不要再走的路（已实测否掉）

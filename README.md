@@ -103,4 +103,8 @@ pnpm verify         # compile + test:server + build，提交前跑这个
 pnpm build          # 生产构建
 ```
 
+侧栏代码按职责拆分：`App.tsx` 只编排状态机与请求生命周期，消息模型在 `messages.ts`，contenteditable 操作在 `editorDom.ts`，展示组件为 `Composer` / `HistoryPanel` / `PageCard` / `RoundPanel` / `SettingsPanel`。
+
+CI 在 `.github/workflows/ci.yml`：Windows + Node 22.13 + `pnpm verify`，`push` 到 `main` 或开 PR 时运行（仓库当前没有 remote，推送后才会生效）。
+
 设计与决策记录在 [`PLAN.md`](PLAN.md)。
