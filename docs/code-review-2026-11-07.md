@@ -75,7 +75,9 @@
 | B20 批 | `3d3a35b` | `statsFor` 改 COUNT/LIMIT 查询、截图按内容哈希去重、删除前校验其它行引用 | compile/build、`test:server` 全过 |
 | P3 元数据批 | `561a4ab` | 会话轮数按 user 消息计、`normalizeUrl` 去 utm/fbclid 等追踪参数 | compile/build、`test:server` 全过 |
 | P3 设置批 | `48001bf` | 测试连接前确认远端地址（避免令牌外发）、回环判断容忍 `localhost.` 尾点 | compile/build |
-| 后续 | — | 其余 P2/P3（见第三、四节） | 每批更新 |
+| P3 清理批 | `fc21cd4` | 删除死 CSS 与未用文案、换行/粘贴改用 Range、复制失败改轻提示、流式结束 `aria-live` | compile/build |
+| P3 脚本批 | `c9e5774` | 托盘 Mutex 接管、Edge 路径多候选、`args` 改名、`verify`/`zip:edge` 脚本、截图二次校验 | `pnpm verify` 全过 |
+| 后续 | — | 无阻断项；架构级项（`App.tsx` 拆分、CI、更多 UI 自动化）未做，见第三、四节 | 每批更新 |
 
 > 表里的提交只是“已修”的记录；正文行号仍是**审查时**的位置，已在后续修复中漂移，定位请以当前代码为准。
 
