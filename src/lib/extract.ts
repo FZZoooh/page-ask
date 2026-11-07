@@ -383,6 +383,11 @@ export async function captureScreenshot(
     const raw = await browser.tabs.captureVisibleTab(tab?.windowId, { format: 'jpeg', quality: 80 });
     if (!raw) return null;
 
+    // 截图是异步的：拍完再看一眼当前活动页，期间切了标签就丢掉这张，别把 A 页发给 B 页的提问
+    const [after] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
+    if (tab?.id != null && after?.id !== tab.id) return null;
+    if (expectedUrl && stripHash(after?.url) !== stripHash(expectedUrl)) return null;
+
     const blob = await (await fetch(raw)).blob();
     const bmp = await createImageBitmap(blob);
     const scale = Math.min(1, maxWidth / bmp.width);

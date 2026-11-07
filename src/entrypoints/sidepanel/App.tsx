@@ -657,6 +657,48 @@ export default function App() {
     return out.s.replace(/\n{3,}$/, '\n');
   }, []);
 
+  /** 在光标处插入纯文本（\n → <br>）：不再依赖已废弃的 execCommand */
+  const insertTextAtCaret = useCallback(
+    (text: string) => {
+      const el = editorRef.current;
+      if (!el) return;
+      el.focus();
+      const sel = window.getSelection();
+      let range: Range | null = null;
+      if (sel && sel.rangeCount > 0) {
+        const cur = sel.getRangeAt(0);
+        if (el.contains(cur.commonAncestorContainer)) range = cur;
+      }
+      const saved = savedRange.current;
+      if (!range && saved && el.contains(saved.startContainer)) range = saved.cloneRange();
+      if (!range) {
+        range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+      }
+      range.deleteContents();
+      const frag = document.createDocumentFragment();
+      text.split('\n').forEach((line, i) => {
+        if (i > 0) frag.appendChild(document.createElement('br'));
+        if (line) frag.appendChild(document.createTextNode(line));
+      });
+      const tail = frag.lastChild;
+      range.insertNode(frag);
+      if (tail) {
+        const after = document.createRange();
+        after.setStartAfter(tail);
+        after.collapse(true);
+        savedRange.current = after.cloneRange();
+        if (sel) {
+          sel.removeAllRanges();
+          sel.addRange(after);
+        }
+      }
+      setInput(serialize());
+    },
+    [serialize],
+  );
+
   /** 在光标处插入一个引用 chip：contenteditable=false，编辑时相当于一个字符 */
   const insertQuoteChip = (text: string) => {
     const el = editorRef.current;
@@ -948,6 +990,13 @@ export default function App() {
   );
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<number | null>(null);
+  const showToast = useCallback((message: string) => {
+    setToast(message);
+    if (toastTimer.current != null) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 2200);
+  }, []);
 
   const stop = () => abortRef.current?.abort();
 
@@ -967,8 +1016,8 @@ export default function App() {
         setCopiedId(anchorId);
         window.setTimeout(() => setCopiedId((cur) => (cur === anchorId ? null : cur)), 1400);
       })
-      .catch(() => setLoadError(t('answer.copyFailed')));
-  }, []);
+      .catch(() => showToast(t('answer.copyFailed')));
+  }, [showToast]);
 
   /** 重新生成某一轮：本地删掉这一轮的回答，再带 regenerate 重跑同一个问题 */
   const regenerateRound = useCallback(
@@ -1053,8 +1102,7 @@ export default function App() {
       e.preventDefault();
       if (e.shiftKey) {
         // 换行插成纯文本 \n（配合 white-space: pre-wrap），别让浏览器插 <div>
-        document.execCommand('insertText', false, '\n');
-        setInput(serialize());
+        insertTextAtCaret('\n');
         return;
       }
       if (canSend) void send();
@@ -1065,8 +1113,7 @@ export default function App() {
   const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
     const text = e.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
-    document.execCommand('insertText', false, text);
-    setInput(serialize());
+    insertTextAtCaret(text);
   };
 
   /* ---------------- 杂项 ---------------- */
@@ -1377,7 +1424,7 @@ export default function App() {
               const isLastAnswer = ai === r.answers.length - 1;
               return (
               <div key={m.id} className="msg assistant">
-                <div className="answer">
+                <div className="answer" aria-live={m.streaming ? undefined : 'polite'}>
                   {m.content ? (
                     <div className={`md-wrap${m.streaming ? ' streaming' : ''}`}>
                       <MarkdownView text={m.content} />
@@ -1490,6 +1537,12 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {toast && (
+        <div className="toast" role="status">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

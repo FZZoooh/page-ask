@@ -62,15 +62,12 @@ export const zhCN = {
   'page.failure.unknown': '读取失败',
   'page.failure.queryTabs': '查询标签页失败：{message}',
   'page.failure.noTab': '未找到当前标签页',
-  'page.failure.internalPage': '该页面属于浏览器内部页面或扩展商店，不允许扩展读取',
   'page.failure.noContent': '页面没有内容',
   'page.failure.blockedRaw':
     'Blocked by the browser: internal pages and the extension gallery cannot be scripted.',
 
   // PDF
   'page.failure.pdfNeedBackend': '请启动后端程序并重试',
-  'page.failure.pdfFileAccess':
-    '请到扩展详情页勾选“允许访问文件 URL”',
   'page.failure.pdfTooBig': 'PDF 太大了（{size}），不应大于 64 MB',
   'page.failure.pdfNotPdf': '未获取到 PDF 文件，请检查是否发生跳转或需要登录',
   'page.failure.pdfParse': 'PDF 解析失败：{message}',
@@ -101,10 +98,6 @@ export const zhCN = {
   'tool.chars': '{count} 字',
   'tool.failed': '失败',
 
-  // 思考过程
-  'think.streaming': '正在思考…',
-  'think.done': '已思考 {count} 字',
-
   // 一轮回答里折叠起来的「思考 + 工具调用」
   'round.running': '正在思考与调用工具…',
   'round.both': '调用了 {tools} 次工具，思考了 {secs} 秒',
@@ -126,8 +119,6 @@ export const zhCN = {
   // 选中回答里的文字时弹出的快捷菜单
   'quote.action': '引用',
   'quote.action.title': '引用回答以追问',
-  'quote.prefix': '针对上面这段：',
-  'quote.remove': '移除这条引用',
 
   // 错误
   'error.unreachable': '连接后端 {baseUrl} 失败，请先启动后端',
@@ -168,7 +159,6 @@ export const zhCN = {
   // 右键菜单
   'menu.askThisPage': '用 PageAsk 询问本页',
   'action.dismiss': '关闭提示',
-  'action.openPanel': '打开 PageAsk 侧栏',
 } as const;
 
 export type MessageKey = keyof typeof zhCN;
