@@ -80,7 +80,7 @@ export function listConversations(url) {
   const rows = db
     .prepare(
       `SELECT c.id, c.url, c.title, c.created_at, c.updated_at,
-              -- 「轮」按用户提问数算：工具调用会额外产生 assistant 段，按 user+assistant 数会虚高
+              -- Count rounds by user questions: tool calls add assistant segments, so user+assistant would overcount
               (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user') AS message_count,
               (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id) AS last_message_at,
               (SELECT m.content FROM messages m

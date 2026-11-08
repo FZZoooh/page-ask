@@ -1,0 +1,8 @@
+{
+  "extDescription": {
+    "message": "Ask an AI assistant about the current tab (side panel)"
+  },
+  "actionTitle": {
+    "message": "Open the PageAsk side panel"
+  }
+}

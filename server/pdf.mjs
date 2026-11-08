@@ -49,7 +49,7 @@ export async function extractPdfText(bytes, opts = {}) {
     });
     doc = await loadingTask.promise;
   } catch (err) {
-    throw new PdfError('bad_pdf', `PDF 解析失败：${err?.message ?? err}`);
+    throw new PdfError('bad_pdf', `Failed to parse PDF: ${err?.message ?? err}`);
   }
 
   const pageCount = doc.numPages;
@@ -71,7 +71,7 @@ export async function extractPdfText(bytes, opts = {}) {
         text = joinTextItems(content.items);
         page.cleanup();
       } catch (err) {
-        text = `（第 ${n} 页解析失败：${err?.message ?? err}）`;
+        text = `(Page ${n} failed to parse: ${err?.message ?? err})`;
       }
       if (text) {
         chars += text.length;
@@ -128,5 +128,5 @@ function joinTextItems(items) {
 function renderMarkdown(pages) {
   if (!pages.length) return '';
   if (pages.length === 1) return pages[0].text;
-  return pages.map((p) => `\n\n### 第 ${p.n} 页\n\n${p.text}`).join('').trim();
+  return pages.map((p) => `\n\n### Page ${p.n}\n\n${p.text}`).join('').trim();
 }

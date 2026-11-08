@@ -5,7 +5,7 @@
 - 审查范围：`src/`、`server/`、`scripts/`、`test/`、`wxt.config.ts`、`package.json`、CI 与文档
 - 审查方式：逐文件静态审查 + 类型检查 + 语法/i18n 守卫 + 7 个后端回归 + 生产构建
 - 约束：**审查阶段不修改任何产品代码**。报告中的行号与结论以 `b9533d3` 为基线。
-- 修复状态：P1-1、P1-2、P1-3、P2-1、P2-2、P2-4、P2-6、P2-21、P2-22、P2-23、P2-24、P2-25 已在 2026-11-08 的后续批次修复，见第 11 节；正文保留审查时的证据，便于对照。
+- 修复状态：P1-1、P1-2、P1-3、P2-1、P2-2、P2-3、P2-4、P2-5、P2-6、P2-21、P2-22、P2-23、P2-24、P2-25 已在 2026-11-08 的后续批次修复，见第 11 节；正文保留审查时的证据，便于对照。
 
 ## 0. 结论摘要
 
@@ -142,6 +142,8 @@
 
 ### P2-3 英文界面仍被要求用中文回答
 
+**状态：已修复（2026-11-08，批次 6，见第 11 节）。** 以下为修复前证据。
+
 **证据**
 
 - `server/index.mjs:1205-1288` 的系统提示全部是中文，`:1280` 明确写“回答要求：用中文”。
@@ -178,6 +180,8 @@
 - 对标题做更严格的白名单/长度限制；不要把它放在“系统指令”段落。
 
 ### P2-5 后端中文文案逃过 i18n 守卫，英文设置页会混中文
+
+**状态：已修复（2026-11-08，批次 6，见第 11 节）。** 以下为修复前证据。
 
 **证据**
 
@@ -742,4 +746,16 @@ AGENTS 写的 `RESULT_CAP = 8000` 只是“正文截断到 8000”，最终工�
 - **文案**：新增 `error.request.bad_host`、`error.request.bad_id`、`error.server.internal`，四个字典（server zh-CN/en-US、src zh-CN/en-US）同步，en-XA 由前缀规则自动覆盖。
 - **回归**：`scripts/test-host.mjs`（陌生 Host 403、回环 Host 200、畸形 id 400）、`scripts/test-page-metadata.mjs`（恶意标题被转义、信封不提前闭合）、`scripts/test-tool-cap.mjs`（最终长度 ≤ 8000、截断标记在信封内）。
 - 验证：`pnpm verify` 通过（17 个后端回归；52 个 `.mjs` 语法检查），构建仅既有 sidepanel 1.03MB chunk 警告。
+
+### P2-3 / P2-5 国际化收尾
+
+- **请求 locale**：`ChatRequest` 增加 `locale`，`App.tsx` 发送 `getLocale()`；后端把未知值收敛为 `zh-CN`。
+- **系统提示**：`buildSystemPrompt(page, locale)` 改为一份英文提示，仅在结尾切换 `Answer in English.` / `Answer in Simplified Chinese.`；页面标题、URL 仍在 `<untrusted_content source="page-metadata">` 内。自动标题提示同样改为英文，并按 locale 指定标题语言；`cleanTitle` 只识别 `Title:`（中文前缀写成 `\u6807\u9898` 转义，避免成为硬编码文案）。
+- **工具与错误文案**：删除 `TOOL_LABELS`，改为服务端字典的 `tool.*` 与 `tool.detail.*` / `tool.*Body`；工具中止、超时、失败、熔断、未执行、`chat.stopped` 都按 locale 输出。PDF、网络、`fetch_url` 拒绝等面向用户的文案统一改为英文；其 UI 展示仍由错误码映射。
+- **设置页测试连接**：不再回传上游响应体或 `err.message`；未配置 Key 返回 `settings.missing_api_key`，HTTP 失败返回 `upstream.status`，请求异常返回 `settings.test_failed`，设置页用字典渲染。
+- **i18n 守卫**：`check-i18n.mjs` 的扫描范围扩展到 `server/**/*.mjs`（排除 `server/i18n/`）与 `wxt.config.ts`；中文注释/日志仍豁免。为此把 `server/db.mjs` 的中文 SQL 注释也改成了英文。
+- **manifest**：`wxt.config.ts` 设置 `default_locale: 'zh_CN'`，描述与 action 标题改用 `__MSG_*__`；新增 `public/_locales/zh_CN/messages.json` 与 `public/_locales/en/messages.json`，构建产物包含 `_locales/`。
+- **回归**：`scripts/test-i18n-chat.mjs` 用 fake upstream 抓取两种 locale 的回答/标题请求，断言语言指令、提示中无 CJK、页面元数据信封存在；`test-empty-stream.mjs` 与 `test-page-metadata.mjs` 的旧中文断言同步更新。
+- 验证：`pnpm verify` 通过（18 个后端回归；53 个 `.mjs` 语法检查），构建仅既有 sidepanel 1.03MB chunk 警告；检查了构建后的 manifest 与 `_locales`。
+- 残留：`errorPayload()` 的兜底文案仍默认 zh-CN；前端与设置页都按 `code` 映射，因此 UI 不受影响，但直接调用 API 的脚本在不带 locale 时可能看到中文兜底。
 

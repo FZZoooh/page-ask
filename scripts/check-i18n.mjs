@@ -142,9 +142,12 @@ function checkHardcodedChinese() {
   const dicts = new Set(['src/lib/i18n.ts', 'src/lib/i18n.en-US.ts']);
   const jsFiles = globSync('src/**/*.{ts,tsx}').filter((f) => !dicts.has(f.replaceAll('\\', '/')));
   const psFiles = ['scripts/tray.ps1', 'scripts/tray-bg.ps1'];
-  const wsFiles = ['server/webui.mjs'];
+  // The backend is user-facing too: tool labels, settings-test details and PDF errors all reach the
+  // panel or the settings page. Server dictionaries are the copy itself, so they are the only exemption.
+  const serverFiles = globSync('server/**/*.mjs').filter((f) => !f.replaceAll('\\', '/').includes('server/i18n/'));
+  const configFiles = ['wxt.config.ts'];
 
-  for (const file of [...jsFiles, ...wsFiles]) {
+  for (const file of [...jsFiles, ...serverFiles, ...configFiles]) {
     const text = readFileSync(file, 'utf8');
     for (const s of collectJsStrings(text)) {
       if (!CJK.test(s.value)) continue;

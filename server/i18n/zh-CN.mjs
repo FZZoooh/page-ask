@@ -57,6 +57,22 @@ export const messages = {
   'webui.languageZh': '简体中文',
   'webui.languageEn': 'English',
 
+  // ---------------- 工具事件与模型侧提示 ----------------
+  'chat.stopped': '已停止',
+  'tool.read_page': '读取页面',
+  'tool.screenshot': '截图',
+  'tool.web_search': '联网搜索',
+  'tool.fetch_url': '抓取网页',
+  'tool.unknown': '工具',
+  'tool.detail.stopped': '已停止',
+  'tool.detail.timeout': '超时',
+  'tool.detail.failed': '失败',
+  'tool.abortedBody': '用户在工具执行期间停止了这一轮。',
+  'tool.timeoutBody': '工具 {name} 超过 {seconds} 秒没有返回，已放弃。可以换个更小的范围重试，或直接说明拿不到。',
+  'tool.failedBody': '工具 {name} 执行失败：{message}。可以换个参数重试，或直接说明拿不到这项信息。',
+  'tool.breakBody': '连续 {count} 个工具调用失败，本轮剩余工具已熔断。',
+  'tool.notRunBody': '用户已中止本轮，这个工具没有执行。',
+
   // ---------------- 后端错误码 ----------------
   'error.auth.origin': '请求来源不被允许',
   'error.auth.forbidden': '没有权限访问这个接口',
@@ -74,6 +90,7 @@ export const messages = {
   'error.settings.invalid_state': '会话状态不合法（可选：{modes}）',
   'error.settings.missing_api_key': '还没有配置 API Key',
   'error.settings.open_failed': '失败，请尝试手动打开',
+  'error.settings.test_failed': '测试连接失败',
   'error.chat.empty_text': '问题不能为空',
   'error.chat.missing_page': '缺少页面信息',
   'error.upstream.bad_request': '请求被上游拒绝（400）',

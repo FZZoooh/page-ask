@@ -276,7 +276,7 @@ async function fetchUrl(args, { apiKey, baseUrl, signal }) {
   try {
     await assertPublicHttpUrl(url);
   } catch (err) {
-    throw new ToolError(400, `不允许抓取这个地址：${err?.message ?? err}`);
+    throw new ToolError(400, `URL not allowed: ${err?.message ?? err}`);
   }
 
   // Handle PDF documents directly via PDF parsing pipeline

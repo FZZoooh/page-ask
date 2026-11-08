@@ -209,6 +209,8 @@ export interface ChatRequest {
   text: string;
   /** Regenerate: the backend drops the previous answer (rows after the last user message) and reruns */
   regenerate?: boolean;
+  /** UI language: the backend answers and titles in this language instead of always using Chinese */
+  locale?: 'zh-CN' | 'en-US';
   signal?: AbortSignal;
 }
 
@@ -221,6 +223,7 @@ export async function* streamChat(req: ChatRequest): AsyncGenerator<ChatEvent> {
       body: JSON.stringify({
         conversationId: req.conversationId ?? undefined,
         regenerate: req.regenerate ? true : undefined,
+        locale: req.locale,
         page: {
           url: req.page.url,
           title: req.page.title,

@@ -569,6 +569,7 @@ export default function App() {
           screenshot: shot,
           text: question,
           regenerate,
+          locale: getLocale(),
           signal: controller.signal,
         })) {
           // A tab switch aborts and bumps runSeq; this extra guard keeps old-run events out of the new page

@@ -56,6 +56,24 @@ export const messages = {
   'webui.languageZh': 'Chinese (Simplified)',
   'webui.languageEn': 'English',
 
+  // ---------------- Tool events and model-facing hints ----------------
+  'chat.stopped': 'Stopped',
+  'tool.read_page': 'Read Page',
+  'tool.screenshot': 'Screenshot',
+  'tool.web_search': 'Web Search',
+  'tool.fetch_url': 'Fetch URL',
+  'tool.unknown': 'Tool',
+  'tool.detail.stopped': 'Stopped',
+  'tool.detail.timeout': 'Timed out',
+  'tool.detail.failed': 'Failed',
+  'tool.abortedBody': 'The user stopped the turn while this tool was running.',
+  'tool.timeoutBody':
+    'Tool {name} did not return within {seconds}s and was abandoned. Retry with a smaller range, or tell the user it is unavailable.',
+  'tool.failedBody':
+    'Tool {name} failed: {message}. Retry with different arguments, or tell the user this information is unavailable.',
+  'tool.breakBody': '{count} consecutive tool calls failed; the remaining tools in this turn were disabled.',
+  'tool.notRunBody': 'The user stopped this turn, so this tool did not run.',
+
   // ---------------- Backend error codes ----------------
   'error.auth.origin': 'Request origin is not allowed',
   'error.auth.forbidden': "You don't have permission to access this endpoint",
@@ -74,6 +92,7 @@ export const messages = {
   'error.settings.invalid_state': 'Invalid session state (allowed: {modes})',
   'error.settings.missing_api_key': 'No API key configured',
   'error.settings.open_failed': 'Failed; try open it by hand',
+  'error.settings.test_failed': 'Connection test failed',
   'error.chat.empty_text': 'Question cannot be empty',
   'error.chat.missing_page': 'Missing page information',
   'error.upstream.bad_request': 'Upstream rejected the request (400)',

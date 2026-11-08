@@ -27,7 +27,10 @@ export default defineConfig({
     key: readExtensionKey(),
     // Version lives only in package.json; the manifest follows it
     version: pkg.version,
-    description: '就当前标签页内容向 AI 助手提问（侧栏）',
+    // Browser UI strings use Chrome's _locales mechanism (public/_locales/*/messages.json);
+    // the manifest only carries the placeholder keys.
+    default_locale: 'zh_CN',
+    description: '__MSG_extDescription__',
     // sidePanel.open() requires Chrome/Edge 116+
     minimum_chrome_version: '116',
     permissions: ['sidePanel', 'scripting', 'activeTab', 'storage', 'contextMenus'],
@@ -42,7 +45,7 @@ export default defineConfig({
       128: 'icon/128.png',
     },
     action: {
-      default_title: '打开 PageAsk 侧栏',
+      default_title: '__MSG_actionTitle__',
       default_icon: { 16: 'icon/16.png', 32: 'icon/32.png', 48: 'icon/48.png' },
     },
   },

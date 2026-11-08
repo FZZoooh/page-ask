@@ -144,13 +144,13 @@ export async function assertPublicHttpUrl(raw, { lookup = dnsLookupAll } = {}) {
   try {
     url = new URL(String(raw));
   } catch {
-    throw new Error('链接格式不对');
+    throw new Error('Invalid URL');
   }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('只支持 http/https 链接');
-  if (url.username || url.password) throw new Error('链接里不能带用户名或密码');
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('Only http/https URLs are supported');
+  if (url.username || url.password) throw new Error('URL must not contain a username or password');
 
   const host = bareHost(url.hostname);
-  if (isPrivateHost(host)) throw new Error('不允许访问本机或内网地址');
+  if (isPrivateHost(host)) throw new Error('Local or private addresses are not allowed');
   if (isIP(host) || parseIPv4Loose(host) !== null) return url;
 
   let records;
@@ -158,13 +158,13 @@ export async function assertPublicHttpUrl(raw, { lookup = dnsLookupAll } = {}) {
     records = await lookup(host);
   } catch {
     // Fail closed: an unresolvable name must not fall through to fetch's own lookup.
-    throw new Error('无法解析这个域名');
+    throw new Error('Cannot resolve this domain');
   }
   const list = Array.isArray(records) ? records : [records];
-  if (list.length === 0) throw new Error('无法解析这个域名');
+  if (list.length === 0) throw new Error('Cannot resolve this domain');
   for (const record of list) {
     const address = typeof record === 'string' ? record : record?.address;
-    if (!address || !isIP(address) || isPrivateHost(address)) throw new Error('不允许访问本机或内网地址');
+    if (!address || !isIP(address) || isPrivateHost(address)) throw new Error('Local or private addresses are not allowed');
   }
   return url;
 }
@@ -185,7 +185,7 @@ export async function fetchPublic(raw, init = {}, options = {}) {
     const location = res.headers.get('location');
     if (!location) return res;
     await discardBody(res);
-    if (redirects >= MAX_REDIRECTS) throw new Error('重定向次数过多');
+    if (redirects >= MAX_REDIRECTS) throw new Error('Too many redirects');
 
     const next = new URL(location, url);
     await assertPublicHttpUrl(next.href, options);
@@ -205,7 +205,7 @@ async function discardBody(res) {
 export async function readBodyCapped(res, maxBytes) {
   const declared = Number(res.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > maxBytes) {
-    throw new Error(`响应超过 ${Math.round(maxBytes / 1024 / 1024)} MB 上限`);
+    throw new Error(`Response exceeds ${Math.round(maxBytes / 1024 / 1024)} MB limit`);
   }
   if (!res.body) return Buffer.alloc(0);
 
@@ -219,7 +219,7 @@ export async function readBodyCapped(res, maxBytes) {
       total += value.byteLength;
       if (total > maxBytes) {
         await reader.cancel().catch(() => {});
-        throw new Error(`响应超过 ${Math.round(maxBytes / 1024 / 1024)} MB 上限`);
+        throw new Error(`Response exceeds ${Math.round(maxBytes / 1024 / 1024)} MB limit`);
       }
       chunks.push(Buffer.from(value));
     }
