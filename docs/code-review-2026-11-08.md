@@ -5,7 +5,7 @@
 - 审查范围：`src/`、`server/`、`scripts/`、`test/`、`wxt.config.ts`、`package.json`、CI 与文档
 - 审查方式：逐文件静态审查 + 类型检查 + 语法/i18n 守卫 + 7 个后端回归 + 生产构建
 - 约束：**审查阶段不修改任何产品代码**。报告中的行号与结论以 `b9533d3` 为基线。
-- 修复状态：P1-1、P1-2、P1-3 已在 2026-11-08 的后续批次修复，见第 11 节；正文保留审查时的证据，便于对照。
+- 修复状态：P1-1、P1-2、P1-3 以及 P2-1、P2-2、P2-21、P2-22、P2-23 已在 2026-11-08 的后续批次修复，见第 11 节；正文保留审查时的证据，便于对照。
 
 ## 0. 结论摘要
 
@@ -101,6 +101,8 @@
 
 ### P2-1 自动标题在默认配置下静默 404
 
+**状态：已修复（2026-11-08，批次 4，见第 11 节）。**
+
 **证据**
 
 - `server/index.mjs:504` 请求 `${cfg.baseUrl}/responses`。
@@ -119,6 +121,8 @@
 - 标题失败只记 debug 日志，避免每个新对话都刷一条 404。
 
 ### P2-2 有状态回退可能每轮都失败，且可能丢当前轮 items
+
+**状态：已修复（2026-11-08，批次 4，见第 11 节）。**
 
 **证据**
 
@@ -443,6 +447,8 @@ AGENTS 说“托盘会警告异常退出”，但配置 token 后该能力实际
 
 ### P2-21 `state=off` 仍让上游 `store=true`
 
+**状态：已修复（2026-11-08，批次 4，见第 11 节）。**
+
 **证据**
 
 - `server/index.mjs:948-949` 只有 `if (store || previousResponseId) body.store = true;`，没有 `else body.store = false`。
@@ -461,6 +467,8 @@ AGENTS 说“托盘会警告异常退出”，但配置 token 后该能力实际
 
 ### P2-22 缺少 `response.completed` 的流被当成完整回答落库
 
+**状态：已修复（2026-11-08，批次 4，见第 11 节）。**
+
 **证据**
 
 - `server/index.mjs:1057-1059`：`const turnAborted = interrupted && !final;`。如果连接在若干 delta 后正常关闭、既没有 abort 也没有 `response.completed`，`final` 为 null、`interrupted` 为 false，于是 `aborted=false`、`incomplete=false`。
@@ -478,6 +486,8 @@ AGENTS 说“托盘会警告异常退出”，但配置 token 后该能力实际
 - 把真正的 `response.incomplete` 与用户主动停止分开映射。
 
 ### P2-23 同一对话的 `/chat` 没有互斥
+
+**状态：已修复（2026-11-08，批次 4，见第 11 节）。**
 
 **证据**
 
@@ -704,4 +714,14 @@ AGENTS 写的 `RESULT_CAP = 8000` 只是“正文截断到 8000”，最终工�
 - `handleChat` 的 catch 在非用户中止、已写入用户消息且存在半截内容时，调用同一个 `addTurn()` 事务写一条 `aborted: true` 的 assistant 行，再发 SSE `error`；二次写库失败只记 `chat_partial_persist_failed`，不掩盖原始上游错误。
 - `scripts/test-partial-failure.mjs`：fake upstream 先发 `response.output_text.delta`，再发 `response.failed`；断言 SSE 有正文和 error、没有 done，历史中恰好一条 assistant 行、正文一致且 `aborted` 为 true。
 - 验证：`pnpm verify` 通过（10 个后端回归；45 个 `.mjs` 语法检查），构建仅有既有的 sidepanel 1.02MB chunk 警告。
+
+### P2-1 / P2-2 / P2-21 / P2-22 / P2-23 回合引擎
+
+- **P2-1 自动标题**：URL 改为 `${withV1(cfg.baseUrl)}/responses`，请求体固定 `store:false`，超时从 20s 降到 8s；`handleChat` 在 `await autoTitle()` 之前调用幂等的 `releaseChat()`，删除对话不再被标题请求阻塞。
+- **P2-2 有状态回退**：任意链式 4xx（400/404/409/422）都会把 `statefulUnsupported` 置为 true，本进程不再尝试 `previous_response_id`；回退请求不带 `store`，其响应 id 不会成为新 anchor。无 id 但有 tool_calls 的分支在重建历史后追加当前 `turn.items`，避免 `function_call_output` 找不到 `function_call`。代价是一次坏链会在进程内全局关闭有状态模式，重启后恢复。
+- **P2-21**：`streamTurn` 显式 `body.store = Boolean(store || previousResponseId)`，`state=off` 时不再依赖上游默认的 `store=true`。
+- **P2-22**：流在若干 delta 后正常关闭、但没有 `response.completed` 且已有正文时，标记 `incomplete`；该轮按 `aborted` 落库，`done` 带 `aborted:true`，不再生成标题。真正的 `response.incomplete` 仍单独映射。
+- **P2-23**：`/chat` 在写 user 行之前检查同一 `conversationId` 的 `activeChats`，已有则返回 409 `conversation.busy`；`DELETE /conversations/:id` 同样返回 409。`releaseChat()` 幂等，正常完成与 `finally` 都可调用。
+- **回归**：`scripts/test-auto-title.mjs`（/v1 路径、answer/title 的 `store:false`、SSE title 与落库）、`scripts/test-truncated-stream.mjs`（无 completed 的 EOF → aborted、不生成标题）、`scripts/test-chat-busy.mjs`（并发 `/chat` 与流式期间 DELETE 均 409）、`scripts/test-stateful-fallback.mjs`（链式 400 → 无状态成功 → 第三轮不再带 anchor）。
+- 验证：`pnpm verify` 通过（14 个后端回归；49 个 `.mjs` 语法检查），构建仅既有 sidepanel 1.02MB chunk 警告。
 

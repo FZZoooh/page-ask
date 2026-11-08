@@ -366,6 +366,8 @@ async function handle(req, res) {
       return conv ? sendJson(res, 200, conv) : sendJson(res, 404, errorPayload('conversation.not_found'));
     }
     if (req.method === 'DELETE') {
+      // deleting under a running turn would make its later addTurn hit a missing conversation
+      if ((activeChats.get(id) ?? 0) > 0) return sendJson(res, 409, errorPayload('conversation.busy'));
       // drop the conversation's screenshot files too: delete the row first, then prune only files nothing references
       const paths = imagePathsFor(id);
       const removed = deleteConversation(id);
@@ -499,11 +501,13 @@ async function autoTitle({ conversationId, model, user, answer }) {
     if (stats.users !== 1 || stats.answers !== 1) return null;
 
     const cfg = readSettings();
-    const res = await fetch(`${cfg.baseUrl}/responses`, {
+    const res = await fetch(`${withV1(cfg.baseUrl)}/responses`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
       body: JSON.stringify({
         model,
+        // a title is a local convenience; never let the upstream retain the first Q&A just for it
+        store: false,
         instructions:
           '你负责给一段对话起标题。只输出标题本身：不超过 14 个汉字，' +
           '不要引号、书名号、句号，不要「标题：」这类前缀，不要解释。' +
@@ -517,7 +521,7 @@ async function autoTitle({ conversationId, model, user, answer }) {
         reasoning: { effort: 'low' },
         max_output_tokens: 200,
       }),
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) {
       logEvent('auto_title_failed', { conversationId, status: res.status });
@@ -587,6 +591,10 @@ async function handleChat(req, res) {
     conv = createConversation({ url: page.url, title: page.title ?? '' });
   }
 
+  // One turn per conversation: a second panel, a double-clicked regenerate, or a delete during streaming
+  // would otherwise interleave addTurn rows or remove the conversation under the running turn.
+  if ((activeChats.get(conv.id) ?? 0) > 0) return sendJson(res, 409, errorPayload('conversation.busy'));
+
   const userMsg = body.regenerate
     ? (truncateAfterLastUser(conv.id) ?? { id: '' })
     : addMessage({ conversationId: conv.id, role: 'user', content: text });
@@ -643,6 +651,16 @@ async function handleChat(req, res) {
 
   const started = Date.now();
   activeChats.set(conv.id, (activeChats.get(conv.id) ?? 0) + 1);
+  let released = false;
+  // The turn is over once the answer is persisted; auto-title may still be waiting on the upstream, and
+  // holding the conversation busy through that wait made DELETE return 409 for up to the title timeout.
+  const releaseChat = () => {
+    if (released) return;
+    released = true;
+    const remaining = (activeChats.get(conv.id) ?? 1) - 1;
+    if (remaining <= 0) activeChats.delete(conv.id);
+    else activeChats.set(conv.id, remaining);
+  };
   const totals = { tokensIn: 0, tokensOut: 0 };
   let steps = 0;
   let aborted = false;
@@ -674,9 +692,9 @@ async function handleChat(req, res) {
           status: err.status,
           detail: String(err.detail ?? '').slice(0, 200),
         });
-        // Only 404 (endpoint/response missing) justifies permanently disabling stateful; 400/409/422 may just mean
-        // this turn's context didn't line up (upstream dropped it for now) — retry next turn, don't kill it.
-        if (err.status === 404) statefulUnsupported = true;
+        // Any chain rejection means this upstream cannot be trusted to keep the anchor: retrying stateful
+        // next turn repeats the same failed request. Disable it for this process instead of only on 404.
+        statefulUnsupported = true;
         anchor = null;
         input = historyItems(conv.id);
         turn = await streamTurn({ input, instructions, model, signal: controller.signal, emit });
@@ -725,7 +743,10 @@ async function handleChat(req, res) {
         input = []; // upstream already stored this segment (including the items just produced); only send new stuff now
       } else if (chaining && anchor) {
         anchor = null; // no id this time, can't chain: fall back to full history
+        // Current assistant/tool_calls are not persisted yet; history alone would lose them and the next
+        // function_call_output would have no matching function_call.
         input = historyItems(conv.id);
+        input.push(...turn.items.filter((it) => it?.type));
       } else {
         input.push(...turn.items.filter((it) => it?.type));
       }
@@ -759,6 +780,8 @@ async function handleChat(req, res) {
         // title after the first Q&A round (failure doesn't block the flow); not for aborted/timed-out/truncated turns,
         // otherwise a half answer gets summarized and the title misleads.
         if (!turn.aborted && !turn.timedOut && !turn.incomplete) {
+          // the answer is already stored: let DELETE/recover proceed while the title request finishes
+          releaseChat();
           const title = await autoTitle({ conversationId: conv.id, model, user: text, answer: turn.content });
           if (title) emit('title', { conversationId: conv.id, title });
         }
@@ -936,9 +959,7 @@ async function handleChat(req, res) {
       emit('error', { message, code, params });
     }
   } finally {
-    const remaining = (activeChats.get(conv.id) ?? 1) - 1;
-    if (remaining <= 0) activeChats.delete(conv.id);
-    else activeChats.set(conv.id, remaining);
+    releaseChat();
     finished = true;
     req.off('close', onClose);
     res.off('close', onClose);
@@ -970,8 +991,9 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
     // store must be true, or this response isn't saved and the next turn can't find it.
     body.previous_response_id = previousResponseId;
   }
-  // even the first anchor must set store: don't trust defaults (self-hosted gateway defaults false → 2nd turn 404)
-  if (store || previousResponseId) body.store = true;
+  // Always explicit: OpenAI defaults store=true, so state=off must send false or the upstream still retains
+  // every prompt/answer. The first stateful anchor also sets it, or the next turn cannot find the response.
+  body.store = Boolean(store || previousResponseId);
   // User stop and the 300s timeout can both cut this stream. Neither should lose text already sent to the user:
   // stop comes via signal, timeout via the timer attached to the same abort; return the partial result midway
   // and let the caller persist it as aborted instead of dropping the whole turn.
@@ -1081,6 +1103,10 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
     err.partial = { content, reasoning, usage: final?.usage ?? null };
     throw err;
   }
+
+  // A cleanly closed stream without response.completed is a truncation, not a finished answer: proxies and
+  // gateways do this on dropped connections. Without this the partial text was persisted and shown as complete.
+  if (!final && !interrupted && (content || reasoning)) incomplete = true;
 
   // once completed/incomplete arrived the turn counts as finished, even if aborted afterwards.
   const turnAborted = interrupted && !final;
