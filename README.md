@@ -10,7 +10,6 @@ PageAsk 是一款专为 Microsoft Edge 设计的侧栏 AI 助手扩展。无需�
 
 - **多格式内容提取**：自动提取普通网页正文；支持本地与在线 PDF 文档的文字解析。
 - **划词引用问答**：支持在回答中选中文本进行二次引用提问，保持多轮上下文连贯。
-- **轻量本地服务**：数据存储与模型转发均在本地完成，无多余第三方云端中转依赖。
 - **系统托盘集成**：支持 Windows 系统托盘后台静默运行、进程守护及开机自启。
 - **详细统计指标**：提供上下文 Token 计算、耗时监控及性能统计。
 
@@ -45,17 +44,17 @@ pnpm server:win
 
 > 服务默认监听 `127.0.0.1:8787`。首次启动会自动在 `%USERPROFILE%\.config\pageask\` 下生成配置文件，所有配置都在这一个文件里。
 >
-> 配置文件中的 `port`、`dataDir`、`extensionId`、`token` 分别控制端口、数据目录、扩展 ID 与访问令牌（`dataDir` 留空表示 `server/data`）。没有环境变量或启动参数能覆盖它；改这几个字段需要重启后端，托盘每 4 秒重读一次文件并自动重启到新端口。
+> 配置文件中的 `port`、`dataDir`、`extensionId`、`token` 分别控制端口、数据目录、扩展 ID 与访问令牌（`dataDir` 留空表示 `server/data`）。改这几个字段需要重启后端，或等待托盘每 4 秒自动重读文件并重启。
 
-### 3. 配置 API Key
+### 3. 配置 LLM 服务
 
 1. 浏览器访问 **<http://127.0.0.1:8787/settings>**（或在系统托盘右键菜单中点击“配置”）。
-2. 输入模型提供商的 API Key（如 DeepSeek 等兼容 OpenAI 格式的接口）。
-3. 点击“保存”即可即时生效，无需重启后端服务。
+2. 填写 Base URL、API Key 和模型名（仅支持 Responses API）。
+3. 点击“保存”即可即时生效，无需重启后端。
 
-配置页默认跟随浏览器 `Accept-Language` 选择文案（提供简体中文与 English），也可以在页面右上角切换语言，或用 `?lang=zh-CN` / `?lang=en-US` 强制指定。“测试连接”会用当前表单里的地址、模型和 Key（Key 留空时用已保存的）；已保存的 Key 只显示掩码，点“清空 Key”可删除。
+“测试连接”会用当前表单里的地址、模型和 API Key（或已保存的 API Key，当该字段留空时）；点“清空 API Key”可删除已保存的 API Key。
 
-> 如果配置文件里的 `token` 不为空，侧栏「设置」里的 **Access token** 必须填同一个值；`token` 为空时留空。侧栏「设置」还可以切换界面语言（自动跟随浏览器 / 简体中文 / English），保存后立即生效。
+> 如果配置文件里的 `token` 不为空，侧栏“设置”里的 **访问令牌** 必须填同一个值；`token` 为空时留空。
 
 ### 4. 安装 Edge 侧栏扩展
 
@@ -68,7 +67,7 @@ pnpm server:win
 ## 使用说明
 
 - **打开侧栏**：在任意网页或 PDF 阅读器中 **右键 → 选择“用 PageAsk 询问本页”**，或直接点击浏览器工具栏的 PageAsk 图标。
-- **提问交互**：侧栏顶部会自动展示提取到的页面标题、字符数及 Token 预估，直接在输入框中提问即可。
+- **提问交互**：直接在输入框中提问即可；支持就当前视口和选中的文字（PDF 支持受限）提问，可引用回复。
 - **系统托盘**：若使用 `pnpm tray:bg` 启动，系统托盘右键菜单提供服务启停、配置修改、开机自启切换以及日志查看等功能。
 
 ---
@@ -133,7 +132,6 @@ PageAsk is a side-panel AI assistant built for Microsoft Edge. Without leaving t
 
 - **Multi-format extraction**: pulls the main content out of ordinary web pages, and parses the text layer of both local and online PDF documents.
 - **Ask about a selection**: select text in an answer to quote it in a follow-up question while keeping the multi-turn context coherent.
-- **Lightweight local service**: storage and model forwarding both happen locally, with no extra third-party relay in the middle.
 - **System tray integration**: runs quietly in the Windows tray, with a process watchdog and start-at-login support.
 - **Detailed metrics**: context token counting, latency monitoring and performance statistics.
 
@@ -168,17 +166,17 @@ pnpm server:win
 
 > The service listens on `127.0.0.1:8787` by default. The first start creates the config file under `%USERPROFILE%\.config\pageask\`, and that one file holds the entire configuration.
 >
-> Its `port`, `dataDir`, `extensionId` and `token` fields control the port, data directory, extension ID and access token (`dataDir` empty means `server/data`). No environment variable or startup argument can override them; changing these fields needs a backend restart, and the tray re-reads the file every 4 seconds and restarts onto a new port by itself.
+> Its `port`, `dataDir`, `extensionId` and `token` fields control the port, data directory, extension ID and access token (`dataDir` empty means `server/data`). Changing these fields requires restarting the backend, or waiting for the tray to re-read the file every 4 seconds and restart automatically.
 
-#### 3. Configure the API key
+#### 3. Configure LLM service
 
 1. Open **<http://127.0.0.1:8787/settings>** in the browser (or click "Configure" in the tray context menu).
-2. Enter your model provider's API key (for example DeepSeek or any other OpenAI-compatible endpoint).
+2. Fill in the Base URL, API Key, and model name (Responses API only).
 3. Click "Save" — it takes effect immediately, with no backend restart.
 
-The settings page picks its language from the browser's `Accept-Language` header (Simplified Chinese and English are available). You can also switch languages in the top-right corner, or force one with `?lang=zh-CN` / `?lang=en-US`. "Test connection" uses the URL, model and key currently in the form (when the key field is empty, the saved key is used); a saved key is only ever displayed masked, and "Clear key" deletes it.
+"Test connection" uses the URL, model, and API Key currently in the form (or the saved API Key when this field is left empty); click "Clear API Key" to delete the saved API Key.
 
-> If `token` in the config file is non-empty, the **Access token** field in the panel's Settings must contain the same value; leave it empty when `token` is empty. The panel's Settings also switches the UI language (auto / Simplified Chinese / English) and applies it immediately after saving.
+> If `token` in the config file is non-empty, the **Access token** field in the panel's Settings must contain the same value; leave it empty when `token` is empty.
 
 #### 4. Install the Edge side-panel extension
 
@@ -191,7 +189,7 @@ The settings page picks its language from the browser's `Accept-Language` header
 ### Usage
 
 - **Open the panel**: on any web page or PDF viewer, **right-click → "Ask PageAsk about this page"**, or click the PageAsk icon in the toolbar.
-- **Asking questions**: the panel header shows the extracted page title, character count and estimated tokens; just type your question in the input box.
+- **Asking questions**: simply type your question in the input box; supports asking about the current viewport and selected text (limited support for PDF), and quoting replies.
 - **System tray**: when started with `pnpm tray:bg`, the tray context menu offers service start/stop, configuration, start-at-login and log viewing.
 
 ---
