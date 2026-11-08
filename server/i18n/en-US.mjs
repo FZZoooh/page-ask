@@ -65,7 +65,7 @@ export const messages = {
   'error.conversation.busy': 'This turn is still generating; try again later',
   'error.conversation.no_pending': 'No pending question to recover',
   'error.settings.invalid_base_url':
-    'Upstream URL must start with http:// or https:// and must not contain query parameters or credentials',
+    'Base URL must start with http:// or https:// and must not contain query parameters or credentials',
   'error.settings.invalid_state': 'Invalid session state (allowed: {modes})',
   'error.settings.missing_api_key': 'No API key configured',
   'error.chat.empty_text': 'Question cannot be empty',

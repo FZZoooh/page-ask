@@ -169,7 +169,7 @@ export const enUS = {
   'settings.close': 'Collapse',
   'settings.backendUrl': 'Backend URL',
   'settings.backendHint': 'Local backend',
-  'settings.invalidUrl': 'Invalid backend URL — use something like http://127.0.0.1:8787',
+  'settings.invalidUrl': 'Invalid backend URL',
   'settings.remoteHint':
     'Remote backend ({host}): page text, selections, and screenshots will be sent to that machine',
   'settings.remoteConfirm':
@@ -191,7 +191,7 @@ export const enUS = {
   'settings.consoleHint': 'Configure API key, endpoint, and model',
   'settings.language': 'Language',
   'settings.languageAuto': 'Auto (browser)',
-  'settings.languageZh': 'Chinese (Simplified)',
+  'settings.languageZh': '简体中文',
   'settings.languageEn': 'English',
 
   // Context menu

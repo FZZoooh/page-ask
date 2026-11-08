@@ -65,7 +65,7 @@ export const messages = {
   'error.conversation.not_found': '找不到这个会话',
   'error.conversation.busy': '这一轮还在生成，请稍后再试',
   'error.conversation.no_pending': '没有待恢复的提问',
-  'error.settings.invalid_base_url': '上游地址要以 http:// 或 https:// 开头，且不能带参数或账号密码',
+  'error.settings.invalid_base_url': 'Base URL 以 http:// 或 https:// 开头，且不能带有参数或账号密码',
   'error.settings.invalid_state': '会话状态不合法（可选：{modes}）',
   'error.settings.missing_api_key': '还没有配置 API Key',
   'error.chat.empty_text': '问题不能为空',
