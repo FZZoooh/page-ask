@@ -39,7 +39,7 @@ import {
 } from './db.mjs';
 import { lifecycleInfo, markCleanExit, startLifecycle } from './lifecycle.mjs';
 import { logError, logEvent } from './log.mjs';
-import { assertPublicHttpUrl, readBodyCapped } from './net.mjs';
+import { fetchPublic, readBodyCapped } from './net.mjs';
 import { withV1 } from './upstream.mjs';
 import { errorPayload, normalizePdfCode, upstreamErrorCode } from './errors.mjs';
 import { negotiateLocale } from './i18n/index.mjs';
@@ -477,10 +477,8 @@ function readLocalPdf(fileUrl) {
 
 /** download PDF bytes directly (public links only; no credentials, and never loopback/LAN) */
 async function downloadPdf(url) {
-  assertPublicHttpUrl(url);
-  const res = await fetch(url, {
+  const res = await fetchPublic(url, {
     headers: { Accept: 'application/pdf,*/*' },
-    redirect: 'follow',
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) throw new ToolError(res.status, `下载 PDF 失败：HTTP ${res.status}`);

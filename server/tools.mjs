@@ -2,7 +2,7 @@
 // All tools are read-only. External content is encapsulated in <untrusted_content>
 // blocks and hard-capped at RESULT_CAP characters to prevent context overflow.
 
-import { assertPublicHttpUrl, readBodyCapped } from './net.mjs';
+import { assertPublicHttpUrl, fetchPublic, readBodyCapped } from './net.mjs';
 import { extractPdfText } from './pdf.mjs';
 import { findParagraphs } from './text.mjs';
 import { withV1 } from './upstream.mjs';
@@ -274,7 +274,7 @@ async function fetchUrl(args, { apiKey, baseUrl, signal }) {
     return { text: `Invalid HTTP/HTTPS URL: ${url}`, label: 'Fetch URL', detail: url };
   }
   try {
-    assertPublicHttpUrl(url);
+    await assertPublicHttpUrl(url);
   } catch (err) {
     throw new ToolError(400, `不允许抓取这个地址：${err?.message ?? err}`);
   }
@@ -326,12 +326,12 @@ async function fetchPdf(url, signal) {
   const hit = pdfCache.get(url);
   if (hit && Date.now() - hit.at < 10 * 60_000) return hit.value;
 
-  assertPublicHttpUrl(url);
+  await assertPublicHttpUrl(url);
   const timeout = AbortSignal.timeout(30_000);
   const stop = signal ? AbortSignal.any([signal, timeout]) : timeout;
   let res;
   try {
-    res = await fetch(url, { headers: { Accept: 'application/pdf,*/*' }, signal: stop, redirect: 'follow' });
+    res = await fetchPublic(url, { headers: { Accept: 'application/pdf,*/*' }, signal: stop });
   } catch (err) {
     if (timeout.aborted) throw new ToolError(504, 'Fetching PDF timed out after 30s');
     throw err;
