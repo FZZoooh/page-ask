@@ -30,6 +30,8 @@ export const zhCN = {
   'history.titleWithCount': '历史 {count}',
   'history.delete': '删除这段对话',
   'history.deleteConfirm': '删除这段对话？操作不可撤销',
+  'history.loadEarlier': '加载更早的消息',
+  'history.loadingEarlier': '正在加载…',
   // 时间显示：今天只显时间，昨天/周内/更早分别是「昨天」「周X」「月/日」
   'history.yesterday': '昨天',
   'weekday.0': '周日',
@@ -70,7 +72,7 @@ export const zhCN = {
 
   // PDF
   'page.failure.pdfNeedBackend': '请启动后端程序并重试',
-  'page.failure.pdfTooBig': 'PDF 太大了（{size}），不应大于 64 MB',
+  'page.failure.pdfTooBig': 'PDF 太大了（{size}），原始文件不应大于 {limit}',
   'page.failure.pdfNotPdf': '未获取到 PDF 文件，请检查是否发生跳转或需要登录',
   'page.failure.pdfParse': 'PDF 解析失败：{message}',
   'page.failure.pdfFetch': '下载 PDF 失败：{message}',

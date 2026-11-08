@@ -389,7 +389,12 @@ async function handle(req, res) {
     const id = decodeConversationId(convMatch[1]);
     if (!id) return sendJson(res, 400, errorPayload('request.bad_id'));
     if (req.method === 'GET') {
-      const conv = getConversation(id);
+      const limitRaw = url.searchParams.get('limit');
+      // No limit keeps the old full-history response for scripts; the panel always asks for a page.
+      const conv = getConversation(id, {
+        limit: limitRaw == null ? null : Number(limitRaw),
+        before: url.searchParams.get('before'),
+      });
       return conv ? sendJson(res, 200, conv) : sendJson(res, 404, errorPayload('conversation.not_found'));
     }
     if (req.method === 'DELETE') {
@@ -1427,6 +1432,8 @@ async function* parseSseEvents(stream) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
+    // SSE spec allows CRLF; normalize after appending so a CR/LF pair split across chunks is joined first.
+    buffer = buffer.replace(/\r\n/g, '\n');
     let idx;
     while ((idx = buffer.indexOf('\n\n')) >= 0) {
       const raw = buffer.slice(0, idx);

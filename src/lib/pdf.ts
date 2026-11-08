@@ -23,7 +23,54 @@ export class PdfReadError extends Error {
   }
 }
 
-const MAX_BYTES = 64 * 1024 * 1024;
+const MAX_BYTES = 45 * 1024 * 1024;
+/** The backend caps the JSON body at 64 MB; base64 expands by 4/3, so keep raw PDF bytes below that. */
+const MAX_RAW_LABEL = '45 MB';
+
+function tooBig(size: string): PdfReadError {
+  return new PdfReadError(t('page.failure.pdfTooBig', { size, limit: MAX_RAW_LABEL }));
+}
+
+/** Read a response body without ever buffering more than MAX_BYTES; content-length only shortcuts the common case. */
+async function readCappedBody(res: Response): Promise<Uint8Array> {
+  const declared = Number(res.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > MAX_BYTES) {
+    await res.body?.cancel().catch(() => {});
+    throw tooBig(`${Math.round(declared / 1024 / 1024)} MB`);
+  }
+
+  if (!res.body) {
+    const fallback = new Uint8Array(await res.arrayBuffer());
+    if (fallback.byteLength > MAX_BYTES) throw tooBig(`${Math.round(fallback.byteLength / 1024 / 1024)} MB`);
+    return fallback;
+  }
+
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_BYTES) {
+        await reader.cancel().catch(() => {});
+        throw tooBig(`${Math.round(total / 1024 / 1024)} MB`);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
 
 /** The backend token is optional, but when configured every endpoint (including /pdf) requires it */
 function tokenHeader(token?: string): Record<string, string> {
@@ -91,10 +138,7 @@ export async function readPdfFromTab(url: string, backendUrl: string, token?: st
     throw new PdfReadError(t('page.failure.pdfFetch', { message: `HTTP ${res.status}` }));
   }
 
-  const buf = new Uint8Array(await res.arrayBuffer());
-  if (buf.byteLength > MAX_BYTES) {
-    throw new PdfReadError(t('page.failure.pdfTooBig', { size: `${Math.round(buf.byteLength / 1024 / 1024)} MB` }));
-  }
+  const buf = await readCappedBody(res);
   // Some sites wrap the PDF behind a login page, so what comes back is actually HTML
   const head = String.fromCharCode(...buf.subarray(0, 5));
   if (head !== '%PDF-') {

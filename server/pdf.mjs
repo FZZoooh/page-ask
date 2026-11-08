@@ -25,14 +25,29 @@ export class PdfError extends Error {
 }
 
 /**
+ * Clamp caller-provided limits to the hard caps. The HTTP layer passes request values straight through,
+ * so without this a caller could ask for 1e9 pages/characters and pin the CPU on one PDF.
+ */
+export function normalizePdfLimits(opts = {}) {
+  const pick = (value, fallback, max) => {
+    const n = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(n) || n < 1) return fallback;
+    return Math.min(Math.floor(n), max);
+  };
+  return {
+    maxPages: pick(opts.maxPages, MAX_PAGES, MAX_PAGES),
+    maxChars: pick(opts.maxChars, MAX_CHARS, MAX_CHARS),
+  };
+}
+
+/**
  * Extract text from a PDF byte stream.
  * @param {Uint8Array} bytes
  * @param {{maxPages?: number, maxChars?: number, onProgress?: (done:number,total:number)=>void}} [opts]
  * @returns {Promise<{pageCount:number, pages:Array<{n:number,text:string}>, text:string, chars:number, truncated:boolean}>}
  */
 export async function extractPdfText(bytes, opts = {}) {
-  const maxPages = opts.maxPages ?? MAX_PAGES;
-  const maxChars = opts.maxChars ?? MAX_CHARS;
+  const { maxPages, maxChars } = normalizePdfLimits(opts);
 
   let doc;
   let loadingTask;

@@ -45,6 +45,9 @@ export interface ToolCall {
 
 export interface Conversation extends ConversationMeta {
   messages: StoredMessage[];
+  /** Paginated GET only: whether older messages exist and the cursor for the next page */
+  hasMore?: boolean;
+  nextBefore?: string | null;
 }
 
 export interface Usage {
@@ -162,8 +165,17 @@ export async function listConversations(settings: Settings, pageUrl: string): Pr
   return data.conversations;
 }
 
-export async function getConversation(settings: Settings, id: string): Promise<Conversation> {
-  return httpJson<Conversation>(settings, `/conversations/${encodeURIComponent(id)}`);
+export async function getConversation(
+  settings: Settings,
+  id: string,
+  opts: { limit?: number; before?: string | null } = {},
+): Promise<Conversation> {
+  const q = new URLSearchParams();
+  if (opts.limit) q.set('limit', String(opts.limit));
+  if (opts.before) q.set('before', opts.before);
+  const query = q.toString();
+  const suffix = query ? `?${query}` : '';
+  return httpJson<Conversation>(settings, `/conversations/${encodeURIComponent(id)}${suffix}`);
 }
 
 export async function deleteConversation(settings: Settings, id: string): Promise<void> {
@@ -259,90 +271,92 @@ export async function* streamChat(req: ChatRequest): AsyncGenerator<ChatEvent> {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
+      // SSE spec allows CRLF; normalize after appending so a CR/LF pair split across chunks is joined first.
+      buffer = buffer.replace(/\r\n/g, '\n');
 
-    let idx: number;
-    while ((idx = buffer.indexOf('\n\n')) >= 0) {
-      const block = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 2);
-      const event = block.match(/^event: (.+)$/m)?.[1];
-      const raw = block.match(/^data: (.+)$/m)?.[1];
-      if (!event || !raw) continue;
+      let idx: number;
+      while ((idx = buffer.indexOf('\n\n')) >= 0) {
+        const block = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const event = block.match(/^event: (.+)$/m)?.[1];
+        const raw = block.match(/^data: (.+)$/m)?.[1];
+        if (!event || !raw) continue;
 
-      let payload: Record<string, unknown>;
-      try {
-        payload = JSON.parse(raw) as Record<string, unknown>;
-      } catch {
-        continue;
+        let payload: Record<string, unknown>;
+        try {
+          payload = JSON.parse(raw) as Record<string, unknown>;
+        } catch {
+          continue;
+        }
+
+        switch (event) {
+          case 'meta':
+            yield {
+              type: 'meta',
+              conversationId: String(payload.conversationId ?? ''),
+              messageId: String(payload.userMessageId ?? ''),
+              model: String(payload.model ?? ''),
+            };
+            break;
+          case 'reasoning':
+            yield { type: 'reasoning', delta: String(payload.delta ?? '') };
+            break;
+          case 'content':
+            yield { type: 'content', delta: String(payload.delta ?? '') };
+            break;
+          case 'replace':
+            yield { type: 'replace', text: String(payload.text ?? '') };
+            break;
+          case 'usage':
+            yield { type: 'usage', usage: payload as Usage };
+            break;
+          case 'tool':
+            yield {
+              type: 'tool',
+              phase: payload.phase === 'end' ? 'end' : 'start',
+              id: String(payload.id ?? ''),
+              name: String(payload.name ?? ''),
+              args: (payload.args as Record<string, unknown> | undefined) ?? undefined,
+              label: typeof payload.label === 'string' ? payload.label : undefined,
+              detail: typeof payload.detail === 'string' ? payload.detail : undefined,
+              ok: typeof payload.ok === 'boolean' ? payload.ok : undefined,
+              chars: typeof payload.chars === 'number' ? payload.chars : undefined,
+            };
+            break;
+          case 'done':
+            yield {
+              type: 'done',
+              conversationId: String(payload.conversationId ?? ''),
+              aborted: payload.aborted === true,
+              message: payload.message as
+                | { id: string; content: string; reasoning: string; ms: number; processMs?: number }
+                | undefined,
+              usage: (payload.usage as Usage | null) ?? null,
+              totals: payload.totals as { tokensIn: number; tokensOut: number } | undefined,
+              steps: typeof payload.steps === 'number' ? payload.steps : undefined,
+              ms: typeof payload.ms === 'number' ? payload.ms : undefined,
+            };
+            break;
+          case 'error':
+            yield {
+              type: 'error',
+              message: String(payload.message ?? t('error.unknown')),
+              code: typeof payload.code === 'string' ? payload.code : undefined,
+              params:
+                payload.params && typeof payload.params === 'object'
+                  ? (payload.params as Record<string, string | number>)
+                  : undefined,
+            };
+            break;
+          case 'title':
+            yield {
+              type: 'title',
+              conversationId: String(payload.conversationId ?? ''),
+              title: String(payload.title ?? ''),
+            };
+            break;
+        }
       }
-
-      switch (event) {
-        case 'meta':
-          yield {
-            type: 'meta',
-            conversationId: String(payload.conversationId ?? ''),
-            messageId: String(payload.userMessageId ?? ''),
-            model: String(payload.model ?? ''),
-          };
-          break;
-        case 'reasoning':
-          yield { type: 'reasoning', delta: String(payload.delta ?? '') };
-          break;
-        case 'content':
-          yield { type: 'content', delta: String(payload.delta ?? '') };
-          break;
-        case 'replace':
-          yield { type: 'replace', text: String(payload.text ?? '') };
-          break;
-        case 'usage':
-          yield { type: 'usage', usage: payload as Usage };
-          break;
-        case 'tool':
-          yield {
-            type: 'tool',
-            phase: payload.phase === 'end' ? 'end' : 'start',
-            id: String(payload.id ?? ''),
-            name: String(payload.name ?? ''),
-            args: (payload.args as Record<string, unknown> | undefined) ?? undefined,
-            label: typeof payload.label === 'string' ? payload.label : undefined,
-            detail: typeof payload.detail === 'string' ? payload.detail : undefined,
-            ok: typeof payload.ok === 'boolean' ? payload.ok : undefined,
-            chars: typeof payload.chars === 'number' ? payload.chars : undefined,
-          };
-          break;
-        case 'done':
-          yield {
-            type: 'done',
-            conversationId: String(payload.conversationId ?? ''),
-            aborted: payload.aborted === true,
-            message: payload.message as
-              | { id: string; content: string; reasoning: string; ms: number; processMs?: number }
-              | undefined,
-            usage: (payload.usage as Usage | null) ?? null,
-            totals: payload.totals as { tokensIn: number; tokensOut: number } | undefined,
-            steps: typeof payload.steps === 'number' ? payload.steps : undefined,
-            ms: typeof payload.ms === 'number' ? payload.ms : undefined,
-          };
-          break;
-        case 'error':
-          yield {
-            type: 'error',
-            message: String(payload.message ?? t('error.unknown')),
-            code: typeof payload.code === 'string' ? payload.code : undefined,
-            params:
-              payload.params && typeof payload.params === 'object'
-                ? (payload.params as Record<string, string | number>)
-                : undefined,
-          };
-          break;
-        case 'title':
-          yield {
-            type: 'title',
-            conversationId: String(payload.conversationId ?? ''),
-            title: String(payload.title ?? ''),
-          };
-          break;
-      }
-    }
     }
   } finally {
     // Close the connection even when the caller breaks early; do not leave the auto-title stream open

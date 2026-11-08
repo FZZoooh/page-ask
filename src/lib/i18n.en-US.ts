@@ -28,6 +28,8 @@ export const enUS = {
   'history.titleWithCount': 'History {count}',
   'history.delete': 'Delete this chat',
   'history.deleteConfirm': 'Delete this chat? This cannot be undone.',
+  'history.loadEarlier': 'Load earlier messages',
+  'history.loadingEarlier': 'Loading…',
   'history.yesterday': 'Yesterday',
   'weekday.0': 'Sunday',
   'weekday.1': 'Monday',
@@ -67,7 +69,7 @@ export const enUS = {
 
   // PDF
   'page.failure.pdfNeedBackend': 'Start the backend and try again',
-  'page.failure.pdfTooBig': 'PDF is too large ({size}); the limit is 64 MB',
+  'page.failure.pdfTooBig': 'PDF is too large ({size}); the raw file limit is {limit}',
   'page.failure.pdfNotPdf': "Didn't get a PDF file. Check for a redirect or a login requirement.",
   'page.failure.pdfParse': 'Failed to parse PDF: {message}',
   'page.failure.pdfFetch': 'Failed to download PDF: {message}',

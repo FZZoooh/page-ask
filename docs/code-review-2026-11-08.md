@@ -5,7 +5,7 @@
 - 审查范围：`src/`、`server/`、`scripts/`、`test/`、`wxt.config.ts`、`package.json`、CI 与文档
 - 审查方式：逐文件静态审查 + 类型检查 + 语法/i18n 守卫 + 7 个后端回归 + 生产构建
 - 约束：**审查阶段不修改任何产品代码**。报告中的行号与结论以 `b9533d3` 为基线。
-- 修复状态：P1-1、P1-2、P1-3、P2-1、P2-2、P2-3、P2-4、P2-5、P2-6、P2-21、P2-22、P2-23、P2-24、P2-25 已在 2026-11-08 的后续批次修复，见第 11 节；正文保留审查时的证据，便于对照。
+- 修复状态：P1-1、P1-2、P1-3、P2-1、P2-2、P2-3、P2-4、P2-5、P2-6、P2-8、P2-9、P2-10、P2-11、P2-12、P2-21、P2-22、P2-23、P2-24、P2-25 已在 2026-11-08 的后续批次修复，见第 11 节；正文保留审查时的证据，便于对照。
 
 ## 0. 结论摘要
 
@@ -241,6 +241,8 @@
 
 ### P2-8 SSE 解析不支持 CRLF
 
+**状态：已修复（2026-11-08，见第 11 节）。** 以下为修复前证据。
+
 **证据**
 
 - `server/index.mjs:1296-1327` 只按 `\n\n` 分帧；`src/lib/chat.ts:261-266` 同样只按 `\n\n` 和 `^event: ` 匹配。
@@ -257,6 +259,8 @@
 
 ### P2-9 PDF 页数/字符上限可被请求参数绕过
 
+**状态：已修复（2026-11-08，见第 11 节）。** 以下为修复前证据。
+
 **证据**
 
 - `server/pdf.mjs:33-35` 直接使用 `opts.maxPages` / `opts.maxChars`。
@@ -272,6 +276,8 @@
 - 回归：传入超大值仍只处理 400 页 / 400k 字符。
 
 ### P2-10 历史与会话响应无分页，截图会反复内嵌
+
+**状态：已修复（2026-11-08，见第 11 节）。** 以下为修复前证据。
 
 **证据**
 
@@ -291,6 +297,8 @@
 
 ### P2-11 PDF 客户端先下载完整文件再检查 64MB
 
+**状态：已修复（2026-11-08，见第 11 节）。** 以下为修复前证据。
+
 **证据**
 
 - `src/lib/pdf.ts:88-91`：`new Uint8Array(await res.arrayBuffer())` 之后才判断 `MAX_BYTES`。
@@ -306,6 +314,8 @@
 - 把“原始字节上限”和“base64 后 body 上限”统一成一个常量，错误文案说明实际限制。
 
 ### P2-12 重生成会把输入框状态清空但保留 DOM 草稿
+
+**状态：已修复（2026-11-08，见第 11 节）。** 以下为修复前证据。
 
 **证据**
 
@@ -758,4 +768,15 @@ AGENTS 写的 `RESULT_CAP = 8000` 只是“正文截断到 8000”，最终工�
 - **回归**：`scripts/test-i18n-chat.mjs` 用 fake upstream 抓取两种 locale 的回答/标题请求，断言语言指令、提示中无 CJK、页面元数据信封存在；`test-empty-stream.mjs` 与 `test-page-metadata.mjs` 的旧中文断言同步更新。
 - 验证：`pnpm verify` 通过（18 个后端回归；53 个 `.mjs` 语法检查），构建仅既有 sidepanel 1.03MB chunk 警告；检查了构建后的 manifest 与 `_locales`。
 - 残留：`errorPayload()` 的兜底文案仍默认 zh-CN；前端与设置页都按 `code` 映射，因此 UI 不受影响，但直接调用 API 的脚本在不带 locale 时可能看到中文兜底。
+
+### P2-8 / P2-9 / P2-10 / P2-11 / P2-12 协议、PDF 与历史分页
+
+- **P2-8 SSE CRLF**：`server/index.mjs` 的 `parseSseEvents` 与 `src/lib/chat.ts` 的 `streamChat` 都在追加解码结果后执行 `buffer = buffer.replace(/\r\n/g, '\n')`。先追加再归一化，避免 `\r` 与 `\n` 被拆到两个 chunk 时误判帧边界；前端解析器同时整理了 `switch` 缩进。
+- **P2-9 PDF 上限**：`server/pdf.mjs` 新增 `normalizePdfLimits()`，把请求里的 `maxPages` / `maxChars` 先转数字、非法值回退，再 `Math.min` 到 400 页 / 400k 字符；`extractPdfText` 只使用归一化后的值。
+- **P2-10 历史分页与截图预算**：`getConversation(id, { limit, before })` 按 rowid 分页（`created_at` 在同一轮多行时会碰撞），返回 `hasMore` / `nextBefore`；`GET /conversations/:id` 接受 `limit` / `before`，不传 `limit` 仍返回全量以兼容脚本。面板默认取 200 条，顶部“加载更早的消息”按游标前插，并按前后 `scrollHeight` 差校正滚动位置。无状态回放只保留最近 8 张截图、总 data URL 不超过约 6M 字符，更早的 tool output 只留文本。
+- **P2-11 PDF 客户端**：`src/lib/pdf.ts` 原始字节上限改为 45MB（base64 后约 60MB，低于后端 64MB JSON body），先看 `content-length`，无长度时用 reader 流式累计，超限立即 `cancel()` 并报错；不再先 `arrayBuffer()` 全量下载。错误文案同时给出实际大小与上限。
+- **P2-12 重生成草稿**：`send()` 只在 `!regenerate` 时执行 `setInput('')`、清空 DOM 和 `savedRange`；重新生成保留输入框草稿。
+- **回归**：`scripts/test-sse-crlf.mjs`（CRLF 上游仍产生 content/done 并落库）、`scripts/test-pdf-limits.mjs`（1e9→400/400k、非法值回退、数值字符串）、`scripts/test-history-page.mjs`（分页顺序/游标/未知游标，以及回放只带最近 8 张图）。`package.json` 的 `test:server` 增至 21 个脚本。
+- 验证：`pnpm verify` 通过（21 个后端回归；56 个 `.mjs` 语法检查），构建仅既有 sidepanel 1.03MB chunk 警告。
+- 残留：分页只限制 `/conversations/:id` 的响应体；`historyItems()` 仍把完整文本历史送入模型，长对话的上下文/token 增长没有摘要或滑动窗口，本轮只解决了响应体与截图重复内嵌。前端分页交互没有浏览器自动化测试，只有类型检查与生产构建覆盖。
 

@@ -650,6 +650,33 @@ button.primary.save:hover:not(:disabled) {
   color: var(--bad);
 }
 
+.history-more {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 2px;
+}
+
+.history-more-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.history-more-btn:hover:not(:disabled) {
+  color: var(--fg);
+  border-color: var(--muted);
+}
+
+.history-more-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* ---------- Markdown body ---------- */
 
 .md {

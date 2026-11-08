@@ -53,6 +53,8 @@ import {
 
 /** Editor max height (beyond this it scrolls internally); must match .editor max-height in style.css */
 const MAX_BOX_H = 156;
+/** Messages per history page; the backend clamps to 500 */
+const HISTORY_PAGE_SIZE = 200;
 
 type PageState =
   | { kind: 'loading' }
@@ -113,6 +115,9 @@ export default function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   /** Banner above the list when loading history / switching conversations fails; never replaces messages */
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyBefore, setHistoryBefore] = useState<string | null>(null);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
 
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -284,6 +289,9 @@ export default function App() {
     setMessages([]);
     setHistoryOpen(false);
     setLoadError(null);
+    setHistoryHasMore(false);
+    setHistoryBefore(null);
+    setLoadingEarlier(false);
 
     void (async () => {
       const list = await refreshConversations(pageUrl, settings, false);
@@ -293,7 +301,7 @@ export default function App() {
       if (!latest) return;
       // Auto-resume this page's most recent conversation
       try {
-        const conv = await getConversation(settings, latest.id);
+        const conv = await getConversation(settings, latest.id, { limit: HISTORY_PAGE_SIZE });
         if (cancelled || mine !== loadSeqRef.current) return;
         // The user may have sent during those two round-trips; never overwrite the message list wholesale
         if (sendingRef.current || messagesRef.current.length > 0) return;
@@ -311,6 +319,8 @@ export default function App() {
         }
         setConversationId(conv.id);
         setMessages(toMessages(stored, page?.kind === 'pdf'));
+        setHistoryHasMore(conv.hasMore === true);
+        setHistoryBefore(conv.nextBefore ?? null);
       } catch (err) {
         if (cancelled || mine !== loadSeqRef.current) return;
         setLoadError(t('error.historyLoad', { message: errText(err) }));
@@ -491,9 +501,11 @@ export default function App() {
       const runId = ++runSeqRef.current;
       abortRef.current?.abort();
       sendingRef.current = true;
-      setInput('');
-      if (!regenerate && editorRef.current) editorRef.current.innerHTML = '';
-      savedRange.current = null;
+      if (!regenerate) {
+        setInput('');
+        if (editorRef.current) editorRef.current.innerHTML = '';
+        savedRange.current = null;
+      }
       stickToBottom.current = true;
 
       // One question can produce several assistant segments (tool calls split them), so targetId
@@ -768,6 +780,9 @@ export default function App() {
     setMessages([]);
     setHistoryOpen(false);
     setLoadError(null);
+    setHistoryHasMore(false);
+    setHistoryBefore(null);
+    setLoadingEarlier(false);
     stickToBottom.current = true;
   };
 
@@ -778,7 +793,7 @@ export default function App() {
     }
     const mine = ++loadSeqRef.current;
     try {
-      const conv = await getConversation(settings, id);
+      const conv = await getConversation(settings, id, { limit: HISTORY_PAGE_SIZE });
       if (mine !== loadSeqRef.current) return;
       if (pageUrl && conv.url !== normalizeUrl(pageUrl)) {
         setLoadError(t('error.historyLoad', { message: t('error.pageMismatch') }));
@@ -797,6 +812,9 @@ export default function App() {
       setConversationId(conv.id);
       setMessages(toMessages(stored, page?.kind === 'pdf'));
       setLoadError(null);
+      setHistoryHasMore(conv.hasMore === true);
+      setHistoryBefore(conv.nextBefore ?? null);
+      setLoadingEarlier(false);
       setHistoryOpen(false);
       stickToBottom.current = true;
     } catch (err) {
@@ -805,6 +823,40 @@ export default function App() {
       setLoadError(t('error.historyLoad', { message: errText(err) }));
     }
   };
+
+  const loadEarlier = useCallback(async () => {
+    if (!settings || !conversationId || !historyHasMore || !historyBefore || loadingEarlier || busy) return;
+    const mine = loadSeqRef.current;
+    const el = listRef.current;
+    const prevHeight = el?.scrollHeight ?? 0;
+    const prevTop = el?.scrollTop ?? 0;
+    setLoadingEarlier(true);
+    try {
+      const conv = await getConversation(settings, conversationId, {
+        limit: HISTORY_PAGE_SIZE,
+        before: historyBefore,
+      });
+      if (mine !== loadSeqRef.current) return;
+      const older = toMessages(conv.messages, page?.kind === 'pdf');
+      setMessages((prev) => {
+        const seen = new Set(prev.map((m) => m.id));
+        return [...older.filter((m) => !seen.has(m.id)), ...prev];
+      });
+      setHistoryHasMore(conv.hasMore === true);
+      setHistoryBefore(conv.nextBefore ?? null);
+      // Prepending grows the scroll height; keep the user's viewport anchored instead of jumping.
+      requestAnimationFrame(() => {
+        if (!el) return;
+        el.scrollTop = prevTop + (el.scrollHeight - prevHeight);
+      });
+    } catch (err) {
+      if (mine === loadSeqRef.current) {
+        setLoadError(t('error.historyLoad', { message: errText(err) }));
+      }
+    } finally {
+      if (mine === loadSeqRef.current) setLoadingEarlier(false);
+    }
+  }, [settings, conversationId, historyHasMore, historyBefore, loadingEarlier, busy, page?.kind]);
 
   const removeConversation = async (id: string) => {
     if (!settings || busy) return;
@@ -1039,6 +1091,19 @@ export default function App() {
             {messages.length === 0 && pageUrl && conversations.length > 0 && (
               <p className="muted small">{t('empty.hasHistory', { count: conversations.length })}</p>
             )}
+          </div>
+        )}
+
+        {historyHasMore && (
+          <div className="history-more">
+            <button
+              type="button"
+              className="history-more-btn"
+              disabled={loadingEarlier}
+              onClick={() => void loadEarlier()}
+            >
+              {loadingEarlier ? t('history.loadingEarlier') : t('history.loadEarlier')}
+            </button>
           </div>
         )}
 

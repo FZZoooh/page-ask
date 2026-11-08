@@ -94,15 +94,48 @@ export function listConversations(url) {
   return rows.map(toConversation);
 }
 
-export function getConversation(id) {
+/**
+ * Load a conversation. Without `limit` the whole history is returned (tests and internal callers);
+ * with `limit` only the newest page is loaded, and `nextBefore` is the id to pass as `before` for the page
+ * before it. Pagination is rowid-based: created_at can collide when a turn writes several rows at once.
+ */
+export function getConversation(id, { limit = null, before = null } = {}) {
   const row = db.prepare('SELECT * FROM conversations WHERE id = ?').get(id);
   if (!row) return null;
+
+  let rows;
+  let hasMore = false;
+  if (limit == null) {
+    rows = db
+      .prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC')
+      .all(id);
+  } else {
+    const pageSize = Math.max(1, Math.min(500, Math.trunc(Number(limit)) || 200));
+    const params = [id];
+    const where = ['conversation_id = ?'];
+    if (before) {
+      // An unknown/stale cursor must not fall back to the first page: that would loop forever in the UI.
+      const anchor = db
+        .prepare('SELECT rowid FROM messages WHERE id = ? AND conversation_id = ?')
+        .get(before, id);
+      where.push('rowid < ?');
+      params.push(anchor?.rowid ?? 0);
+    }
+    params.push(pageSize + 1);
+    rows = db
+      .prepare(`SELECT rowid, * FROM messages WHERE ${where.join(' AND ')} ORDER BY rowid DESC LIMIT ?`)
+      .all(...params);
+    hasMore = rows.length > pageSize;
+    if (hasMore) rows = rows.slice(0, pageSize);
+    rows.reverse();
+  }
+
+  const messages = rows.map(toMessage);
   return {
     ...toConversation(row),
-    messages: db
-      .prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC')
-      .all(id)
-      .map(toMessage),
+    messages,
+    hasMore,
+    nextBefore: hasMore ? (messages[0]?.id ?? null) : null,
   };
 }
 
@@ -379,6 +412,22 @@ export function historyItemsSince(conversationId, anchorRowid) {
  */
 function rowsToItems(rows) {
   const out = [];
+  // Stateless replay resends the entire history, and every screenshot is base64. Keep only the newest few
+  // images under a total character budget; older tool outputs stay text-only so one long chat can't blow
+  // up the request body (and the context window) with every past viewport.
+  const REPLAY_IMAGE_MAX_COUNT = 8;
+  const REPLAY_IMAGE_MAX_CHARS = 6_000_000;
+  const replayImages = new Map();
+  let imageChars = 0;
+  for (let i = rows.length - 1; i >= 0 && replayImages.size < REPLAY_IMAGE_MAX_COUNT; i--) {
+    const r = rows[i];
+    if (r.role !== 'tool' || !r.image_path) continue;
+    const image = shotToDataUrl(r.image_path);
+    if (!image) continue;
+    if (imageChars + image.length > REPLAY_IMAGE_MAX_CHARS) continue;
+    replayImages.set(r.id, image);
+    imageChars += image.length;
+  }
   // History may still hold dangling calls from older versions (old logic wrote the assistant row, then
   // each tool row). On replay keep only calls that have a real tool row: one missing record beats a 400.
   const answeredCalls = new Set();
@@ -388,7 +437,7 @@ function rowsToItems(rows) {
   for (const r of rows) {
     if (r.role === 'tool') {
       if (!r.tool_call_id) continue;
-      const image = shotToDataUrl(r.image_path);
+      const image = replayImages.get(r.id);
       out.push({
         type: 'function_call_output',
         call_id: r.tool_call_id,
