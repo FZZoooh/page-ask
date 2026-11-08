@@ -20,7 +20,7 @@ export const zhCN = {
   'answer.copy': '复制',
   'answer.copied': '已复制',
   'answer.regenerate': '重新生成',
-  'answer.regenerate.title': '丢掉这条回答，重新问一遍',
+  'answer.regenerate.title': '重试（将覆盖）',
 
   // 历史列表
   'history.hint': '该站点的对话记录',
@@ -48,7 +48,7 @@ export const zhCN = {
   'page.tokens': '约 {count} tokens',
   'page.tookMS': '用时 {count} ms',
   'page.pdf': 'PDF {pages} 页',
-  'page.longWarning': '全文较长，模型按需分段读取',
+  'page.longWarning': '全文较长，将分段读取',
   'page.text.title': '提取到的正文',
   'page.copy': '复制 Markdown',
   'page.copied': '已复制',
@@ -83,7 +83,7 @@ export const zhCN = {
   'empty.suggestion.summary': '这一页讲了什么？',
   'empty.suggestion.threePoints': '用三点总结',
   'empty.suggestion.example': '文中的例子能再解释一下吗？',
-  'empty.hasHistory': '此页有 {count} 次历史对话，由“历史”选项卡继续',
+  'empty.hasHistory': '此页有 {count} 段历史对话，从“历史”选项卡继续',
 
   // 工具步骤条（工具名由前端本地化，忽略后端 label）
   'tool.read_page': '读取页面',
@@ -179,8 +179,8 @@ export const zhCN = {
   'settings.remoteHint': '非本机后端（{host}）：页面正文、选区和截图都会发到这台机器',
   'settings.remoteConfirm': '后端不在本机（{host}）。页面正文、选区和截图会离开这台电脑，仍然保存？',
   'settings.token': '访问令牌',
-  'settings.tokenPlaceholder': '后端 settings.json 未设置 token 则留空',
-  'settings.tokenHint': '需与后端 settings.json 里的 token 一致；仅保存在此浏览器中',
+  'settings.tokenPlaceholder': '后端未设置 token 则留空',
+  'settings.tokenHint': '需与后端配置文件中的 token 一致；仅保存在此浏览器中',
   'settings.save': '保存',
   'settings.saving': '保存中…',
   'settings.test': '测试连接',
