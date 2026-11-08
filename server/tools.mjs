@@ -363,8 +363,19 @@ function wrap(page, text) {
  * container ended early and treats the rest of the page text as system/user instructions — escape it first.
  */
 function untrusted(attrs, text) {
+  // Attrs are our own markup, but titles/URLs are page-controlled. Keep the envelope bounded so a huge
+  // title cannot consume the whole tool budget before the body is even considered.
+  const shown = String(attrs ?? '');
+  const safeAttrs = shown.length <= 600 ? shown : `${shown.slice(0, 597)}...`;
+  const prefix = `<untrusted_content ${safeAttrs}>\n`;
+  const close = '\n</untrusted_content>';
   const body = String(text ?? '').replace(/<(\/?\s*untrusted_content)/gi, '&lt;$1');
-  return `<untrusted_content ${attrs}>\n${body}\n</untrusted_content>`;
+  const budget = RESULT_CAP - prefix.length - close.length;
+  if (body.length <= budget) return `${prefix}${body}${close}`;
+  // The cap is on the final tool message, envelope included; otherwise the model-facing text is > RESULT_CAP.
+  const suffix = `\n\n[Truncated: output limited to ${RESULT_CAP} chars including envelope. Narrow the query or range to retrieve more.]`;
+  const room = Math.max(0, budget - suffix.length);
+  return `${prefix}${body.slice(0, room)}${suffix}${close}`;
 }
 
 function cap(text, note) {

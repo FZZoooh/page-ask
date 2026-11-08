@@ -5,7 +5,7 @@
 - 审查范围：`src/`、`server/`、`scripts/`、`test/`、`wxt.config.ts`、`package.json`、CI 与文档
 - 审查方式：逐文件静态审查 + 类型检查 + 语法/i18n 守卫 + 7 个后端回归 + 生产构建
 - 约束：**审查阶段不修改任何产品代码**。报告中的行号与结论以 `b9533d3` 为基线。
-- 修复状态：P1-1、P1-2、P1-3 以及 P2-1、P2-2、P2-21、P2-22、P2-23 已在 2026-11-08 的后续批次修复，见第 11 节；正文保留审查时的证据，便于对照。
+- 修复状态：P1-1、P1-2、P1-3、P2-1、P2-2、P2-4、P2-6、P2-21、P2-22、P2-23、P2-24、P2-25 已在 2026-11-08 的后续批次修复，见第 11 节；正文保留审查时的证据，便于对照。
 
 ## 0. 结论摘要
 
@@ -160,6 +160,8 @@
 
 ### P2-4 页面标题可向系统提示注入指令
 
+**状态：已修复（2026-11-08，批次 5，见第 11 节）。**
+
 **证据**
 
 - `server/index.mjs:1209-1216` 把 `oneLine(page.title)` 与 URL 直接拼进系统提示的 `当前页面：...` / `网址：...` 行。
@@ -196,6 +198,8 @@
 - 为 en-US 设置页加一条断言：页面正文不含 CJK 字符（伪本地化/词典覆盖之外）。
 
 ### P2-6 没有 Host 校验，DNS rebinding 可读历史
+
+**状态：已修复（2026-11-08，批次 5，见第 11 节）。**
 
 **证据**
 
@@ -507,6 +511,8 @@ AGENTS 说“托盘会警告异常退出”，但配置 token 后该能力实际
 
 ### P2-24 顶层 500 破坏错误码契约并泄露内部信息
 
+**状态：已修复（2026-11-08，批次 5，见第 11 节）。**
+
 **证据**
 
 - `server/index.mjs:135-138` 的顶层 catch 直接 `sendJson(res, 500, { error: String(err?.message ?? err) })`，没有 `code`/`params`。
@@ -524,6 +530,8 @@ AGENTS 说“托盘会警告异常退出”，但配置 token 后该能力实际
 - 对 `body.model` 做 `typeof === 'string'` 判断（同时修 P3 表中的 `trim` 崩溃）。
 
 ### P2-25 `cap()` 在 `wrap()` 之前，8000 字符硬上限不成立
+
+**状态：已修复（2026-11-08，批次 5，见第 11 节）。**
 
 **证据**
 
@@ -724,4 +732,14 @@ AGENTS 写的 `RESULT_CAP = 8000` 只是“正文截断到 8000”，最终工�
 - **P2-23**：`/chat` 在写 user 行之前检查同一 `conversationId` 的 `activeChats`，已有则返回 409 `conversation.busy`；`DELETE /conversations/:id` 同样返回 409。`releaseChat()` 幂等，正常完成与 `finally` 都可调用。
 - **回归**：`scripts/test-auto-title.mjs`（/v1 路径、answer/title 的 `store:false`、SSE title 与落库）、`scripts/test-truncated-stream.mjs`（无 completed 的 EOF → aborted、不生成标题）、`scripts/test-chat-busy.mjs`（并发 `/chat` 与流式期间 DELETE 均 409）、`scripts/test-stateful-fallback.mjs`（链式 400 → 无状态成功 → 第三轮不再带 anchor）。
 - 验证：`pnpm verify` 通过（14 个后端回归；49 个 `.mjs` 语法检查），构建仅既有 sidepanel 1.02MB chunk 警告。
+
+### P2-4 / P2-6 / P2-24 / P2-25 安全边界与错误契约
+
+- **P2-6 Host / rebinding**：`server/index.mjs` 新增 `isAllowedHost()`，只接受 `127.0.0.1:${PORT}`、`localhost:${PORT}`（80 端口时为裸主机名）；`handle()` 最前面校验，其余一律 403 `request.bad_host`。这挡住了把自定义域名解析到回环的 rebinding 页面，同时保留本机脚本与设置页的访问方式。
+- **P2-4 页面元数据**：`buildSystemPrompt()` 不再把标题/URL 拼进“当前页面/网址”这类可信指令行，而是放入 `<untrusted_content source="page-metadata">` 信封，标题和 URL 都经过 `escapeUntrusted()`；提示明确说明这两行只是数据。标题里的 `</untrusted_content>` 不再能提前闭合信封。
+- **P2-24 错误契约**：`decodeURIComponent` 包进 `decodeConversationId()`，畸形 `%` 返回 400 `request.bad_id`（`/conversations/:id` 与 `/recover`）；顶层 catch 改为 `logError('unhandled_request')` + `errorPayload('server.internal')`，只回错误码不回 `err.message`；`/api/settings/test` 的 `model` 先做 `typeof === 'string'` 判断，数字/对象不再触发 500。
+- **P2-25 工具上限**：`untrusted()` 改为对“含 envelope 的最终字符串”执行 `RESULT_CAP` 预算，属性截到 600 字符，正文过长时在信封内追加截断说明；关闭标签仍只在末尾出现，最终 `text.length <= 8000`。`read_page` 等调用点不再各自先 `cap()` 再 `wrap()`。
+- **文案**：新增 `error.request.bad_host`、`error.request.bad_id`、`error.server.internal`，四个字典（server zh-CN/en-US、src zh-CN/en-US）同步，en-XA 由前缀规则自动覆盖。
+- **回归**：`scripts/test-host.mjs`（陌生 Host 403、回环 Host 200、畸形 id 400）、`scripts/test-page-metadata.mjs`（恶意标题被转义、信封不提前闭合）、`scripts/test-tool-cap.mjs`（最终长度 ≤ 8000、截断标记在信封内）。
+- 验证：`pnpm verify` 通过（17 个后端回归；52 个 `.mjs` 语法检查），构建仅既有 sidepanel 1.03MB chunk 警告。
 
