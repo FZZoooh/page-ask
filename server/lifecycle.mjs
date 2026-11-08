@@ -71,8 +71,8 @@ export function startLifecycle(appVersion) {
     if (previous.pid && previous.pid !== process.pid && pidAlive(previous.pid) && fresh) {
       logEvent('instance_already_running', { pid: previous.pid, startedAt: previous.startedAt });
       console.error(
-        `[pageask] 另一个后端实例还在运行（pid ${previous.pid}，最后心跳 ${new Date(lastHeartbeat).toISOString()}）；` +
-          '请先停掉它，或换一个 PAGEASK_DATA_DIR',
+        `[pageask] another backend instance is still running (pid ${previous.pid}, last heartbeat ${new Date(lastHeartbeat).toISOString()}); ` +
+          'stop it first, or use a different PAGEASK_DATA_DIR',
       );
       process.exit(1);
     }
@@ -83,8 +83,8 @@ export function startLifecycle(appVersion) {
       lastHeartbeat: lastHeartbeat || null,
       version: previous.version ?? null,
     });
-    const when = lastHeartbeat ? new Date(lastHeartbeat).toISOString() : '未知时间';
-    console.error(`[pageask] 检测到上次进程没有正常退出（pid ${previous.pid ?? '?'}，最后心跳 ${when}）`);
+    const when = lastHeartbeat ? new Date(lastHeartbeat).toISOString() : 'unknown';
+    console.error(`[pageask] previous process did not exit cleanly (pid ${previous.pid ?? '?'}, last heartbeat ${when})`);
   }
 
   writeMarker();

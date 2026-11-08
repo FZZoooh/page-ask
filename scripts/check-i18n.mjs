@@ -137,9 +137,10 @@ function collectPsStrings(text) {
 const CJK = /[\u4e00-\u9fff]/;
 
 function checkHardcodedChinese() {
-  const jsFiles = globSync('src/**/*.{ts,tsx}').filter(
-    (f) => f.replaceAll('\\', '/') !== 'src/lib/i18n.ts',
-  );
+  // 两份字典本身就是文案：zh-CN 全是中文，en-US 里的语言名刻意保留母语写法
+  //（「简体中文」），都不属于「组件里写死中文」。
+  const dicts = new Set(['src/lib/i18n.ts', 'src/lib/i18n.en-US.ts']);
+  const jsFiles = globSync('src/**/*.{ts,tsx}').filter((f) => !dicts.has(f.replaceAll('\\', '/')));
   const psFiles = ['scripts/tray.ps1', 'scripts/tray-bg.ps1'];
   const wsFiles = ['server/webui.mjs'];
 

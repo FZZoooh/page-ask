@@ -779,7 +779,8 @@ button.primary.save:hover:not(:disabled) {
 .box {
   position: relative;
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
+  align-items: stretch;
   padding: 6px 8px 6px 14px;
   background: var(--input-bg);
   border: 1px solid var(--input-line);
@@ -814,6 +815,36 @@ button.primary.save:hover:not(:disabled) {
   content: attr(data-placeholder);
   color: var(--muted);
   pointer-events: none;
+}
+
+/* 输入框首行的网页选区提示：引用块样式（左侧竖线 + 淡底），
+   永远只占一行，长选区由 CSS 省略号截断，不把输入框撑高。 */
+.sel-hint {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin: 1px 0 3px;
+  padding: 1px 7px;
+  border-left: 3px solid color-mix(in srgb, var(--link) 55%, transparent);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--link) 9%, transparent);
+  color: color-mix(in srgb, var(--link) 72%, var(--fg));
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.sel-hint-mark {
+  flex: 0 0 auto;
+  opacity: 0.75;
+}
+
+.sel-hint-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* 行内引用：整体不可编辑，看作一个字符 */

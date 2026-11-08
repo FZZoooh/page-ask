@@ -4,7 +4,7 @@ export default defineBackground(() => {
   // 点工具栏图标 = 直接开侧栏。
   const enableActionToOpen = () => {
     browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err: unknown) => {
-      console.warn('[pageask] setPanelBehavior 失败', err);
+      console.warn('[pageask] setPanelBehavior failed', err);
     });
   };
 
@@ -25,7 +25,7 @@ export default defineBackground(() => {
           contexts: ['all'],
         }),
       )
-      .catch((err: unknown) => console.warn('[pageask] 创建右键菜单失败', err));
+      .catch((err: unknown) => console.warn('[pageask] failed to create context menu', err));
   };
 
   enableActionToOpen();

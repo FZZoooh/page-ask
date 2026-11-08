@@ -61,16 +61,16 @@ export function readSettings() {
   } catch (err) {
     if (err?.code !== 'ENOENT') {
       // 读不到（权限/占用）不是「没有配置」：绝不能拿默认值把它盖掉
-      console.error(`[pageask] 读配置文件失败，本次使用默认值：${err?.message ?? err}`);
+      console.error(`[pageask] failed to read config file; using defaults for this run: ${err?.message ?? err}`);
       return normalize({});
     }
     // 还没有文件：先写一份默认的，用户才知道该改哪儿
     const initial = normalize({});
     try {
       writeSettings(initial);
-      console.log(`[pageask] 已生成配置文件 ${settingsFile}`);
+      console.log(`[pageask] created config file ${settingsFile}`);
     } catch (e) {
-      console.error(`[pageask] 写配置文件失败：${e?.message ?? e}`);
+      console.error(`[pageask] failed to write config file: ${e?.message ?? e}`);
     }
     return initial;
   }
@@ -90,9 +90,9 @@ function quarantineBroken(err) {
   const target = `${settingsFile}.broken-${Date.now()}-${process.pid}`;
   try {
     renameSync(settingsFile, target);
-    console.error(`[pageask] 配置文件解析失败（${err?.message ?? err}），已备份到 ${target}`);
+    console.error(`[pageask] config file is not valid JSON (${err?.message ?? err}); backed up to ${target}`);
   } catch (e) {
-    console.error(`[pageask] 配置文件解析失败，且备份失败：${e?.message ?? e}`);
+    console.error(`[pageask] config file is not valid JSON, and backing it up failed: ${e?.message ?? e}`);
   }
 }
 
@@ -127,7 +127,7 @@ function readExisting() {
   try {
     text = readFileSync(settingsFile, 'utf8');
   } catch (err) {
-    if (err?.code !== 'ENOENT') console.error(`[pageask] 读配置文件失败：${err?.message ?? err}`);
+    if (err?.code !== 'ENOENT') console.error(`[pageask] failed to read config file: ${err?.message ?? err}`);
     return normalize({});
   }
   try {
@@ -158,9 +158,9 @@ function migrateLegacySettings() {
       /* Windows 上 chmod 能力有限 */
     }
     unlinkSync(legacySettingsFile);
-    console.log(`[pageask] 配置已迁移：${legacySettingsFile} → ${settingsFile}`);
+    console.log(`[pageask] migrated config: ${legacySettingsFile} -> ${settingsFile}`);
   } catch (err) {
-    console.error(`[pageask] 配置迁移失败（旧文件保留在原处）：${err?.message ?? err}`);
+    console.error(`[pageask] config migration failed (old file left in place): ${err?.message ?? err}`);
   }
 }
 

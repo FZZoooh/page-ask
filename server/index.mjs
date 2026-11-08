@@ -100,7 +100,7 @@ const MAX_TOOL_FAILURES = 3; // 连续失败 3 次就熔断剩余工具，让模
 // 没有 Key 也照常起来：配置页（/settings）要能打开，用户填完立刻生效
 {
   const s = readSettings();
-  if (!s.apiKey) console.error(`[pageask] 还没有 API Key —— 打开 http://${HOST}:${PORT}/settings 填一下`);
+  if (!s.apiKey) console.error(`[pageask] no API key yet; open http://${HOST}:${PORT}/settings to set one`);
 }
 
 // 上次是不是被强杀/崩溃：run.json 还在就说明没走 shutdown 流程
@@ -121,7 +121,7 @@ try {
 
 const server = createServer((req, res) => {
   handle(req, res).catch((err) => {
-    console.error('[pageask] 未捕获错误', err);
+    console.error('[pageask] uncaught error', err);
     if (!res.headersSent) sendJson(res, 500, { error: String(err?.message ?? err) });
     else res.end();
   });
@@ -129,8 +129,8 @@ const server = createServer((req, res) => {
 
 server.listen(PORT, HOST, () => {
   const s = readSettings();
-  console.log(`[pageask] 后端已启动 http://${HOST}:${PORT}  model=${s.model}  db=${dbFile}`);
-  console.log(`[pageask] 配置页 http://${HOST}:${PORT}/settings  （配置文件 ${settingsFile}）`);
+  console.log(`[pageask] backend listening on http://${HOST}:${PORT}  model=${s.model}  db=${dbFile}`);
+  console.log(`[pageask] settings page http://${HOST}:${PORT}/settings  (config file ${settingsFile})`);
 });
 
 /** 正常退出：先删标记、关连接、关库，再退出；托盘和 Ctrl+C 都走这里 */

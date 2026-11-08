@@ -8,6 +8,8 @@ interface ComposerProps {
   pageReady: boolean;
   busy: boolean;
   canSend: boolean;
+  /** 当前网页选区；空串表示没有选区 */
+  selectionHint: string;
   onInput: () => void;
   onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => void;
   onPaste: (e: ClipboardEvent<HTMLDivElement>) => void;
@@ -22,6 +24,7 @@ export function Composer({
   pageReady,
   busy,
   canSend,
+  selectionHint,
   onInput,
   onKeyDown,
   onPaste,
@@ -37,6 +40,20 @@ export function Composer({
   return (
     <div className="composer">
       <div className="box">
+        {selectionHint && (
+          <div
+            className="sel-hint"
+            role="note"
+            title={selectionHint}
+            aria-label={t('composer.selection.aria', { text: selectionHint })}
+          >
+            <span className="sel-hint-mark" aria-hidden="true">
+              ❝
+            </span>
+            {/* 永远单行：CSS 截断，长选区不撑高输入框 */}
+            <span className="sel-hint-text">{selectionHint}</span>
+          </div>
+        )}
         <div
           ref={editorRef}
           className="editor"

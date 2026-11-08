@@ -128,7 +128,7 @@ export function extract(raw: RawPage): ExtractedPage {
     title = res.title?.trim() || title;
     site = res.site || res.domain || '';
   } catch (err) {
-    console.warn('[pageask] Defuddle 解析失败，回退到纯文本', err);
+    console.warn('[pageask] Defuddle parse failed; falling back to plain text', err);
     markdown = doc.body ? htmlToText(doc.body.innerHTML) : '';
   }
 
@@ -316,6 +316,31 @@ export async function readSelection(): Promise<SelectionInfo | null> {
   }
 }
 
+/**
+ * 只读当前选区的纯文本，供输入框首行的选区提示使用。
+ *
+ * 和 readSelection() 分开：那边要顺带读整段容器的 textContent 给模型判断指代，
+ * 这里会被面板每秒轮询一次，不能顺手把一大段容器文字也序列化一遍。
+ */
+export async function readSelectionText(): Promise<string> {
+  try {
+    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+    const tab = tabs[0];
+    if (!tab?.id || isRestrictedUrl(tab.url)) return '';
+    const results = await browser.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return '';
+        return sel.toString().replace(/\s+/g, ' ').trim().slice(0, 4000);
+      },
+    });
+    return (results[0]?.result as string | undefined) ?? '';
+  } catch {
+    return '';
+  }
+}
+
 /** PDF 标签页：取字节 → 后端抽文本 → 当成一页 markdown */async function readPdfTab(url: string, title: string | undefined, backendUrl?: string): Promise<ReadResult> {
   const started = performance.now();
   if (!backendUrl) {
@@ -409,7 +434,7 @@ export async function captureScreenshot(
     });
     return { dataUrl, width, height };
   } catch (err) {
-    console.warn('[pageask] 截图失败', err);
+    console.warn('[pageask] screenshot failed', err);
     return null;
   }
 }

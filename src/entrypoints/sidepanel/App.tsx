@@ -13,6 +13,7 @@ import {
   captureScreenshot,
   readActiveTab,
   readSelection,
+  readSelectionText,
   type ExtractedPage,
   type ReadFailure,
 } from '@/lib/extract';
@@ -114,6 +115,8 @@ export default function App() {
 
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  /** 输入框首行展示的网页选区（只做提示；发送时后端另有一份 selection 上下文） */
+  const [selectionHint, setSelectionHint] = useState('');
   /** 选中回答文字时浮出的「引用」小按钮（视口坐标 + 选中的原文） */
   const [quoteMenu, setQuoteMenu] = useState<{ left: number; top: number; text: string } | null>(null);
 
@@ -205,6 +208,41 @@ export default function App() {
       browser.tabs.onUpdated.removeListener(onUpdated);
     };
   }, [load]);
+
+  /* ---------------- 网页选区提示 ---------------- */
+
+  // 页面选区没有可订阅的事件（内容脚本不在页面常驻），只能轻量轮询纯文本；
+  // 用户多半是「在页面上选完字、再点回面板」，所以重新获得焦点时也立刻补一次。
+  // PDF 跳过：内嵌查看器读不到 DOM，注入只会每秒失败一遍。
+  useEffect(() => {
+    if (pageState.kind !== 'ready' || pageState.page.kind === 'pdf' || !configured) {
+      setSelectionHint('');
+      return;
+    }
+    let alive = true;
+    let inFlight = false;
+    const refresh = async () => {
+      if (!alive || inFlight || document.visibilityState === 'hidden') return;
+      inFlight = true;
+      try {
+        const text = await readSelectionText();
+        if (alive) setSelectionHint((prev) => (prev === text ? prev : text));
+      } finally {
+        inFlight = false;
+      }
+    };
+    const tick = () => void refresh();
+    void refresh();
+    const timer = window.setInterval(tick, 1000);
+    window.addEventListener('focus', tick);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', tick);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, [pageState, configured]);
 
   useEffect(() => {
     void loadSettings().then((next) => {
@@ -1128,6 +1166,7 @@ export default function App() {
         pageReady={pageState.kind === 'ready'}
         busy={busy}
         canSend={canSend}
+        selectionHint={selectionHint}
         onInput={() => setInput(serialize())}
         onKeyDown={onKeyDown}
         onPaste={onPaste}

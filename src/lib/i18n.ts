@@ -117,6 +117,8 @@ export const zhCN = {
   'composer.placeholder.ready': '给 PageAsk 发送消息',
   'composer.send': '发送',
   'composer.stop': '停止',
+  // 输入框首行的网页选区提示（发送时会随请求带上）
+  'composer.selection.aria': '网页选区：{text}',
 
   // 选中回答里的文字时弹出的快捷菜单
   'quote.action': '引用',

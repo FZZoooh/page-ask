@@ -20,7 +20,7 @@ export function logEvent(kind, data = {}) {
     mkdirSync(dirname(logFile), { recursive: true });
     appendFileSync(logFile, line(kind, data), 'utf8');
   } catch (err) {
-    console.error('[pageask] 写日志失败', err?.message ?? err);
+    console.error('[pageask] failed to write log file', err?.message ?? err);
   }
 }
 

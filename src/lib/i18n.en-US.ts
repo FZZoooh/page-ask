@@ -113,6 +113,8 @@ export const enUS = {
   'composer.placeholder.ready': 'Message PageAsk',
   'composer.send': 'Send',
   'composer.stop': 'Stop',
+  // Selection hint on the composer's first line (also sent with the request)
+  'composer.selection.aria': 'Web page selection: {text}',
 
   // Quote popover
   'quote.action': 'Quote',
