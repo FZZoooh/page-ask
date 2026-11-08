@@ -51,6 +51,18 @@ try {
     assert.deepEqual(calls, outs);
   });
 
+  check('reasoning 回放：正文保留且位于 function_call 之前', () => {
+    const items = historyItems(conv.id);
+    const reasoning = items.find((item) => item.type === 'reasoning');
+    assert.ok(reasoning, 'historyItems 必须包含 reasoning 项');
+    assert.equal(reasoning.content?.[0]?.text, '想想');
+    assert.ok(!('encrypted_content' in reasoning), '不能回传 encrypted_content');
+    assert.ok(Array.isArray(reasoning.summary) && reasoning.summary.length === 0, 'summary 只能是空占位');
+    const reasoningIndex = items.indexOf(reasoning);
+    const firstCallIndex = items.findIndex((item) => item.type === 'function_call');
+    assert.ok(reasoningIndex >= 0 && firstCallIndex > reasoningIndex, 'reasoning 必须在 function_call 之前');
+  });
+
   check('addTurn 一次事务写入：assistant 与 tool 的 rowid 连续', () => {
     const convDb = getConversation(conv.id);
     assert.ok(convDb && convDb.messages.length === 3);

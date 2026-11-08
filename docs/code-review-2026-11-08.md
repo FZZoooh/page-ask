@@ -5,7 +5,7 @@
 - 审查范围：`src/`、`server/`、`scripts/`、`test/`、`wxt.config.ts`、`package.json`、CI 与文档
 - 审查方式：逐文件静态审查 + 类型检查 + 语法/i18n 守卫 + 7 个后端回归 + 生产构建
 - 约束：**审查阶段不修改任何产品代码**。报告中的行号与结论以 `b9533d3` 为基线。
-- 修复状态：P1-1、P1-2、P1-3、P2-1、P2-2、P2-3、P2-4、P2-5、P2-6、P2-8、P2-9、P2-10、P2-11、P2-12、P2-13、P2-14、P2-15、P2-16、P2-17、P2-18、P2-19、P2-20、P2-21、P2-22、P2-23、P2-24、P2-25、P2-26、P2-27 已在 2026-11-08 的后续批次修复，见第 11 节；正文保留审查时的证据，便于对照。
+- 修复状态：P1-1、P1-2、P1-3、P2-1、P2-2、P2-3、P2-4、P2-5、P2-6、P2-7、P2-8、P2-9、P2-10、P2-11、P2-12、P2-13、P2-14、P2-15、P2-16、P2-17、P2-18、P2-19、P2-20、P2-21、P2-22、P2-23、P2-24、P2-25、P2-26、P2-27 已在 2026-11-08 的后续批次修复，见第 11 节；正文保留审查时的证据，便于对照。
 
 ## 0. 结论摘要
 
@@ -223,6 +223,8 @@
 - 若要保持无 token 的易用性，至少给 `/conversations*` 增加一个启动时生成的本地会话 cookie。
 
 ### P2-7 推理项回放与 AGENTS 约定冲突
+
+**状态：已修复（2026-11-08，批次 10，见第 11 节）。** 结论：回放是 DeepSeek thinking mode 的硬要求，AGENTS 的旧禁令已改写。
 
 **证据**
 
@@ -820,3 +822,10 @@ AGENTS 写的 `RESULT_CAP = 8000` 只是“正文截断到 8000”，最终工�
 - **回归**：新增 `scripts/test-markdown-stream.mjs`，覆盖空行边界、围栏代码块中的空行、未闭合围栏、`$$` 块、单行公式、松散列表/引用合并、列表后普通段落不合并、嵌套列表。`package.json` 的 `test:server` 增至 23 个脚本。
 - 验证：`pnpm verify` 通过（23 个后端回归；58 个 `.mjs` 与 6 个 PowerShell 文件语法/BOM 检查），构建仅既有 sidepanel 1.03MB chunk 警告。
 - 残留：流式期间尾巴是纯文本，跨块边界定义的链接引用/脚注要到流结束后的整段渲染才生效；抓页的文本块白名单可能漏掉只用 `<div>` 承载正文的页面，但 `read_page` 仍是正文来源。前端流式渲染没有浏览器自动化测试。
+
+### P2-7 reasoning 回放
+
+- **结论**：`/chat` 的每个请求都带 `tools`，DeepSeek thinking mode 要求在有 `tools` 时完整回传历史 `reasoning_content`（即使该轮没有实际工具调用），否则返回 400。因此保留 `rowsToItems()` 的 reasoning 回放，不再把它当成“与约定冲突”。
+- **文档**：AGENTS §5 改为“有 `tools` 时必须回放 reasoning；无 `tools` 的自动标题不带 reasoning；只回传明文正文，不带真实 summary / `encrypted_content`”。`server/db.mjs` 的注释同步说明 `rs_<rowid>` 是本地占位 id、`summary: []` 只是 OpenAI 兼容用的空字段。
+- **回归**：`scripts/test-turn-integrity.mjs` 增加 `historyItems()` 断言（reasoning 正文存在、位于 function_call 之前、无 `encrypted_content`、summary 为空）；新增 `scripts/test-reasoning-replay.mjs`，用 fake upstream 验证工具回合的第二次请求确实携带 reasoning，且 reasoning → function_call → function_call_output 顺序正确。
+- 验证：`pnpm verify` 通过（23 个后端回归；59 个 `.mjs` 与 6 个 PowerShell 文件语法/BOM 检查），构建仅既有 sidepanel 1.03MB chunk 警告。

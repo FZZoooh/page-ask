@@ -408,7 +408,12 @@ export function historyItemsSince(conversationId, anchorRowid) {
  * - assistant body → {role:'assistant', content:[{type:'output_text'}]}
  * - that turn's tool_calls → one {type:'function_call', call_id, name, arguments} each
  * - tool row → {type:'function_call_output', call_id, output}; the image rides along if there is a screenshot
- * Not sending reasoning items back raises no error, but sending them works better (user-measured), so they go too.
+ *
+ * Reasoning replay is required, not optional: every /chat request carries `tools`, and DeepSeek thinking
+ * mode requires all historical reasoning content to be returned whenever `tools` is present — even for
+ * turns where the model made no tool call; omitting it returns 400. Tool-less requests (auto-title) do not
+ * use this function. The `id` is a local placeholder and `summary: []` is only an empty schema field for
+ * OpenAI compatibility; never put a real summary or encrypted_content here.
  */
 function rowsToItems(rows) {
   const out = [];
