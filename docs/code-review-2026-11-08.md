@@ -57,6 +57,8 @@
 
 ### P1-2 流式正文已显示但上游失败时，正文不落库
 
+**状态：已修复（2026-11-08，见第 11 节）。** 以下为修复前证据。
+
 **证据**
 
 - `server/index.mjs:1049-1055`：上游 `response.failed` / `error` 时，即使 `content` / `reasoning` 已经流给前端，也构造 `UpstreamError` 并抛出；`err.streamed` 只用于判断“不能重试”，没有用于持久化。
@@ -695,4 +697,11 @@ AGENTS 写的 `RESULT_CAP = 8000` 只是“正文截断到 8000”，最终工�
 - `readPdfFromTab` / `readLocalPdf` 的两个 `/pdf` 请求都带 `Authorization: Bearer <token>`；未配置 token 时不发该头。
 - `scripts/test-pdf-auth.mjs`：临时后端配置 token，断言无 token/错误 token 为 401（`auth.bad_token`），正确 token 能解析 `test/marker.pdf` 并返回正文。
 - 验证：`pnpm verify` 通过（9 个后端回归；44 个 `.mjs` 语法检查）。
+
+### P1-2 上游失败时的半截正文
+
+- `streamTurn` 在抛出 `UpstreamError` 前把已流出的 `content` / `reasoning` / `usage` 挂到 `err.partial`；`err.streamed` 仍用于禁止重试。
+- `handleChat` 的 catch 在非用户中止、已写入用户消息且存在半截内容时，调用同一个 `addTurn()` 事务写一条 `aborted: true` 的 assistant 行，再发 SSE `error`；二次写库失败只记 `chat_partial_persist_failed`，不掩盖原始上游错误。
+- `scripts/test-partial-failure.mjs`：fake upstream 先发 `response.output_text.delta`，再发 `response.failed`；断言 SSE 有正文和 error、没有 done，历史中恰好一条 assistant 行、正文一致且 `aborted` 为 true。
+- 验证：`pnpm verify` 通过（10 个后端回归；45 个 `.mjs` 语法检查），构建仅有既有的 sidepanel 1.02MB chunk 警告。
 

@@ -890,6 +890,33 @@ async function handleChat(req, res) {
     }
   } catch (err) {
     const isAbort = controller.signal.aborted;
+    // An upstream failure can arrive after text was already streamed. The panel keeps that text; persist
+    // the same partial answer here (marked aborted) or a reload silently loses what the user just read.
+    const partial = err?.partial;
+    if (!isAbort && userMsg.id && partial && (partial.content || partial.reasoning)) {
+      try {
+        addTurn({
+          conversationId: conv.id,
+          assistant: {
+            content: partial.content,
+            reasoning: partial.reasoning,
+            tokensIn: partial.usage?.input_tokens ?? null,
+            tokensOut: partial.usage?.output_tokens ?? null,
+            ms: Date.now() - started,
+            processMs: phaseMs,
+            aborted: true,
+          },
+        });
+        logEvent('chat_partial_persisted', {
+          conversationId: conv.id,
+          chars: partial.content.length,
+          reasoningChars: partial.reasoning.length,
+        });
+      } catch (persistErr) {
+        // never hide the original upstream error because a secondary write failed
+        logError('chat_partial_persist_failed', persistErr, { conversationId: conv.id, steps });
+      }
+    }
     const seconds = Math.round(UPSTREAM_TIMEOUT / 1000);
     const timedOut = !isAbort && err?.name === 'TimeoutError';
     const code = isAbort ? undefined : err instanceof UpstreamError ? err.code : timedOut ? 'upstream.timeout' : undefined;
@@ -1049,6 +1076,9 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
     const err = new UpstreamError(status, JSON.stringify(failure ?? final?.error ?? { message: '上游返回失败' }), 'upstream.failed');
     // mark whether anything already streamed: the caller uses it to decide if a retry is safe
     err.streamed = Boolean(content || reasoning);
+    // the UI already has these deltas; carry them to handleChat so its catch can persist the same partial
+    // answer instead of leaving the database and the panel permanently out of sync.
+    err.partial = { content, reasoning, usage: final?.usage ?? null };
     throw err;
   }
 
