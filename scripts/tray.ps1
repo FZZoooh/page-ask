@@ -1,14 +1,16 @@
-# PageAsk 托盘程序（Windows）
+﻿# PageAsk 托盘程序（Windows）
 #
 # 双击 / `pnpm tray` 运行：常驻托盘，负责
 #   1) 启动本地后端（node server/index.mjs）
 #   2) 看门狗：每 4 秒探一次端口，后端挂了自动拉起
 #   3) 菜单里：状态、启动、停止、重启、打开日志、打开数据目录、开机自启、退出
+#      退出时只停掉自己拉起的后端（外部 pnpm server 不动）
 #
 # 参数：
 #   -Port 8787        后端端口
 #   -InstallAutostart 只写开机自启的快捷方式，不启动托盘
 #   -RemoveAutostart  只删开机自启
+#   -Diagnose         不启动托盘，打印后端状态与自启命令后退出（排查用）
 #
 # 说明：只用 PowerShell 自带能力（WinForms 托盘 + 快捷方式 COM），不引任何依赖。
 
@@ -16,7 +18,8 @@
 param(
   [int]$Port = 8787,
   [switch]$InstallAutostart,
-  [switch]$RemoveAutostart
+  [switch]$RemoveAutostart,
+  [switch]$Diagnose
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,9 +32,12 @@ $script:TrayLog = Join-Path $script:DataDir 'tray.log'
 $script:ServerErr = Join-Path $script:DataDir 'server.err.log'
 $script:Port = $Port
 $script:Child = $null
-$script:LastStart = [datetime]::MinValue
 $script:Starts = 0
 $script:WasDown = $false
+$script:PortBlocked = $false
+# 看门狗退避：连续失败时 10s → 20s → 40s → 60s，成功后重置
+$script:RestartDelay = 10
+$script:NextRestartAt = [datetime]::MinValue
 # 「用户点了停止」和「后端自己崩了」要区分开：前者看门狗必须闭嘴，否则刚停就被拉起来
 $script:StoppedByUser = $false
 
@@ -51,25 +57,33 @@ function Get-NodeExe {
   return $null
 }
 
-# 探活：优先问 /health/live（确认是我们的后端），旧版本没有这个端点时退回 TCP 端口探测
-function Test-Backend {
+# 后端状态：up = 确认是我们的后端；foreign = 端口被别的程序占用；down = 没人监听。
+# 只认 /health/live 的 {ok,app}，不再用 TCP connect 当“活着”的证据——
+# 否则任何程序占了 8787，托盘都会显示“运行中”，真正的后端永远起不来。
+function Get-BackendState {
   try {
     $r = Invoke-WebRequest -Uri "http://127.0.0.1:$($script:Port)/health/live" -UseBasicParsing -TimeoutSec 2
     $j = $r.Content | ConvertFrom-Json
-    if ($j.ok -eq $true -and $j.app -eq 'pageask') { return $true }
-  } catch { }
-
-  $client = New-Object System.Net.Sockets.TcpClient
-  try {
-    $iar = $client.BeginConnect('127.0.0.1', $script:Port, $null, $null)
-    if (-not $iar.AsyncWaitHandle.WaitOne(600)) { return $false }
-    $client.EndConnect($iar)
-    return $true
+    if ($j.ok -eq $true -and $j.app -eq 'pageask') { return 'up' }
+    return 'foreign'
   } catch {
-    return $false
-  } finally {
-    $client.Close()
+    # HTTP 不通不代表端口空着：再探一次 TCP，能连上就是别人占着
+    $client = New-Object System.Net.Sockets.TcpClient
+    try {
+      $iar = $client.BeginConnect('127.0.0.1', $script:Port, $null, $null)
+      if ($iar.AsyncWaitHandle.WaitOne(400)) {
+        $client.EndConnect($iar)
+        return 'foreign'
+      }
+    } catch { } finally {
+      $client.Close()
+    }
+    return 'down'
   }
+}
+
+function Test-Backend {
+  return (Get-BackendState) -eq 'up'
 }
 
 function Get-HealthModel {
@@ -94,7 +108,17 @@ function Get-AbnormalExit {
 }
 
 function Start-Backend {
-  if (Test-Backend) { return $true }
+  $state = Get-BackendState
+  if ($state -eq 'up') { return $true }
+  if ($state -eq 'foreign') {
+    # 8787 被别的服务占着：再起 node 只会 EADDRINUSE 反复崩溃，先别试
+    if (-not $script:PortBlocked) {
+      Write-Tray ("port {0} is occupied by another program; not starting" -f $script:Port)
+      $script:PortBlocked = $true
+    }
+    return $false
+  }
+  $script:PortBlocked = $false
 
   $node = Get-NodeExe
   if (-not $node) {
@@ -111,7 +135,6 @@ function Start-Backend {
     -WindowStyle Hidden -PassThru `
     -RedirectStandardError $script:ServerErr
 
-  $script:LastStart = Get-Date
   $script:Starts++
   Write-Tray ("start: pid={0} port={1}" -f $script:Child.Id, $script:Port)
 
@@ -210,27 +233,38 @@ function Get-Pwsh7 {
   return $null
 }
 
-function Install-Autostart {
+function Get-AutostartCommand {
+  $trayScript = Join-Path $script:Root 'scripts\tray.ps1'
+  # 自启必须带上当前端口，否则用 -Port 9000 装完自启，重启后又跑回 8787
+  $portArgs = "-Port $($script:Port)"
   $pwsh = Get-Pwsh7
   if ($pwsh) {
-    $psExe = $pwsh
     # MSIX 版 pwsh 的执行策略是锁死的（LocalMachine=RemoteSigned），
     # 但本地未打标记的脚本本来就允许运行，-ExecutionPolicy Bypass 只是保险。
-    $args = '-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $script:Root 'scripts\tray.ps1') + '"'
-  } else {
-    $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    if (-not (Test-Path $psExe)) { $psExe = (Get-Process -Id $PID).Path }
-    $args = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $script:Root 'scripts\tray.ps1') + '"'
+    return @{
+      Exe  = $pwsh
+      Args = '-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $trayScript + '" ' + $portArgs
+    }
   }
+  $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+  if (-not (Test-Path $psExe)) { $psExe = (Get-Process -Id $PID).Path }
+  return @{
+    Exe  = $psExe
+    Args = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $trayScript + '" ' + $portArgs
+  }
+}
+
+function Install-Autostart {
+  $cmd = Get-AutostartCommand
   $shell = New-Object -ComObject WScript.Shell
   $lnk = $shell.CreateShortcut($Shortcut)
-  $lnk.TargetPath = $psExe
-  $lnk.Arguments = $args
+  $lnk.TargetPath = $cmd.Exe
+  $lnk.Arguments = $cmd.Args
   $lnk.WorkingDirectory = $script:Root
   $lnk.WindowStyle = 7
   $lnk.Description = 'PageAsk 后端托盘（守护进程）'
   $lnk.Save()
-  Write-Tray ("autostart installed: {0} -> {1}" -f $Shortcut, $psExe)
+  Write-Tray ("autostart installed: {0} -> {1} (port {2})" -f $Shortcut, $cmd.Exe, $script:Port)
 }
 
 function Remove-Autostart {
@@ -238,12 +272,23 @@ function Remove-Autostart {
   Write-Tray 'autostart removed'
 }
 
+if ($Diagnose) {
+  $state = Get-BackendState
+  $cmd = Get-AutostartCommand
+  Write-Host "port: $($script:Port)"
+  Write-Host "backend state: $state"
+  Write-Host "autostart exe: $($cmd.Exe)"
+  Write-Host "autostart args: $($cmd.Args)"
+  exit 0
+}
+
 if ($InstallAutostart) { Install-Autostart; Write-Host "已设置开机自启：$Shortcut"; exit 0 }
 if ($RemoveAutostart) { Remove-Autostart; Write-Host '已取消开机自启'; exit 0 }
 
 # ---------- 单实例 ----------
 
-$mutex = New-Object System.Threading.Mutex($false, 'PageAskTraySingleton')
+# 单实例按端口隔离：同一个端口只允许一个托盘，不同端口可以各跑一个
+$mutex = New-Object System.Threading.Mutex($false, "PageAskTraySingleton-$($script:Port)")
 $acquired = $false
 try {
   $acquired = $mutex.WaitOne(0)
@@ -252,7 +297,8 @@ try {
   $acquired = $true
 }
 if (-not $acquired) {
-  Write-Host 'PageAsk 托盘已经在运行了。'
+  $mutex.Dispose()
+  Write-Host "PageAsk 托盘已经在运行了（端口 $($script:Port)）。"
   exit 0
 }
 
@@ -299,11 +345,16 @@ $miQuit = New-Object System.Windows.Forms.ToolStripMenuItem '退出'
 $notify.ContextMenuStrip = $menu
 
 $refresh = {
-  $up = Test-Backend
+  $state = Get-BackendState
+  $up = $state -eq 'up'
   if ($up) {
     $model = Get-HealthModel
     $miStatus.Text = '运行中 · 127.0.0.1:{0}{1}' -f $script:Port, $(if ($model) { " · $model" } else { '' })
     $notify.Text = 'PageAsk 后端：运行中'
+  } elseif ($state -eq 'foreign') {
+    # 端口被别人占着：说清楚，别让用户以为是我们没起来
+    $miStatus.Text = '端口 {0} 被其他程序占用' -f $script:Port
+    $notify.Text = 'PageAsk：端口被占用'
   } elseif ($script:StoppedByUser) {
     # 手动停的：别再过一会儿自己冒出来，状态也要说清楚是「你停的」
     $miStatus.Text = '已停止（手动）'
@@ -312,9 +363,9 @@ $refresh = {
     $miStatus.Text = '已停止'
     $notify.Text = 'PageAsk 后端：已停止'
   }
-  $miStart.Enabled = -not $up
+  $miStart.Enabled = $state -eq 'down'
   $miStop.Enabled = $up
-  $miRestart.Enabled = $true
+  $miRestart.Enabled = $state -ne 'foreign'
   $miAuto.Checked = Test-Path $Shortcut
 }
 
@@ -323,6 +374,8 @@ $menu.add_Opening({ & $refresh })
 $miStart.add_Click({
   $script:StoppedByUser = $false
   $script:WasDown = $false
+  $script:RestartDelay = 10
+  $script:NextRestartAt = [datetime]::MinValue
   Start-Backend | Out-Null
   & $refresh
 })
@@ -335,6 +388,8 @@ $miStop.add_Click({
 $miRestart.add_Click({
   $script:StoppedByUser = $false
   $script:WasDown = $false
+  $script:RestartDelay = 10
+  $script:NextRestartAt = [datetime]::MinValue
   Restart-Backend
   & $refresh
 })
@@ -373,28 +428,46 @@ $timer.add_Tick({
   if ($script:Quitting) { return }
   # 用户手动停的，看门狗不许插手（否则「停止」按钮形同虚设）
   if ($script:StoppedByUser) {
-    if ($script:WasDown) { $script:WasDown = $false }
+    $script:WasDown = $false
     return
   }
 
-  if (Test-Backend) {
+  $state = Get-BackendState
+  if ($state -eq 'up') {
     if ($script:WasDown) {
       $script:WasDown = $false
       $notify.ShowBalloonTip(3000, 'PageAsk', '后端已恢复。', [System.Windows.Forms.ToolTipIcon]::Info)
     }
+    $script:RestartDelay = 10
+    $script:NextRestartAt = [datetime]::MinValue
     return
   }
 
+  if ($state -eq 'foreign') {
+    # 端口被别人占着：反复起 node 只会 EADDRINUSE，记一次日志就停手
+    if (-not $script:PortBlocked) {
+      Write-Tray ("watchdog: port {0} occupied by another program; auto-restart paused" -f $script:Port)
+      $script:PortBlocked = $true
+    }
+    $script:WasDown = $true
+    return
+  }
+  $script:PortBlocked = $false
   $script:WasDown = $true
-  # 别在崩溃循环里疯狂重启：10 秒内最多一次
-  if (((Get-Date) - $script:LastStart).TotalSeconds -lt 10) { return }
+
+  # 崩溃循环退避：失败后 10s → 20s → 40s → 60s，成功或手动操作后重置
+  if ((Get-Date) -lt $script:NextRestartAt) { return }
 
   Write-Tray 'watchdog: backend down, restarting'
   $ok = Start-Backend
   if ($ok) {
+    $script:RestartDelay = 10
+    $script:NextRestartAt = [datetime]::MinValue
     $notify.ShowBalloonTip(3000, 'PageAsk', '后端未响应，已自动重启。', [System.Windows.Forms.ToolTipIcon]::Warning)
   } else {
-    Write-Tray 'watchdog: restart failed'
+    $script:RestartDelay = [Math]::Min(60, $script:RestartDelay * 2)
+    $script:NextRestartAt = (Get-Date).AddSeconds($script:RestartDelay)
+    Write-Tray ("watchdog: restart failed; next attempt in {0}s" -f $script:RestartDelay)
   }
 })
 $timer.Start()
@@ -402,6 +475,20 @@ $timer.Start()
 Write-Tray ("tray started: port={0} node={1}" -f $script:Port, (Get-NodeExe))
 [void](Start-Backend)
 
-[System.Windows.Forms.Application]::Run()
-$timer.Stop()
-Write-Tray 'tray exited'
+try {
+  [System.Windows.Forms.Application]::Run()
+} finally {
+  $timer.Stop()
+
+  # 退出托盘时收掉「自己拉起的」后端，避免留下无主 node；
+  # 如果是用户自己在别的终端 pnpm server 起的（Child 为空），不要误杀。
+  if ($script:Child -and -not $script:Child.HasExited) {
+    Stop-Backend
+    Write-Tray 'child backend stopped on quit'
+  }
+
+  # 释放单实例锁，避免下次启动被自己的残留 mutex 挡住
+  try { $mutex.ReleaseMutex() } catch { }
+  $mutex.Dispose()
+  Write-Tray 'tray exited'
+}

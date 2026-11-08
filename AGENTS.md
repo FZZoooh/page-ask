@@ -25,6 +25,8 @@ PageAsk：Edge 侧栏扩展 + 本机 Node 后端。侧栏就**当前标签页**�
 | `pnpm server:win` | 用 PowerShell 脚本起后端 |
 | `pnpm tray:bg` | WinForms 托盘 + 看门狗，后台常驻 |
 
+- 托盘只按 `/health/live` 判断后端；端口被别的程序占用时显示「端口被占用」并暂停自动重启；退出托盘只停自己拉起的后端（外部 `pnpm server` 不动）。
+
 - Node **≥ 22.13**（`node:sqlite` + pdfjs-dist 6.x），包管理器用 pnpm（11.x）。
 - 有 git 仓库与 GitHub Actions（`.github/workflows/ci.yml`，windows-latest + Node 22.13 + `pnpm verify`）；远端为 `origin`（GitHub），push/PR 时触发，Dependabot 每周提依赖更新 PR。
 - 改扩展代码后要在 `edge://extensions` 点「重新加载」；改后端要重启进程；只改 `~/.config/pageask/settings.json` 不用重启（后端每次请求都重读）。
