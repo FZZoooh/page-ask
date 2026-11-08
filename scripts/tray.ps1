@@ -26,6 +26,23 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+# 托盘文案放在 scripts/i18n/<culture>/Tray.psd1，按系统 UI 语言取；没有对应语言就回退 zh-CN。
+# 日志（Write-Tray）保持英文，不参与本地化。
+function Get-TrayStrings {
+  param([string]$Culture)
+  $base = Join-Path $PSScriptRoot 'i18n'
+  $tried = @()
+  foreach ($c in @($Culture, 'zh-CN')) {
+    if (-not $c -or $tried -contains $c) { continue }
+    $tried += $c
+    try {
+      return Import-LocalizedData -BaseDirectory $base -FileName 'Tray.psd1' -UICulture $c -ErrorAction Stop
+    } catch { }
+  }
+  throw "missing tray strings: $base\<culture>\Tray.psd1"
+}
+$script:Tray = Get-TrayStrings -Culture $PSUICulture
+
 $script:Root = Split-Path -Parent $PSScriptRoot
 $script:DataDir = Join-Path $script:Root 'server\data'
 $script:TrayLog = Join-Path $script:DataDir 'tray.log'
@@ -146,13 +163,13 @@ function Start-Backend {
         Write-Tray 'previous run ended abnormally; pending question will be restored in the side panel'
         # 侧栏打开时会把没回答的那条提问放回输入框，这里只提醒一句
         if ($notify) {
-          $notify.ShowBalloonTip(4000, 'PageAsk', '上次后端没有正常退出；没回答的提问会在侧栏打开时回到输入框。', [System.Windows.Forms.ToolTipIcon]::Warning)
+          $notify.ShowBalloonTip(4000, $script:Tray.AppName, $script:Tray.BalloonAbnormal, [System.Windows.Forms.ToolTipIcon]::Warning)
         }
       }
       return $true
     }
     if ($script:Child.HasExited) {
-      Write-Tray ("start aborted: node exited with {0}（详见 server.err.log）" -f $script:Child.ExitCode)
+      Write-Tray ("start aborted: node exited with {0} (see server.err.log)" -f $script:Child.ExitCode)
       return $false
     }
   }
@@ -193,7 +210,7 @@ function Stop-Backend {
       $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pidToCheck" -ErrorAction SilentlyContinue
       if (-not $proc) { continue }
       if ($proc.Name -ne 'node.exe' -or $proc.CommandLine -notmatch 'server[\\/]index\.mjs') {
-        Write-Tray ("skip pid={0} ({1})：不是 PageAsk 后端" -f $pidToCheck, $proc.Name)
+        Write-Tray ("skip pid={0} ({1}): not a PageAsk backend" -f $pidToCheck, $proc.Name)
         continue
       }
       try { Stop-Process -Id $pidToCheck -Force -ErrorAction Stop; $killed += $pidToCheck } catch { }
@@ -213,7 +230,7 @@ function Restart-Backend {
 # ---------- 开机自启 ----------
 
 $StartupDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup'
-$Shortcut = Join-Path $StartupDir 'PageAsk 托盘.lnk'
+$Shortcut = Join-Path $StartupDir $script:Tray.AutostartShortcutName
 
 # 优先 PowerShell 7（pwsh），找不到才退回系统自带的 5.1。
 # 注意：Windows 没有「默认 PowerShell」这种全局开关，powershell.exe 永远是 5.1，
@@ -262,7 +279,7 @@ function Install-Autostart {
   $lnk.Arguments = $cmd.Args
   $lnk.WorkingDirectory = $script:Root
   $lnk.WindowStyle = 7
-  $lnk.Description = 'PageAsk 后端托盘（守护进程）'
+  $lnk.Description = $script:Tray.AutostartDescription
   $lnk.Save()
   Write-Tray ("autostart installed: {0} -> {1} (port {2})" -f $Shortcut, $cmd.Exe, $script:Port)
 }
@@ -282,8 +299,8 @@ if ($Diagnose) {
   exit 0
 }
 
-if ($InstallAutostart) { Install-Autostart; Write-Host "已设置开机自启：$Shortcut"; exit 0 }
-if ($RemoveAutostart) { Remove-Autostart; Write-Host '已取消开机自启'; exit 0 }
+if ($InstallAutostart) { Install-Autostart; Write-Host ($script:Tray.HostAutostartInstalled -f $Shortcut); exit 0 }
+if ($RemoveAutostart) { Remove-Autostart; Write-Host $script:Tray.HostAutostartRemoved; exit 0 }
 
 # ---------- 单实例 ----------
 
@@ -298,7 +315,7 @@ try {
 }
 if (-not $acquired) {
   $mutex.Dispose()
-  Write-Host "PageAsk 托盘已经在运行了（端口 $($script:Port)）。"
+  Write-Host ($script:Tray.HostAlreadyRunning -f $script:Port)
   exit 0
 }
 
@@ -313,21 +330,21 @@ $bmp.Dispose()
 $notify = New-Object System.Windows.Forms.NotifyIcon
 $notify.Icon = $icon
 $notify.Visible = $true
-$notify.Text = 'PageAsk 后端'
+$notify.Text = $script:Tray.TrayTooltip
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
-$miStatus = New-Object System.Windows.Forms.ToolStripMenuItem
+$miStatus = New-Object System.Windows.Forms.ToolStripMenuItem $script:Tray.MenuStatus
 $miStatus.Enabled = $false
-$miStart = New-Object System.Windows.Forms.ToolStripMenuItem '启动后端'
-$miStop = New-Object System.Windows.Forms.ToolStripMenuItem '停止后端'
-$miRestart = New-Object System.Windows.Forms.ToolStripMenuItem '重启后端'
-$miConsole = New-Object System.Windows.Forms.ToolStripMenuItem '配置…'
-$miLogs = New-Object System.Windows.Forms.ToolStripMenuItem '打开日志'
-$miData = New-Object System.Windows.Forms.ToolStripMenuItem '打开数据目录'
-$miAuto = New-Object System.Windows.Forms.ToolStripMenuItem '开机自启'
+$miStart = New-Object System.Windows.Forms.ToolStripMenuItem $script:Tray.MenuStart
+$miStop = New-Object System.Windows.Forms.ToolStripMenuItem $script:Tray.MenuStop
+$miRestart = New-Object System.Windows.Forms.ToolStripMenuItem $script:Tray.MenuRestart
+$miConsole = New-Object System.Windows.Forms.ToolStripMenuItem $script:Tray.MenuConfig
+$miLogs = New-Object System.Windows.Forms.ToolStripMenuItem $script:Tray.MenuLogs
+$miData = New-Object System.Windows.Forms.ToolStripMenuItem $script:Tray.MenuData
+$miAuto = New-Object System.Windows.Forms.ToolStripMenuItem $script:Tray.MenuAutostart
 $miAuto.CheckOnClick = $true
 $miAuto.Checked = Test-Path $Shortcut
-$miQuit = New-Object System.Windows.Forms.ToolStripMenuItem '退出'
+$miQuit = New-Object System.Windows.Forms.ToolStripMenuItem $script:Tray.MenuQuit
 
 [void]$menu.Items.Add($miStatus)
 [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
@@ -349,19 +366,20 @@ $refresh = {
   $up = $state -eq 'up'
   if ($up) {
     $model = Get-HealthModel
-    $miStatus.Text = '运行中 · 127.0.0.1:{0}{1}' -f $script:Port, $(if ($model) { " · $model" } else { '' })
-    $notify.Text = 'PageAsk 后端：运行中'
+    $suffix = if ($model) { $script:Tray.StatusModelSuffix -f $model } else { '' }
+    $miStatus.Text = $script:Tray.StatusRunning -f $script:Port, $suffix
+    $notify.Text = $script:Tray.NotifyRunning
   } elseif ($state -eq 'foreign') {
     # 端口被别人占着：说清楚，别让用户以为是我们没起来
-    $miStatus.Text = '端口 {0} 被其他程序占用' -f $script:Port
-    $notify.Text = 'PageAsk：端口被占用'
+    $miStatus.Text = $script:Tray.StatusPortForeign -f $script:Port
+    $notify.Text = $script:Tray.NotifyPortForeign
   } elseif ($script:StoppedByUser) {
     # 手动停的：别再过一会儿自己冒出来，状态也要说清楚是「你停的」
-    $miStatus.Text = '已停止（手动）'
-    $notify.Text = 'PageAsk 后端：已停止（手动）'
+    $miStatus.Text = $script:Tray.StatusStoppedManual
+    $notify.Text = $script:Tray.NotifyStoppedManual
   } else {
-    $miStatus.Text = '已停止'
-    $notify.Text = 'PageAsk 后端：已停止'
+    $miStatus.Text = $script:Tray.StatusStopped
+    $notify.Text = $script:Tray.NotifyStopped
   }
   $miStart.Enabled = $state -eq 'down'
   $miStop.Enabled = $up
@@ -382,7 +400,7 @@ $miStart.add_Click({
 $miStop.add_Click({
   $script:StoppedByUser = $true
   Stop-Backend
-  Write-Tray 'stop by user：看门狗暂停自动重启'
+  Write-Tray 'stop by user: watchdog paused'
   & $refresh
 })
 $miRestart.add_Click({
@@ -436,7 +454,7 @@ $timer.add_Tick({
   if ($state -eq 'up') {
     if ($script:WasDown) {
       $script:WasDown = $false
-      $notify.ShowBalloonTip(3000, 'PageAsk', '后端已恢复。', [System.Windows.Forms.ToolTipIcon]::Info)
+      $notify.ShowBalloonTip(3000, $script:Tray.AppName, $script:Tray.BalloonRecovered, [System.Windows.Forms.ToolTipIcon]::Info)
     }
     $script:RestartDelay = 10
     $script:NextRestartAt = [datetime]::MinValue
@@ -463,7 +481,7 @@ $timer.add_Tick({
   if ($ok) {
     $script:RestartDelay = 10
     $script:NextRestartAt = [datetime]::MinValue
-    $notify.ShowBalloonTip(3000, 'PageAsk', '后端未响应，已自动重启。', [System.Windows.Forms.ToolTipIcon]::Warning)
+    $notify.ShowBalloonTip(3000, $script:Tray.AppName, $script:Tray.BalloonRestarted, [System.Windows.Forms.ToolTipIcon]::Warning)
   } else {
     $script:RestartDelay = [Math]::Min(60, $script:RestartDelay * 2)
     $script:NextRestartAt = (Get-Date).AddSeconds($script:RestartDelay)

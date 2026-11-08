@@ -85,6 +85,7 @@ PLAN.md                           已归档的早期规划（不再维护，勿�
 - 改协议必须两端同步：`server/index.mjs` 的 SSE emit ↔ `src/lib/chat.ts` 的 `ChatEvent`；`page` 字段 ↔ `ChatRequest`。
 - 错误契约：HTTP 4xx/5xx 与 SSE `error` 都走 `server/errors.mjs` 的 `errorPayload()` / `UpstreamError`，响应体至少含 `code`（`domain.reason`）与可选 `params`，`message` 只作 fallback；前端用 `tError(code, params, message)` 映射 `error.<code>`。新增错误先定 code，再补两端文案；测试断言 `code`，不要断言中文句子。
 - 后端面向用户的文案（配置页、错误 fallback）统一放在 `server/i18n/zh-CN.mjs`：配置页用 `t('webui.*')`，错误用 `error.<code>`；`server/webui.mjs` 里不写硬编码中文。配置页按 `?lang=` / `Accept-Language` 选字典（当前只有 zh-CN，回退默认）；新增 locale 只加字典文件与 `server/i18n/index.mjs` 的注册，客户端脚本会拿到整份字典。
+- 托盘文案在 `scripts/i18n/<culture>/Tray.psd1`，`scripts/tray.ps1` 用 `Import-LocalizedData` 按 `$PSUICulture` 加载、缺失时回退 zh-CN；脚本里不写用户可见中文（`Write-Tray` 日志保持英文）。
 - 关键上限：`MAX_OUTPUT_TOKENS = 8192`、上游超时 300s、请求体 4MB（`/pdf` 64MB）、PDF 400 页 / 40 万字符。
 - 上游走 Responses API。`state=auto` 只对已知端点（`api.openai.com`、`*.openai.azure.com`、`*.services.ai.azure.com`）启用 `previous_response_id`；链断按 400/404/409/422 结构性判定并整段回退，失败后本进程不再尝试。不要改回 Chat Completions，也不要回传 reasoning item。
 
