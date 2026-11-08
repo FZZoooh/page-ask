@@ -63,26 +63,32 @@ export function grabPage() {
     /* some pages block selection; ignore */
   }
 
-  // Text in the visible area: only blocks that directly hold text, so parents do not repeat children
+  // Text in the visible area: semantic text blocks only, so one large DOM doesn't force thousands
+  // of getBoundingClientRect() calls. This is a viewport hint; read_page still has the full body.
   let visible = '';
   try {
     const vh = window.innerHeight || 0;
     const out: string[] = [];
     let budget = 20000;
-    const nodes = document.body ? Array.from(document.body.querySelectorAll<HTMLElement>('*')) : [];
+    const TEXT_BLOCKS =
+      'p,li,pre,blockquote,h1,h2,h3,h4,h5,h6,td,th,dd,dt,figcaption,summary,caption';
+    const all = document.body ? Array.from(document.body.querySelectorAll<HTMLElement>(TEXT_BLOCKS)) : [];
+    const nodes = all.slice(0, 2000);
     for (const el of nodes) {
       if (out.length > 600 || budget <= 0) break;
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) continue;
       if (rect.bottom <= 0 || rect.top >= vh) continue;
-      let hasTextChild = false;
+      // A block that already contains another text block is represented by that child; inline
+      // children (<span>, <strong>) must not hide the parent's text.
+      let hasBlockTextChild = false;
       for (const child of Array.from(el.children)) {
-        if ((child.textContent ?? '').trim()) {
-          hasTextChild = true;
+        if (child.matches(TEXT_BLOCKS) && (child.textContent ?? '').trim()) {
+          hasBlockTextChild = true;
           break;
         }
       }
-      if (hasTextChild) continue;
+      if (hasBlockTextChild) continue;
       const line = (el.innerText ?? el.textContent ?? '').replace(/\s+/g, ' ').trim();
       if (!line) continue;
       out.push(line);

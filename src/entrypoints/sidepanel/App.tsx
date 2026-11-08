@@ -1180,7 +1180,7 @@ export default function App() {
                 <div className="answer" aria-live={m.streaming ? undefined : 'polite'}>
                   {m.content ? (
                     <div className={`md-wrap${m.streaming ? ' streaming' : ''}`}>
-                      <MarkdownView text={m.content} />
+                      <MarkdownView text={m.content} streaming={m.streaming} />
                     </div>
                   ) : null}
                   {m.error && <p className="err">{m.error}</p>}

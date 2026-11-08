@@ -5,7 +5,7 @@
 - 审查范围：`src/`、`server/`、`scripts/`、`test/`、`wxt.config.ts`、`package.json`、CI 与文档
 - 审查方式：逐文件静态审查 + 类型检查 + 语法/i18n 守卫 + 7 个后端回归 + 生产构建
 - 约束：**审查阶段不修改任何产品代码**。报告中的行号与结论以 `b9533d3` 为基线。
-- 修复状态：P1-1、P1-2、P1-3、P2-1、P2-2、P2-3、P2-4、P2-5、P2-6、P2-8、P2-9、P2-10、P2-11、P2-12、P2-13、P2-14、P2-15、P2-16、P2-17、P2-18、P2-19、P2-20、P2-21、P2-22、P2-23、P2-24、P2-25 已在 2026-11-08 的后续批次修复，见第 11 节；正文保留审查时的证据，便于对照。
+- 修复状态：P1-1、P1-2、P1-3、P2-1、P2-2、P2-3、P2-4、P2-5、P2-6、P2-8、P2-9、P2-10、P2-11、P2-12、P2-13、P2-14、P2-15、P2-16、P2-17、P2-18、P2-19、P2-20、P2-21、P2-22、P2-23、P2-24、P2-25、P2-26、P2-27 已在 2026-11-08 的后续批次修复，见第 11 节；正文保留审查时的证据，便于对照。
 
 ## 0. 结论摘要
 
@@ -582,6 +582,8 @@ AGENTS 写的 `RESULT_CAP = 8000` 只是“正文截断到 8000”，最终工�
 
 ### P2-26 流式 Markdown 每 50ms 全量重解析
 
+**状态：已修复（2026-11-08，见第 11 节）。**
+
 **证据**
 
 - `App.tsx` 的流式 flush 间隔 50ms；`src/components/MarkdownView.tsx:60-66` 每次 `text` 变化都重新跑 remark + rehype + KaTeX。
@@ -597,6 +599,8 @@ AGENTS 写的 `RESULT_CAP = 8000` 只是“正文截断到 8000”，最终工�
 - 对代码块/公式做未闭合检测，避免每个 token 都触发 KaTeX。
 
 ### P2-27 `grabPage` 的全量元素扫描造成布局抖动
+
+**状态：已修复（2026-11-08，见第 11 节）。**
 
 **证据**
 
@@ -808,3 +812,11 @@ AGENTS 写的 `RESULT_CAP = 8000` 只是“正文截断到 8000”，最终工�
 - **P2-20 测试卫生**：`test-turn-abort.mjs` 注册 `exit` 清理并 `closeDb()`，fetch 用 `AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)])`；`test-hist-time.mjs` 改为导入真实 `formatTime`（新增 `src/lib/format-time.mjs` + `.d.mts`，`messages.ts` 复用），不再复制实现，并纳入 `test:server`。
 - **工程项**：`package.json` 增加 `packageManager: pnpm@11.22.0`；`.gitignore` 增加 `*.pem`；CI 增加 `permissions: contents: read`。
 - 验证：`pnpm verify` 通过（22 个后端回归；57 个 `.mjs` 与 6 个 PowerShell 文件语法/BOM 检查），构建仅既有 sidepanel 1.03MB chunk 警告。托盘 UI 与真实 Edge 启动仍未做自动化测试；`edge-test.ps1` 的引号/退出码只做了静态检查。
+
+### P2-26 / P2-27 流式 Markdown 与抓页扫描
+
+- **P2-26 增量 Markdown**：新增 `src/lib/markdown-stream.mjs`（+ `.d.mts`）的 `splitStreamingMarkdown(text)`，按空行把流式文本切成“已完成块”和“未完成尾巴”；扫描时跟踪围栏代码块与 `$$` 公式块，未闭合内容不会进入 remark/KaTeX。`MarkdownView` 增加 `streaming` 参数：已完成块逐个交给 `memo(MarkdownBlock)`，尾巴用 `.md-tail` 纯文本渲染；流结束后仍走原有的整段 Markdown 渲染，保证链接引用、脚注等最终语义完整。
+- **P2-27 抓页扫描**：`grabPage()` 不再对 `body.querySelectorAll('*')` 全量调用 `getBoundingClientRect`，改为只扫描 `p/li/pre/blockquote/h1..h6/td/th/dd/dt/figcaption/summary/caption` 等文本块，最多 2000 个候选；含文本块子节点的容器跳过，行内子元素不再误伤父块文本。该数据仍只作为“可见区域提示”，完整正文继续由 `read_page` 读取。
+- **回归**：新增 `scripts/test-markdown-stream.mjs`，覆盖空行边界、围栏代码块中的空行、未闭合围栏、`$$` 块、单行公式、松散列表/引用合并、列表后普通段落不合并、嵌套列表。`package.json` 的 `test:server` 增至 23 个脚本。
+- 验证：`pnpm verify` 通过（23 个后端回归；58 个 `.mjs` 与 6 个 PowerShell 文件语法/BOM 检查），构建仅既有 sidepanel 1.03MB chunk 警告。
+- 残留：流式期间尾巴是纯文本，跨块边界定义的链接引用/脚注要到流结束后的整段渲染才生效；抓页的文本块白名单可能漏掉只用 `<div>` 承载正文的页面，但 `read_page` 仍是正文来源。前端流式渲染没有浏览器自动化测试。

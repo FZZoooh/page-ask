@@ -1,9 +1,10 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import Markdown, { type Components } from 'react-markdown';
 import rehypeKatex from 'rehype-katex';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
+import { splitStreamingMarkdown } from '@/lib/markdown-stream.mjs';
 
 const remarkPlugins = [remarkGfm, remarkMath, remarkBreaks];
 const rehypePlugins = [[rehypeKatex, { throwOnError: false, strict: false, output: 'html' }]] as const;
@@ -53,16 +54,48 @@ const components: Components = {
   ),
 };
 
+/** Completed blocks are immutable while streaming, so memo prevents re-parsing earlier answers. */
+const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
+  return (
+    <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins as never} components={components}>
+      {text}
+    </Markdown>
+  );
+});
+
 /**
  * Renders a Markdown block (GFM tables, LaTeX math).
- * memo: streaming re-renders every 50ms, so unchanged earlier answers must not re-run remark + KaTeX.
+ * While streaming, only completed blocks are parsed; the unfinished tail is plain text until a
+ * blank line closes it. This keeps each block's remark/KaTeX work out of the next 50ms flush.
  */
-export const MarkdownView = memo(function MarkdownView({ text }: { text: string }) {
+export const MarkdownView = memo(function MarkdownView({
+  text,
+  streaming = false,
+}: {
+  text: string;
+  streaming?: boolean;
+}) {
+  const split = useMemo(
+    () => (streaming ? splitStreamingMarkdown(text) : { blocks: [text], tail: '' }),
+    [streaming, text],
+  );
+
+  if (!streaming) {
+    return (
+      <div className="md">
+        <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins as never} components={components}>
+          {text}
+        </Markdown>
+      </div>
+    );
+  }
+
   return (
     <div className="md">
-      <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins as never} components={components}>
-        {text}
-      </Markdown>
+      {split.blocks.map((block, index) => (
+        <MarkdownBlock key={index} text={block} />
+      ))}
+      {split.tail ? <span className="md-tail">{split.tail}</span> : null}
     </div>
   );
 });

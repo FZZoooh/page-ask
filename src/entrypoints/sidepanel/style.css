@@ -684,6 +684,12 @@ button.primary.save:hover:not(:disabled) {
   overflow-wrap: anywhere;
 }
 
+.md-tail {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .md > *:first-child {
   margin-top: 0;
 }
