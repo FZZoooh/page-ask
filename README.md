@@ -106,6 +106,7 @@ A：此为 Edge 侧栏当前版本的已知交互行为，再次点击工具栏�
 ```powershell
 pnpm dev:edge     # 启动 Edge 开发调试模式（支持热重载）
 pnpm compile      # 类型检查与语法校验
+pnpm check:i18n   # 本地化守护（硬编码中文/错误码/locale/托盘 key）
 pnpm test:server  # 后端独立测试套件
-pnpm verify       # 提交前验证（编译 + 测试 + 构建）
+pnpm verify       # 提交前验证（本地化 + 编译 + 测试 + 构建）
 ```

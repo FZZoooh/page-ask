@@ -117,6 +117,13 @@ try {
   check('客户端拿到整份字典', () => assert.ok(page.raw.includes('"webui.saved"')));
   check('客户端拿到错误码文案', () => assert.ok(page.raw.includes('"error.settings.invalid_state"')));
 
+  // 1b. 伪本地化：?lang=en-XA 走同一份字典，文本显著变长，用于肉眼/截图查布局
+  const pseudo = await request('/settings?lang=en-XA');
+  check('en-XA 配置页 200', () => assert.equal(pseudo.status, 200));
+  check('en-XA html lang', () => assert.match(pseudo.raw, /<html lang="en-XA">/));
+  check('en-XA 使用伪文案', () => assert.ok(pseudo.raw.includes('[!!') && pseudo.raw.includes('PageAsk')));
+  check('en-XA 明显更长', () => assert.ok(pseudo.raw.length > page.raw.length));
+
   // 2. 错误码：非法 state / 非法 baseUrl
   const badState = await postJson('/api/settings', { state: 'maybe' }, { Origin: sameOrigin });
   check('非法 state 返回 400', () => assert.equal(badState.status, 400));

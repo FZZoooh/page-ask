@@ -142,6 +142,7 @@ export const zhCN = {
   'error.conversation.busy': '这一轮还在生成，请稍后再试',
   'error.conversation.no_pending': '没有待恢复的提问',
   'error.settings.invalid_base_url': '上游地址要以 http:// 或 https:// 开头',
+  'error.settings.invalid_state': '会话状态不合法（可选：{modes}）',
   'error.settings.missing_api_key':
     '还没有配置 API Key：打开 {settingsUrl} 填一个（或在托盘菜单里点「配置…」）',
   'error.chat.empty_text': '问题不能为空',

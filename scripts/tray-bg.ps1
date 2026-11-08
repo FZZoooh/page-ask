@@ -14,7 +14,13 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
 $tray = Join-Path $root 'scripts\tray.ps1'
-if (-not (Test-Path $tray)) { throw "找不到 $tray" }
+$i18n = Join-Path $PSScriptRoot 'i18n'
+try {
+  $Tray = Import-LocalizedData -BaseDirectory $i18n -FileName 'Tray.psd1' -UICulture $PSUICulture
+} catch {
+  $Tray = Import-LocalizedData -BaseDirectory $i18n -FileName 'Tray.psd1' -UICulture 'zh-CN'
+}
+if (-not (Test-Path $tray)) { throw ($Tray.BgMissing -f $tray) }
 
 # 和 tray.ps1 里的 Get-Pwsh7 保持一致：优先稳定路径，最后才用 Get-Command 兜底
 function Get-Pwsh7 {
@@ -39,6 +45,6 @@ if ($pwsh) {
 }
 
 $proc = Start-Process -FilePath $exe -ArgumentList $argv -WorkingDirectory $root -WindowStyle Hidden -PassThru
-Write-Host ("已在后台启动托盘：pid={0}（{1}）" -f $proc.Id, (Split-Path -Leaf $exe))
-Write-Host ("日志：{0}" -f (Join-Path $root 'server\data\tray.log'))
-Write-Host '停止：托盘图标右键 → 退出；或 Stop-Process -Id 该 pid'
+Write-Host ($Tray.BgStarted -f $proc.Id, (Split-Path -Leaf $exe))
+Write-Host ($Tray.BgLog -f (Join-Path $root 'server\data\tray.log'))
+Write-Host $Tray.BgStop

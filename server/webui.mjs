@@ -184,7 +184,7 @@ async function load() {
   }
   try {
     const h = await api('/health');
-    // 每项独占一行，长 URL 也不再挤成一段
+    // one item per line so long URLs do not squeeze into one paragraph
     $('hBase').textContent = h.baseUrl || '';
     $('hModel').textContent = h.model || '';
     $('hKey').textContent = h.hasKey ? m('webui.keyConfigured') : m('webui.keyMissing');

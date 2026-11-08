@@ -33,4 +33,9 @@
   HostAutostartInstalled = '已设置开机自启：{0}'
   HostAutostartRemoved   = '已取消开机自启'
   HostAlreadyRunning     = 'PageAsk 托盘已在运行（端口 {0}）'
+
+  BgStarted              = '已在后台启动托盘：pid={0}（{1}）'
+  BgLog                  = '日志：{0}'
+  BgStop                 = '停止：托盘图标右键 → 退出；或 Stop-Process -Id 该 pid'
+  BgMissing              = '找不到托盘脚本：{0}'
 }

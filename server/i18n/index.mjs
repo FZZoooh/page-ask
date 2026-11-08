@@ -1,12 +1,17 @@
 /**
  * 后端侧文案入口：默认 `zh-CN`，按 `?lang=` / `Accept-Language` 选字典。
  *
- * 目前只有一份字典，但接口按多语言设计：拿不到匹配语言时回退到默认，绝不抛错。
+ * 现有 `zh-CN` 与伪本地化 `en-XA`（只用于检查布局，不是真实语言）；接口按多语言设计：
+ * 拿不到匹配语言时回退到默认，绝不抛错。
  * 前端扩展有自己的 `src/lib/i18n.ts`；这里只服务后端直出的内容（配置页、错误体）。
  */
 import zhCN, { locale as zhCNLocale } from './zh-CN.mjs';
+import enXA, { locale as enXALocale } from './en-XA.mjs';
 
-const DICTS = new Map([[zhCNLocale, zhCN]]);
+const DICTS = new Map([
+  [zhCNLocale, zhCN],
+  [enXALocale, enXA],
+]);
 
 export const DEFAULT_LOCALE = zhCNLocale;
 export const SUPPORTED_LOCALES = [...DICTS.keys()];

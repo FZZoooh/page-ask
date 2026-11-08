@@ -20,7 +20,7 @@ PageAsk：Edge 侧栏扩展 + 本机 Node 后端。侧栏就**当前标签页**�
 | `pnpm build` | 生产构建 → `.output/chrome-mv3` |
 | `pnpm compile` | `tsc --noEmit` + `scripts/check-syntax.mjs`（后端/脚本 `.mjs` 语法），**改完必须过** |
 | `pnpm test:server` | 串跑 `scripts/test-*.mjs` 后端回归（临时目录 + 假上游，不碰真实配置） |
-| `pnpm verify` | `compile` + `test:server` + `build`，提交前跑这个 |
+| `pnpm verify` | `check:i18n` + `compile` + `test:server` + `build`，提交前跑这个 |
 | `pnpm server` | 前台起后端（`node server/index.mjs`） |
 | `pnpm server:win` | 用 PowerShell 脚本起后端 |
 | `pnpm tray:bg` | WinForms 托盘 + 看门狗，后台常驻 |
@@ -42,7 +42,7 @@ src/entrypoints/sidepanel/        侧栏：App.tsx 编排状态机；messages.ts
 src/lib/                          chat.ts / extract.ts / pdf.ts / settings.ts / i18n.ts
 src/components/                   MarkdownView.tsx、icons.tsx
 server/                           后端：index.mjs 路由 + db/tools/pdf/text/log/webui/net/lifecycle
-server/i18n/                      后端文案字典（zh-CN.mjs）与 t()/negotiateLocale()
+server/i18n/                      后端文案字典（zh-CN.mjs + en-XA 伪本地化）与 t()/negotiateLocale()
 server/data/                      运行时产物（db、shots/、日志、run.json），不要提交
 scripts/                          PowerShell 启动/托盘/测试实例 + CDP/冒烟脚本
 test/                             手测夹具（article.html、*.pdf）
@@ -84,8 +84,9 @@ PLAN.md                           已归档的早期规划（不再维护，勿�
 - 数据库加列用 `PRAGMA table_info` + `ALTER TABLE` 就地补，不写破坏性迁移；`messages.role` 只有 `user | assistant | tool`。
 - 改协议必须两端同步：`server/index.mjs` 的 SSE emit ↔ `src/lib/chat.ts` 的 `ChatEvent`；`page` 字段 ↔ `ChatRequest`。
 - 错误契约：HTTP 4xx/5xx 与 SSE `error` 都走 `server/errors.mjs` 的 `errorPayload()` / `UpstreamError`，响应体至少含 `code`（`domain.reason`）与可选 `params`，`message` 只作 fallback；前端用 `tError(code, params, message)` 映射 `error.<code>`。新增错误先定 code，再补两端文案；测试断言 `code`，不要断言中文句子。
-- 后端面向用户的文案（配置页、错误 fallback）统一放在 `server/i18n/zh-CN.mjs`：配置页用 `t('webui.*')`，错误用 `error.<code>`；`server/webui.mjs` 里不写硬编码中文。配置页按 `?lang=` / `Accept-Language` 选字典（当前只有 zh-CN，回退默认）；新增 locale 只加字典文件与 `server/i18n/index.mjs` 的注册，客户端脚本会拿到整份字典。
-- 托盘文案在 `scripts/i18n/<culture>/Tray.psd1`，`scripts/tray.ps1` 用 `Import-LocalizedData` 按 `$PSUICulture` 加载、缺失时回退 zh-CN；脚本里不写用户可见中文（`Write-Tray` 日志保持英文）。
+- 后端面向用户的文案（配置页、错误 fallback）统一放在 `server/i18n/zh-CN.mjs`：配置页用 `t('webui.*')`，错误用 `error.<code>`；`server/webui.mjs` 里不写硬编码中文。配置页按 `?lang=` / `Accept-Language` 选字典；现有 `zh-CN` 与伪本地化 `en-XA`（只用于布局测试，不是真实语言），不认识的语言回退默认；新增 locale 只加字典文件与 `server/i18n/index.mjs` 的注册，客户端脚本会拿到整份字典。
+- 托盘文案在 `scripts/i18n/<culture>/Tray.psd1`，`scripts/tray.ps1` 与 `scripts/tray-bg.ps1` 用 `Import-LocalizedData` 按 `$PSUICulture` 加载、缺失时回退 zh-CN；脚本里不写用户可见中文（`Write-Tray` 日志保持英文）。
+- `scripts/check-i18n.mjs` 是本地化守护，已串进 `pnpm verify`：扫 UI 字符串字面量里的硬编码中文（注释与 `[pageask]` 日志除外）、校验 server/client 错误码覆盖、zh-CN 与 en-XA 的 key 对齐/伪本地化长度、托盘 key 与 `$script:Tray.*` 双向一致。加文案或错误码后先跑它。
 - 关键上限：`MAX_OUTPUT_TOKENS = 8192`、上游超时 300s、请求体 4MB（`/pdf` 64MB）、PDF 400 页 / 40 万字符。
 - 上游走 Responses API。`state=auto` 只对已知端点（`api.openai.com`、`*.openai.azure.com`、`*.services.ai.azure.com`）启用 `previous_response_id`；链断按 400/404/409/422 结构性判定并整段回退，失败后本进程不再尝试。不要改回 Chat Completions，也不要回传 reasoning item。
 
@@ -98,7 +99,7 @@ PLAN.md                           已归档的早期规划（不再维护，勿�
 
 ## 7. 验证方式
 
-提交前先跑 `pnpm verify`（类型 + 32 个 `.mjs` 语法 + 6 个后端回归 + 构建）；CI 用同一命令。仍没有前端单测，UI 靠类型检查 + 手测：
+提交前先跑 `pnpm verify`（本地化守护 + 类型 + 33 个 `.mjs` 语法 + 6 个后端回归 + 构建）；CI 用同一命令。仍没有前端单测，UI 靠类型检查 + 手测：
 
 1. `pnpm verify` 通过；只改前端时至少 `pnpm compile` + `pnpm build`。
 2. 后端改动：`pnpm server` 起服务，`curl http://127.0.0.1:8787/health`；必要时 `node scripts/test-chat.mjs "问题"` 看 SSE 事件；新增行为优先补进 `scripts/test-*.mjs`（临时 `PAGEASK_DATA_DIR`/`USERPROFILE` + 假上游，不要碰真实配置）。
