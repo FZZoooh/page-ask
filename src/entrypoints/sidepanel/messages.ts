@@ -1,4 +1,5 @@
 import { t, type MessageKey } from '@/lib/i18n';
+import { clockTime, formatTime } from '@/lib/format-time.mjs';
 import type { StoredMessage, Usage } from '@/lib/chat';
 
 export interface Message {
@@ -128,9 +129,7 @@ export function buildRounds(list: Message[]): Round[] {
 
 /** Clock time only (`16:04`). A hover tooltip only wants the hour, not the date. */
 export function fmtClock(ts: number): string {
-  const d = new Date(ts);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return clockTime(ts);
 }
 
 /**
@@ -139,20 +138,11 @@ export function fmtClock(ts: number): string {
  * Always diff by **local calendar day** (not a 24h span), so "on Jan 2 looking at Dec 30" is still
  * 3 days ago → "Tuesday 16:04" rather than "12/30".
  */
-export function fmtTime(ts: number): string {
-  const d = new Date(ts);
-  const now = new Date();
-  const hm = fmtClock(ts);
-  const midnight = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  // A DST day can be 23/25 hours long, so round to whole days
-  const dayDiff = Math.round((midnight(now) - midnight(d)) / 86_400_000);
-
-  if (dayDiff <= 0) return hm; // today (a clock-skew "future" still counts as today)
-  if (dayDiff === 1) return `${t('history.yesterday')} ${hm}`;
-  if (dayDiff < 7) return `${t(`weekday.${d.getDay()}` as MessageKey)} ${hm}`;
-
-  const md = `${d.getMonth() + 1}/${d.getDate()}`;
-  return `${d.getFullYear() === now.getFullYear() ? md : `${d.getFullYear()}/${md}`} ${hm}`;
+export function fmtTime(ts: number, nowMs = Date.now()): string {
+  return formatTime(ts, nowMs, {
+    yesterday: t('history.yesterday'),
+    weekdays: [0, 1, 2, 3, 4, 5, 6].map((day) => t(`weekday.${day}` as MessageKey)),
+  });
 }
 
 /** Conversation view: insert a time separator when consecutive questions are further apart than this */

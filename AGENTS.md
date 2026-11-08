@@ -20,14 +20,14 @@ PageAsk: a Chromium side-panel extension (Microsoft Edge and Google Chrome, 116+
 | `pnpm build` | Production build → `.output/chrome-mv3` |
 | `pnpm ext:key` | One-time: write `extension-key.json` (public, committed) + `~/.config/pageask/extension-key.pem`; **changes the extension ID** |
 | `pnpm ext:id` | Print the extension ID derived from `extension-key.json` |
-| `pnpm compile` | `tsc --noEmit` + `scripts/check-syntax.mjs` (syntax check for backend/script `.mjs`), **must pass after every change** |
-| `pnpm test:server` | Runs the 7 fixed backend regression scripts (temp dirs + fake upstream, never touches real config) |
+| `pnpm compile` | `tsc --noEmit` + `scripts/check-syntax.mjs` (syntax check for backend/script `.mjs`, plus UTF-8 BOM + PowerShell parser check for `.ps1`/`.psd1`), **must pass after every change** |
+| `pnpm test:server` | Runs the 22 fixed backend regression scripts (temp dirs + fake upstream, never touches real config) |
 | `pnpm verify` | `check:i18n` + `compile` + `test:server` + `build`; run this before committing |
 | `pnpm server` | Start the backend in the foreground (`node server/index.mjs`) |
 | `pnpm server:win` | Start the backend through the PowerShell script |
 | `pnpm tray:bg` | WinForms tray + watchdog, runs resident in the background |
 
-- The tray judges backend health only by `/health/live`; when another program owns the port it shows "port in use" and pauses auto-restart; quitting the tray stops only the backend it started (an external `pnpm server` is left alone).
+- The tray judges liveness by `/health/live` and reads the model/abnormal-exit state from the token-authenticated `/health`; when another program owns the port it shows "port in use" and pauses auto-restart; quitting the tray stops only the backend it started (an external `pnpm server` is left alone).
 
 - Node **≥ 22.13** (`node:sqlite` + pdfjs-dist 6.x); package manager is pnpm (CI pins 11.x).
 - There is a git repository and GitHub Actions (`.github/workflows/ci.yml`, windows-latest + Node 22.13 + `pnpm verify`); the remote is `origin` (GitHub) and workflows fire on push/PR; Dependabot opens dependency-update PRs weekly.
@@ -106,10 +106,10 @@ PLAN.md                           archived early planning (unmaintained, not an 
 
 ## 7. Verification
 
-Run `pnpm verify` before committing (localization guard + types + syntax check of the `.mjs` files + 7 backend regressions + build); CI runs the same command. There are still no front-end unit tests, so UI is covered by type checking + manual testing:
+Run `pnpm verify` before committing (localization guard + types + syntax/BOM check of `.mjs` and PowerShell files + 22 backend regressions + build); CI runs the same command. There are still no front-end unit tests, so UI is covered by type checking + manual testing:
 
 1. `pnpm verify` passes; for front-end-only changes, at least `pnpm compile` + `pnpm build`.
-2. Backend changes: start the service with `pnpm server`, then `curl http://127.0.0.1:8787/health`; when needed use `node scripts/test-chat.mjs "question"` to watch SSE events (it reads port/token from settings.json); add new behavior to `scripts/test-*.mjs` first (temporary `USERPROFILE` + a `settings.json` in it, see `scripts/temp-config.mjs`, plus a fake upstream — never touch real config).
+2. Backend changes: start the service with `pnpm server`, then `curl http://127.0.0.1:8787/health`; when needed use `node scripts/test-chat.mjs "question"` to watch SSE events (it reads port/token from settings.json). Manual probes that touch the real config/DB (`test-chat`, `test-cache`, `test-shot`, `test-pdf-prompt`, `test-selection-context`) refuse to run unless `PAGEASK_ALLOW_REAL=1`; the fixed regressions use a temporary `USERPROFILE` + a `settings.json` in it (see `scripts/temp-config.mjs`) and a fake upstream.
 3. UI changes: `pnpm build` → `pwsh -File scripts/edge-test.ps1` (clean Edge + CDP, opens `127.0.0.1:8811/article.html` by default; serve `test/` on port 8811 yourself first); use `scripts/cdp-eval.mjs`, `cdp-key.mjs`, `cdp-dark.mjs` to inspect the panel and both themes.
 4. Specialized scripts: `test-extension-id.mjs` (manifest key → ID known-answer test / fail-closed cases), `test-cache.mjs` (prefix caching), `test-shot.mjs` (screenshot persistence/replay), `test-pdf-prompt.mjs`, `test-selection-context.mjs`, `test-hist-time.mjs`, `test-turn-integrity.mjs` / `test-turn-abort.mjs` (tool rounds and aborts), `test-empty-stream.mjs` (empty stream), `test-incomplete-and-bad-body.mjs` (truncated/bad requests), `test-lifecycle-recover.mjs` (abnormal exit / truncated-question recovery), `test-settings-webui.mjs` (settings-page strings/error codes/key clearing/token same-origin behavior).
 5. Record new decisions or pitfalls in `docs/` or the commit message; `PLAN.md` is archived — do not backfill it.

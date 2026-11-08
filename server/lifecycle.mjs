@@ -54,9 +54,12 @@ function writeMarker() {
 }
 
 /**
- * Called on startup. Returns { abnormal, previous }:
+ * Called on startup. Returns { abnormal, previous, alreadyRunning }:
  * - abnormal=true means the last run did not go through the clean-exit path;
- * - previous is the marker that run left behind (pid/startedAt/version/heartbeat).
+ * - previous is the marker that run left behind (pid/startedAt/version/heartbeat);
+ * - alreadyRunning=true means another live process owns this dataDir. The caller must exit
+ *   through its shutdown path (without deleting the live process's marker); this module never
+ *   calls process.exit itself.
  */
 export function startLifecycle(appVersion) {
   version = appVersion;
@@ -74,7 +77,7 @@ export function startLifecycle(appVersion) {
         `[pageask] another backend instance is still running (pid ${previous.pid}, last heartbeat ${new Date(lastHeartbeat).toISOString()}); ` +
           'stop it first, or point dataDir in settings.json somewhere else',
       );
-      process.exit(1);
+      return { abnormal: false, previous, alreadyRunning: true };
     }
     abnormal = true;
     logEvent('abnormal_exit_detected', {
@@ -96,7 +99,7 @@ export function startLifecycle(appVersion) {
     }
   }, HEARTBEAT_MS);
   timer.unref?.();
-  return { abnormal, previous };
+  return { abnormal, previous, alreadyRunning: false };
 }
 
 /** clean exit: stop the heartbeat, delete the marker */

@@ -1,22 +1,12 @@
-// Drive fmtTime through its boundaries with a fake clock: today / yesterday / within the week / older /
-// last year / across New Year. Note: anything but today also carries the wall-clock time ("Wed 16:04").
+// Drive the real formatTime through its boundaries with a fake clock: today / yesterday / within the week /
+// older / last year / across New Year. Anything but today also carries the wall-clock time ("周三 16:04").
 import assert from 'node:assert/strict';
+import { formatTime } from '../src/lib/format-time.mjs';
 
-const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-
-function fmtTime(ts, nowMs) {
-  const d = new Date(ts);
-  const now = new Date(nowMs);
-  const pad = (n) => String(n).padStart(2, '0');
-  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  const midnight = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const dayDiff = Math.round((midnight(now) - midnight(d)) / 86_400_000);
-  if (dayDiff <= 0) return hm;
-  if (dayDiff === 1) return `昨天 ${hm}`;
-  if (dayDiff < 7) return `${WEEKDAYS[d.getDay()]} ${hm}`;
-  const md = `${d.getMonth() + 1}/${d.getDate()}`;
-  return `${d.getFullYear() === now.getFullYear() ? md : `${d.getFullYear()}/${md}`} ${hm}`;
-}
+const LABELS = {
+  yesterday: '昨天',
+  weekdays: ['周日', '周一', '周二', '周三', '周四', '周五', '周六'],
+};
 
 const at = (y, m, d, h = 12, min = 0) => new Date(y, m - 1, d, h, min).getTime();
 
@@ -33,7 +23,7 @@ const cases = [
 ];
 
 for (const [label, ts, want] of cases) {
-  const got = fmtTime(ts, now);
+  const got = formatTime(ts, now, LABELS);
   assert.equal(got, want, `${label}: 期望 ${want}，实际 ${got}`);
   console.log(`✓ ${label.padEnd(14)} -> ${got}`);
 }
@@ -46,13 +36,13 @@ for (const [label, ts, want] of [
   ['跨年 3 天前', at(2025, 12, 30, 9, 30), '周二 09:30'],
   ['跨年 4 天前', at(2025, 12, 29, 9, 30), '周一 09:30'],
 ]) {
-  const got = fmtTime(ts, nyd);
+  const got = formatTime(ts, nyd, LABELS);
   assert.equal(got, want, `${label}: 期望 ${want}，实际 ${got}`);
   console.log(`✓ ${label.padEnd(14)} -> ${got}（today=1/2）`);
 }
 
 // Across New Year but more than a week back: the year is included, and so is the time
-const got = fmtTime(at(2025, 12, 20, 21, 45), nyd);
+const got = formatTime(at(2025, 12, 20, 21, 45), nyd, LABELS);
 assert.equal(got, '2025/12/20 21:45', `跨年超一周应为 2025/12/20 21:45，实际 ${got}`);
 console.log(`✓ ${'跨年 13 天前'.padEnd(14)} -> ${got}`);
 

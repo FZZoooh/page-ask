@@ -4,6 +4,9 @@
 //  3) turn 2 follows up: history with the image must be accepted upstream (no 422)
 // Run: node scripts/test-shot.mjs [port]
 import { readSettings } from '../server/settings.mjs';
+import { requireRealConfig } from './require-real-config.mjs';
+
+requireRealConfig();
 
 const PORT = Number(process.argv[2] ?? readSettings().port);
 const BASE = `http://127.0.0.1:${PORT}`;

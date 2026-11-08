@@ -10,6 +10,9 @@
  */
 
 import { readSettings } from '../server/settings.mjs';
+import { requireRealConfig } from './require-real-config.mjs';
+
+requireRealConfig();
 
 const BASE = process.argv[2] ?? `http://127.0.0.1:${readSettings().port}`;
 

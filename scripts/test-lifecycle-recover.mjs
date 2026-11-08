@@ -154,6 +154,17 @@ check('首次启动 lifecycle 正常', () => {
 const before = await getJson(port, `/conversations/${conv2.id}/recover`, { method: 'POST' });
 check('最后一条已是 assistant 时不恢复', () => assert.equal(before.status, 409));
 
+// A second process on the same dataDir must step aside without deleting the live marker.
+const duplicate = startServer(port);
+const duplicateExited = await waitFor(() => duplicate.exitCode !== null, 5000);
+check('同 dataDir 的第二个实例以退出码 1 结束', () => {
+  assert.equal(duplicateExited, true);
+  assert.equal(duplicate.exitCode, 1);
+});
+const stillLive = await fetch(`http://127.0.0.1:${port}/health/live`);
+check('第二个实例退出后第一个仍在运行', () => assert.equal(stillLive.ok, true));
+check('第二个实例未删除 run.json', () => assert.ok(existsSync(join(dataDir, 'run.json'))));
+
 await stopServer(child);
 await new Promise((r) => setTimeout(r, 500));
 

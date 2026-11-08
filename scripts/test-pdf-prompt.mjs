@@ -2,6 +2,9 @@
 // turn against a simulated long PDF page (kind=pdf) and watch whether the model calls scope="viewport".
 // Run: node scripts/test-pdf-prompt.mjs [question] [--selection=xxx]
 import { readSettings } from '../server/settings.mjs';
+import { requireRealConfig } from './require-real-config.mjs';
+
+requireRealConfig();
 
 const BASE = `http://127.0.0.1:${readSettings().port}`;
 

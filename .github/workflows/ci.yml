@@ -10,6 +10,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     # The product targets Windows only and the regression scripts depend on USERPROFILE, so run on Windows directly

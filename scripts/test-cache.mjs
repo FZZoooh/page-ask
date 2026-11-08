@@ -3,6 +3,9 @@
 // Key metric: usage.input_tokens_details.cached_tokens (input tokens served from cache)
 import { readFileSync } from 'node:fs';
 import { readSettings } from '../server/settings.mjs';
+import { requireRealConfig } from './require-real-config.mjs';
+
+requireRealConfig();
 
 const PORT = Number(process.argv[2] ?? readSettings().port);
 const BASE = `http://127.0.0.1:${PORT}`;

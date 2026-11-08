@@ -119,20 +119,6 @@ const MAX_TOOL_FAILURES = 3; // 3 consecutive failures circuit-break the remaini
   if (!s.apiKey) console.error(`[pageask] no API key yet; open http://${HOST}:${PORT}/settings to set one`);
 }
 
-// was the last exit a kill/crash? a leftover run.json means shutdown() never ran
-try {
-  startLifecycle(VERSION);
-} catch (err) {
-  // a marker file that can't be written must not keep the whole backend from starting
-  logError('lifecycle_start', err, {});
-}
-try {
-  const orphanShots = cleanupOrphanShots();
-  if (orphanShots) logEvent('orphan_shots_removed', { count: orphanShots });
-} catch (err) {
-  logError('orphan_shots', err, {});
-}
-
 /* ---------------- HTTP ---------------- */
 
 const server = createServer((req, res) => {
@@ -145,28 +131,47 @@ const server = createServer((req, res) => {
   });
 });
 
+/** clean exit: remove the marker, close connections and the db, then exit; both tray and Ctrl+C go through here */
+let shuttingDown = false;
+function shutdown(reason, code = 0, { keepMarker = false } = {}) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logEvent('shutdown', { reason, code });
+  // A second instance did not create run.json; deleting it would erase the live process's marker.
+  if (!keepMarker) markCleanExit();
+  try {
+    server.close();
+    server.closeAllConnections?.();
+  } catch {
+    /* not listening yet, or already closed */
+  }
+  closeDb();
+  process.exit(code);
+}
+
+// Was the last exit a kill/crash? A leftover run.json means shutdown() never ran.
+// Check before listen so a second instance exits without fighting for the port.
+let lifecycle = null;
+try {
+  lifecycle = startLifecycle(VERSION);
+} catch (err) {
+  // a marker file that can't be written must not keep the whole backend from starting
+  logError('lifecycle_start', err, {});
+}
+if (lifecycle?.alreadyRunning) shutdown('instance_already_running', 1, { keepMarker: true });
+
+try {
+  const orphanShots = cleanupOrphanShots();
+  if (orphanShots) logEvent('orphan_shots_removed', { count: orphanShots });
+} catch (err) {
+  logError('orphan_shots', err, {});
+}
+
 server.listen(PORT, HOST, () => {
   const s = readSettings();
   console.log(`[pageask] backend listening on http://${HOST}:${PORT}  model=${s.model}  db=${dbFile}`);
   console.log(`[pageask] settings page http://${HOST}:${PORT}/settings  (config file ${settingsFile})`);
 });
-
-/** clean exit: remove the marker, close connections and the db, then exit; both tray and Ctrl+C go through here */
-let shuttingDown = false;
-function shutdown(reason) {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  logEvent('shutdown', { reason });
-  markCleanExit();
-  try {
-    server.close();
-    server.closeAllConnections?.();
-  } catch {
-    /* already closed */
-  }
-  closeDb();
-  process.exit(0);
-}
 
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));

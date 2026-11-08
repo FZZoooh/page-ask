@@ -26,7 +26,6 @@
 
   BalloonAbnormal        = '上次后端未正常退出'
   BalloonRecovered       = '后端已恢复'
-  BalloonRestarted       = '后端未响应，已自动重启'
 
   AutostartShortcutName  = 'PageAsk 托盘.lnk'
   AutostartDescription   = 'PageAsk 后端托盘（守护进程）'

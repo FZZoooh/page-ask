@@ -1,7 +1,10 @@
 // Smoke test: hit the backend /chat directly and print the SSE events (no browser in the loop).
 // Reads the port and token from ~/.config/pageask/settings.json, like the backend itself.
-// Usage: node scripts/test-chat.mjs ["question text"]
+// Usage: PAGEASK_ALLOW_REAL=1 node scripts/test-chat.mjs ["question text"]
 import { readSettings } from '../server/settings.mjs';
+import { requireRealConfig } from './require-real-config.mjs';
+
+requireRealConfig();
 
 const cfg = readSettings();
 const port = cfg.port;
@@ -9,7 +12,10 @@ const text = process.argv[2] ?? '用两点概括这个页面。';
 
 const res = await fetch(`http://127.0.0.1:${port}/chat`, {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json', ...(cfg.token ? { 'X-PageAsk-Token': cfg.token } : {}) },
+  headers: {
+    'Content-Type': 'application/json',
+    ...(cfg.token ? { Authorization: `Bearer ${cfg.token}` } : {}),
+  },
   body: JSON.stringify({
     page: {
       url: 'http://127.0.0.1:8811/article.html',

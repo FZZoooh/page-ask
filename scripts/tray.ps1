@@ -1,4 +1,4 @@
-# PageAsk tray app (Windows)
+﻿# PageAsk tray app (Windows)
 #
 # Run by double-click / `pnpm tray`: stays resident in the tray and
 #   1) starts the local backend (node server/index.mjs)
@@ -60,6 +60,10 @@ $script:RestartDelay = 10
 $script:NextRestartAt = [datetime]::MinValue
 # Separate "user clicked stop" from "backend crashed": the watchdog stays silent for the first, else it revives
 $script:StoppedByUser = $false
+# Spawn is non-blocking: the watchdog gives the child this long to open the port, instead of sleeping
+# 8s on the WinForms UI thread and freezing the tray menu.
+$script:StartingUntil = [datetime]::MinValue
+$script:StartupChecked = $false
 
 function Write-Tray([string]$msg) {
   $line = '{0} {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $msg
@@ -85,6 +89,13 @@ function Get-ConfiguredPort {
   $s = Get-PageAskSettings
   if ($s -and $s.port -and [int]$s.port -ge 1 -and [int]$s.port -le 65535) { return [int]$s.port }
   return 8787
+}
+
+# /health sits behind the same token gate as the API; the tray has no Origin header, so it must send the token.
+function Get-AuthHeaders {
+  $s = Get-PageAskSettings
+  if ($s -and $s.token) { return @{ Authorization = "Bearer $($s.token)" } }
+  return @{}
 }
 
 # Same rules as server/settings.mjs: empty means <repo>\server\data, "~" is the user profile,
@@ -152,7 +163,7 @@ function Test-Backend {
 
 function Get-HealthModel {
   try {
-    $r = Invoke-WebRequest -Uri "http://127.0.0.1:$($script:Port)/health" -UseBasicParsing -TimeoutSec 3
+    $r = Invoke-WebRequest -Uri "http://127.0.0.1:$($script:Port)/health" -UseBasicParsing -TimeoutSec 3 -Headers (Get-AuthHeaders)
     $j = $r.Content | ConvertFrom-Json
     return [string]$j.model
   } catch {
@@ -163,7 +174,7 @@ function Get-HealthModel {
 # Did the previous run die by crash or force-kill? (the backend leaves a marker in run.json)
 function Get-AbnormalExit {
   try {
-    $r = Invoke-WebRequest -Uri "http://127.0.0.1:$($script:Port)/health" -UseBasicParsing -TimeoutSec 3
+    $r = Invoke-WebRequest -Uri "http://127.0.0.1:$($script:Port)/health" -UseBasicParsing -TimeoutSec 3 -Headers (Get-AuthHeaders)
     $j = $r.Content | ConvertFrom-Json
     return [bool]$j.lifecycle.abnormalPreviousExit
   } catch {
@@ -184,6 +195,11 @@ function Start-Backend {
   }
   $script:PortBlocked = $false
 
+  # Already waiting for a previous spawn: do not launch a second node on the same dataDir.
+  if ($script:Child -and -not $script:Child.HasExited -and (Get-Date) -lt $script:StartingUntil) {
+    return $true
+  }
+
   $node = Get-NodeExe
   if (-not $node) {
     Write-Tray 'start failed: node.exe not found'
@@ -200,27 +216,9 @@ function Start-Backend {
     -RedirectStandardError $script:ServerErr
 
   $script:Starts++
+  $script:StartingUntil = (Get-Date).AddSeconds(8)
   Write-Tray ("start: pid={0} port={1}" -f $script:Child.Id, $script:Port)
-
-  # Wait for the port to come up (8 seconds at most)
-  for ($i = 0; $i -lt 16; $i++) {
-    Start-Sleep -Milliseconds 500
-    if (Test-Backend) {
-      if (Get-AbnormalExit) {
-        Write-Tray 'previous run ended abnormally; pending question will be restored in the side panel'
-        # The side panel puts the unanswered question back in the input box; here we only warn
-        if ($notify) {
-          $notify.ShowBalloonTip(4000, $script:Tray.AppName, $script:Tray.BalloonAbnormal, [System.Windows.Forms.ToolTipIcon]::Warning)
-        }
-      }
-      return $true
-    }
-    if ($script:Child.HasExited) {
-      Write-Tray ("start aborted: node exited with {0} (see server.err.log)" -f $script:Child.ExitCode)
-      return $false
-    }
-  }
-  return $false
+  return $true
 }
 
 function Stop-Backend {
@@ -509,8 +507,22 @@ $timer.add_Tick({
     return
   }
 
+  if ($script:Child -and $script:Child.HasExited) {
+    Write-Tray ("backend pid={0} exited with {1} (see server.err.log)" -f $script:Child.Id, $script:Child.ExitCode)
+    $script:Child = $null
+    $script:StartingUntil = [datetime]::MinValue
+  }
+
   $state = Get-BackendState
   if ($state -eq 'up') {
+    $script:StartingUntil = [datetime]::MinValue
+    if (-not $script:StartupChecked) {
+      $script:StartupChecked = $true
+      if (Get-AbnormalExit) {
+        Write-Tray 'previous run ended abnormally; pending question will be restored in the side panel'
+        $notify.ShowBalloonTip(4000, $script:Tray.AppName, $script:Tray.BalloonAbnormal, [System.Windows.Forms.ToolTipIcon]::Warning)
+      }
+    }
     if ($script:WasDown) {
       $script:WasDown = $false
       $notify.ShowBalloonTip(3000, $script:Tray.AppName, $script:Tray.BalloonRecovered, [System.Windows.Forms.ToolTipIcon]::Info)
@@ -532,15 +544,18 @@ $timer.add_Tick({
   $script:PortBlocked = $false
   $script:WasDown = $true
 
-  # Crash-loop backoff: 10s → 20s → 40s → 60s after failures; reset on success or manual action
+  # A spawn is still inside its startup window; check again on the next tick instead of blocking here.
+  if ((Get-Date) -lt $script:StartingUntil) { return }
+
+  # Crash-loop backoff: 10s → 20s → 40s → 60s after failures; reset when the port comes up.
   if ((Get-Date) -lt $script:NextRestartAt) { return }
 
   Write-Tray 'watchdog: backend down, restarting'
   $ok = Start-Backend
   if ($ok) {
-    $script:RestartDelay = 10
-    $script:NextRestartAt = [datetime]::MinValue
-    $notify.ShowBalloonTip(3000, $script:Tray.AppName, $script:Tray.BalloonRestarted, [System.Windows.Forms.ToolTipIcon]::Warning)
+    $script:RestartDelay = [Math]::Min(60, $script:RestartDelay * 2)
+    $script:NextRestartAt = (Get-Date).AddSeconds($script:RestartDelay)
+    Write-Tray ("watchdog: spawned; next attempt in {0}s if it does not come up" -f $script:RestartDelay)
   } else {
     $script:RestartDelay = [Math]::Min(60, $script:RestartDelay * 2)
     $script:NextRestartAt = (Get-Date).AddSeconds($script:RestartDelay)

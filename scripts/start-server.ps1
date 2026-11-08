@@ -1,4 +1,4 @@
-# Start the PageAsk local backend (Windows)
+﻿# Start the PageAsk local backend (Windows)
 #
 # Config (key / upstream URL / model / port / token / dataDir) lives in ~/.config/pageask/settings.json,
 # managed by the settings page:

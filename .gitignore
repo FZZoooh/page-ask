@@ -14,6 +14,7 @@ server/data/
 !.env.example
 settings.json
 settings.json.broken-*
+*.pem
 
 # Browser test instance profile (may contain tokens in extension storage)
 .edge-profile*/

@@ -17,11 +17,23 @@ $root = Split-Path -Parent $PSScriptRoot
 # so the path must not be called `$tray` — the hashtable would overwrite it and Test-Path would fail.
 $trayScript = Join-Path $root 'scripts\tray.ps1'
 $i18n = Join-Path $PSScriptRoot 'i18n'
-try {
-  $Tray = Import-LocalizedData -BaseDirectory $i18n -FileName 'Tray.psd1' -UICulture $PSUICulture
-} catch {
-  $Tray = Import-LocalizedData -BaseDirectory $i18n -FileName 'Tray.psd1' -UICulture 'zh-CN'
+# Same fallback order as tray.ps1: full culture, language prefix, en-US, zh-CN. Import-LocalizedData
+# does not do that by itself, and falling back straight to zh-CN shows Chinese to en-GB users.
+function Get-TrayStrings {
+  param([string]$Culture)
+  $lang = if ($Culture) { ($Culture -split '-')[0] } else { '' }
+  $tried = @()
+  foreach ($c in @($Culture, $lang, 'en-US', 'zh-CN')) {
+    if (-not $c -or $tried -contains $c) { continue }
+    $tried += $c
+    if (-not (Test-Path (Join-Path (Join-Path $i18n $c) 'Tray.psd1'))) { continue }
+    try {
+      return Import-LocalizedData -BaseDirectory $i18n -FileName 'Tray.psd1' -UICulture $c -ErrorAction Stop
+    } catch { }
+  }
+  throw "missing tray strings: $i18n\<culture>\Tray.psd1"
 }
+$Tray = Get-TrayStrings -Culture $PSUICulture
 if (-not (Test-Path $trayScript)) { throw ($Tray.BgMissing -f $trayScript) }
 
 # Keep in sync with Get-Pwsh7 in tray.ps1: stable paths first, Get-Command only as the last fallback

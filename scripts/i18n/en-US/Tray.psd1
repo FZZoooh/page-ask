@@ -1,4 +1,4 @@
-@{
+﻿@{
   # PageAsk tray strings (en-US).
   # Only user-visible text lives here; Write-Tray logs stay English.
   AppName                = 'PageAsk'
@@ -26,7 +26,6 @@
 
   BalloonAbnormal        = 'The backend did not shut down cleanly last time'
   BalloonRecovered       = 'Backend recovered'
-  BalloonRestarted       = 'Backend stopped responding; restarted automatically'
 
   AutostartShortcutName  = 'PageAsk Tray.lnk'
   AutostartDescription   = 'PageAsk backend tray (watchdog)'

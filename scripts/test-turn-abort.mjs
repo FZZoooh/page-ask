@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createServer as createProbe } from 'node:net';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -107,8 +107,20 @@ writeFileSync(
 );
 
 // Dynamic import: settings.mjs / db.mjs read the settings file above at module load time
-const { getConversation } = await import('../server/db.mjs');
+const { closeDb, getConversation } = await import('../server/db.mjs');
 await import('../server/index.mjs');
+
+// The backend server and DB stay open in-process; clean up on every exit path so temporary
+// homes/data dirs, WAL files and handles do not leak between runs.
+process.on('exit', () => {
+  try {
+    closeDb();
+  } catch {}
+  try {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(dataDir, { recursive: true, force: true });
+  } catch {}
+});
 
 const base = `http://127.0.0.1:${backendPort}`;
 for (let i = 0; i < 50; i += 1) {
@@ -132,7 +144,7 @@ async function chat(text, stopAfter, conversationId = null) {
       page: { url: 'https://example.com/same-page', title: '同一个页面', markdown: '正文' },
       text,
     }),
-    signal: controller.signal,
+    signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]),
   });
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

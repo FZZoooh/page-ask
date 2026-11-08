@@ -5,7 +5,7 @@
 - 审查范围：`src/`、`server/`、`scripts/`、`test/`、`wxt.config.ts`、`package.json`、CI 与文档
 - 审查方式：逐文件静态审查 + 类型检查 + 语法/i18n 守卫 + 7 个后端回归 + 生产构建
 - 约束：**审查阶段不修改任何产品代码**。报告中的行号与结论以 `b9533d3` 为基线。
-- 修复状态：P1-1、P1-2、P1-3、P2-1、P2-2、P2-3、P2-4、P2-5、P2-6、P2-8、P2-9、P2-10、P2-11、P2-12、P2-21、P2-22、P2-23、P2-24、P2-25 已在 2026-11-08 的后续批次修复，见第 11 节；正文保留审查时的证据，便于对照。
+- 修复状态：P1-1、P1-2、P1-3、P2-1、P2-2、P2-3、P2-4、P2-5、P2-6、P2-8、P2-9、P2-10、P2-11、P2-12、P2-13、P2-14、P2-15、P2-16、P2-17、P2-18、P2-19、P2-20、P2-21、P2-22、P2-23、P2-24、P2-25 已在 2026-11-08 的后续批次修复，见第 11 节；正文保留审查时的证据，便于对照。
 
 ## 0. 结论摘要
 
@@ -333,6 +333,8 @@
 
 ### P2-13 冒烟脚本使用服务端不接受的鉴权头
 
+**状态：已修复（2026-11-08，见第 11 节）。**
+
 **证据**
 
 - `scripts/test-chat.mjs:12` 发送 `X-PageAsk-Token`。
@@ -347,6 +349,8 @@
 - 改为 `Authorization: Bearer ${cfg.token}`；并在文档中给出带 token 的示例。
 
 ### P2-14 第二实例直接 `process.exit(1)` 绕过 shutdown
+
+**状态：已修复（2026-11-08，见第 11 节）。**
 
 **证据**
 
@@ -364,6 +368,8 @@
 
 ### P2-15 托盘健康探测在配置 token 后静默失效
 
+**状态：已修复（2026-11-08，见第 11 节）。**
+
 **证据**
 
 - `scripts/tray.ps1:153-172` 的 `Get-HealthModel` / `Get-AbnormalExit` 用 `Invoke-WebRequest .../health`，不带任何请求头。
@@ -380,6 +386,8 @@ AGENTS 说“托盘会警告异常退出”，但配置 token 后该能力实际
 - 加一条带 token 的托盘探测脚本测试。
 
 ### P2-16 PowerShell 脚本编码与本地化回退不一致
+
+**状态：已修复（2026-11-08，见第 11 节）。**
 
 **证据**
 
@@ -399,6 +407,8 @@ AGENTS 说“托盘会警告异常退出”，但配置 token 后该能力实际
 
 ### P2-17 托盘 watchdog 在 UI 线程上同步等待
 
+**状态：已修复（2026-11-08，见第 11 节）。**
+
 **证据**
 
 - `scripts/tray.ps1:491` 的 `Timer` 每 4s 触发；`:539` 在 tick 内调用 `Start-Backend`。
@@ -415,6 +425,8 @@ AGENTS 说“托盘会警告异常退出”，但配置 token 后该能力实际
 
 ### P2-18 `edge-test.ps1` 参数拼接与失败退出码
 
+**状态：已修复（2026-11-08，见第 11 节）。**
+
 **证据**
 
 - `scripts/edge-test.ps1:57` 用 `Start-Process -ArgumentList $edgeArgs`；PowerShell 会把数组按空格拼接，不自动加引号，含空格的 `--user-data-dir` / `--load-extension` 会被拆开。
@@ -429,6 +441,8 @@ AGENTS 说“托盘会警告异常退出”，但配置 token 后该能力实际
 - 对每个参数显式加引号（或使用 `ProcessStartInfo.ArgumentList`），并在轮询失败后 `exit 1`。
 
 ### P2-19 PowerShell 没有进入 CI 语法检查
+
+**状态：已修复（2026-11-08，见第 11 节）。**
 
 **证据**
 
@@ -445,6 +459,8 @@ AGENTS 说“托盘会警告异常退出”，但配置 token 后该能力实际
 - 把 BOM 检查也放进同一个守卫。
 
 ### P2-20 测试卫生：部分 `test-*` 实际打真实配置，且中断测试不清理
+
+**状态：已修复（2026-11-08，见第 11 节）。**
 
 **证据**
 
@@ -780,3 +796,15 @@ AGENTS 写的 `RESULT_CAP = 8000` 只是“正文截断到 8000”，最终工�
 - 验证：`pnpm verify` 通过（21 个后端回归；56 个 `.mjs` 语法检查），构建仅既有 sidepanel 1.03MB chunk 警告。
 - 残留：分页只限制 `/conversations/:id` 的响应体；`historyItems()` 仍把完整文本历史送入模型，长对话的上下文/token 增长没有摘要或滑动窗口，本轮只解决了响应体与截图重复内嵌。前端分页交互没有浏览器自动化测试，只有类型检查与生产构建覆盖。
 
+### P2-13 ~ P2-20 工程脚本、生命周期与测试卫生
+
+- **P2-13 冒烟脚本鉴权**：`scripts/test-chat.mjs` 改用 `Authorization: Bearer <token>`；新增 `scripts/require-real-config.mjs`，连同 `test-cache` / `test-shot` / `test-pdf-prompt` / `test-selection-context` 一起要求 `PAGEASK_ALLOW_REAL=1` 才允许触碰真实配置。AGENTS §7 已补充该开关。
+- **P2-14 第二实例**：`server/lifecycle.mjs` 不再调用 `process.exit(1)`，改为返回 `alreadyRunning`；`server/index.mjs` 在 `listen` 前调用 `startLifecycle()`，发现活实例时走 `shutdown('instance_already_running', 1, { keepMarker: true })`，不删除活进程的 `run.json`。`test-lifecycle-recover.mjs` 增加“第二个实例退出码 1、第一个仍存活、marker 未被删除”的断言。
+- **P2-15 托盘鉴权**：`scripts/tray.ps1` 新增 `Get-AuthHeaders`，`Get-HealthModel` / `Get-AbnormalExit` 读取 `settings.json` 的 token 并带 `Authorization` 请求 `/health`；无 token 时不发头。
+- **P2-16 PowerShell 编码/回退**：六个 `.ps1`/`.psd1` 统一为 UTF-8 BOM；`tray-bg.ps1` 的 `Get-TrayStrings` 按完整 culture → 语言前缀 → en-US → zh-CN 回退，与 `tray.ps1` 一致。
+- **P2-17 托盘 watchdog**：`Start-Backend` 只负责 spawn 并记录 `StartingUntil`，不再在 WinForms 定时器里 `Start-Sleep` 16 次；watchdog 在启动窗口内直接返回，启动成功后恢复 10s 退避，失败则 10→20→40→60s 退避。手动 Start/Restart 仍可用。
+- **P2-18 edge-test**：`Start-Process -ArgumentList` 的每个参数单独加引号并转义内部双引号；CDP/扩展探测超时后 `exit 1`，不再只警告后成功退出。
+- **P2-19 PowerShell 语法/BOM 守卫**：`scripts/check-syntax.mjs` 现在收集 `.mjs`、`.ps1`、`.psd1`；PS 文件必须有 BOM，并用 `System.Management.Automation.Language.Parser` 解析（`pwsh` 优先、`powershell` 回退），CI 的 Windows runner 会执行同一检查。
+- **P2-20 测试卫生**：`test-turn-abort.mjs` 注册 `exit` 清理并 `closeDb()`，fetch 用 `AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)])`；`test-hist-time.mjs` 改为导入真实 `formatTime`（新增 `src/lib/format-time.mjs` + `.d.mts`，`messages.ts` 复用），不再复制实现，并纳入 `test:server`。
+- **工程项**：`package.json` 增加 `packageManager: pnpm@11.22.0`；`.gitignore` 增加 `*.pem`；CI 增加 `permissions: contents: read`。
+- 验证：`pnpm verify` 通过（22 个后端回归；57 个 `.mjs` 与 6 个 PowerShell 文件语法/BOM 检查），构建仅既有 sidepanel 1.03MB chunk 警告。托盘 UI 与真实 Edge 启动仍未做自动化测试；`edge-test.ps1` 的引号/退出码只做了静态检查。

@@ -54,7 +54,7 @@ $edgeArgs = @(
   $Url
 )
 
-$p = Start-Process $exe -PassThru -ArgumentList $edgeArgs
+$p = Start-Process $exe -PassThru -ArgumentList (($edgeArgs | ForEach-Object { '"' + ($_ -replace '"', '\"') + '"' }) -join ' ')
 Write-Host "edge pid=$($p.Id) profile=$profileDir port=$DebugPort"
 
 # Wait for CDP to come up, and confirm the extension really got loaded
@@ -69,3 +69,4 @@ for ($i = 0; $i -lt 20; $i++) {
   }
 }
 Write-Warning 'CDP 起来了但没看到扩展的 service worker：检查 edge://extensions 是否开着「开发人员模式」。'
+exit 1
