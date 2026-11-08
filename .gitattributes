@@ -1,0 +1,20 @@
+# Every text file is stored and checked out as LF. Without this, Windows editors and
+# PowerShell rewrites turn a one-line edit into a whole-file diff, and `git diff` drowns
+# in \r noise. The repository already stores LF; this pins it for every checkout.
+* text=auto eol=lf
+
+# Binary assets: content sniffing can misclassify small or text-like binaries, so state
+# it explicitly and never apply eol conversion or a text diff to them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.zip binary
+*.db binary
