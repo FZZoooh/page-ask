@@ -1,7 +1,7 @@
 # PageAsk 代码质量审查报告
 
 - 审查日期：2026-11-07
-- 审查范围：仓库内全部手写代码（扩展 `src/`、后端 `server/`、脚本 `scripts/`、样式与配置），约 7.9k 行；不含 `node_modules`、构建产物与测试夹具
+- 审查范围：仓库内全部手写代码（扩展 `src/`、后端 `server/`、脚本 `scripts/`、样式与配置），约 7.9k 行（审查时；此后拆分/本地化有增减）；不含 `node_modules`、构建产物与测试夹具
 - 审查方式：逐文件只读通读 + 三路并行子审查（扩展前端 / 后端 / 脚本与工程化）+ 协议两端交叉核对
 - 约束：审查期间**未修改任何源码**；未启动后端、Edge 与托盘；未做动态渗透与依赖 CVE 扫描
 - 结论先行：**这是一份工程质量明显高于个人项目平均线的自用工具，但“工具轮次落库的一致性”“异步生命周期收尾”和“验证链条”是三块真正的短板**
@@ -20,7 +20,7 @@
 > - P1-5/P1-6：扩展设置新增可选访问令牌并随请求发 `Authorization`；`/api/settings*` 要求正确 token 或同源；新增无鉴权 `GET /health/live` 供托盘探活，配置页 CSP 加 `frame-ancestors 'none'`。
 > - P1-1：客户端收到 `done` 即释放 `busy`，`finally` 按 `runSeq` 只清理最新一轮；未收到 `done` 的断流按「连接中断」收尾，响应头前停止不再留空气泡。
 > - P1-2：托盘探活改问 `/health/live`（失败再退回 TCP）；按端口兜底杀进程前校验 `node.exe` + `server\index.mjs` 命令行。
-> - 验证：`node --check`、`pnpm compile`、`pnpm build` 通过；`test-turn-integrity`、`test-turn-abort`、`test-empty-stream` 共 12 项断言通过；curl 验证 `/health/live` 200、`/health` 401、`/api/settings` 无 Origin 403 / 同源 200；`tray.ps1` 解析通过。P1-1 与托盘行为未在真实 Edge/托盘里点过。
+> **后续状态**：P2/P3、错误码、en-US 本地化、CI/Dependabot 等已在此后完成，提交见 1.3.1；下方评分、行号与“设施现状”保留审查当时的状态，作为记录。
 
 ---
 
@@ -48,6 +48,8 @@
 | 工程化 | 4.0 | 无 lint / format / test / CI / `.gitignore`；`pnpm compile` 不覆盖后端与脚本 |
 | 文档一致性 | 6.5 | 文档多但漂移：零依赖、环境变量、配置路径、版本号四处冲突 |
 | **加权总体** | **6.3** | 自用够用，但 P0 的工具轮次一致性说明“能跑”与“可靠”之间还有一层 |
+
+> 评分为审查当时状态；`工程化` 与 `文档一致性` 两项在此后已明显改善（见 1.3.1 与 7.2）。
 
 ### 1.3 问题统计
 
@@ -78,6 +80,12 @@
 | P3 清理批 | `fc21cd4` | 删除死 CSS 与未用文案、换行/粘贴改用 Range、复制失败改轻提示、流式结束 `aria-live` | compile/build |
 | P3 脚本批 | `c9e5774` | 托盘 Mutex 接管、Edge 路径多候选、`args` 改名、`verify`/`zip:edge` 脚本、截图二次校验 | `pnpm verify` 全过 |
 | 架构/CI | `f9d5d48`、`bc1c38b` | `App.tsx` 拆分（1552→1139，新增 `messages.ts`/`editorDom.ts`/面板组件）、GitHub Actions（Windows + Node 22.13 + `pnpm verify`） | `pnpm verify`、CI 首次运行通过 |
+| 文档/依赖 | `c6fff58`、`bff0d49` | `PLAN.md` 归档、README/AGENTS 文档入口、Dependabot（npm + GitHub Actions 每周） | CI |
+| 错误码 | `ec827b6` | 后端统一 `code`/`params`，扩展 `tError` 渲染，测试断言 code | `pnpm verify` |
+| 配置页本地化 | `25f80d0`、`bf172fa` | 输入框等宽字体；文案外置 `server/i18n`、语言下拉、清空 Key、draft 测试 | `pnpm verify` |
+| 托盘健壮性/本地化 | `9a72d81`、`98bb28c` | 三态探活、退避重启、自启端口、退出收子进程；文案外置 `Tray.psd1` | `pnpm verify`、PS 5.1 解析 |
+| 本地化守护 | `6395e3f` | `check:i18n`（硬编码/错误码/locale/托盘 key）、en-XA 伪本地化 | `pnpm verify`、CI #10 |
+| en-US | `5c8111c`、`289b695` | 扩展/配置页/托盘全量英文、语言切换、下拉框样式 | `pnpm verify`、CI #11/#12 |
 | 不做 | — | 真实 Edge UI 自动化按用户要求跳过；前端仍无单测，靠 `pnpm verify` + 手测 | — |
 
 > 表里的提交只是“已修”的记录；正文行号仍是**审查时**的位置，已在后续修复中漂移，定位请以当前代码为准。
@@ -913,7 +921,7 @@ PLAN 标题与正文各说各话，`package.json` 与 manifest 两处手写 `0.1
 
 ## 七、附录
 
-### 7.1 规模度量
+### 7.1 规模度量（审查时）
 
 | 区域 | 主要文件 | 行数（约） |
 |---|---|---:|
@@ -924,12 +932,14 @@ PLAN 标题与正文各说各话，`package.json` 与 manifest 两处手写 `0.1
 | 脚本 | `tray.ps1` 351、`edge-test.ps1`、`test-*.mjs`、`cdp-*.mjs`、`probe-*.mjs` 等 18 个 | ~1500 |
 | 合计 | | **~7.9k** |
 
-### 7.2 设施现状
+### 7.2 设施现状（审查时）
 
-- 无 git 仓库、无 `.gitignore`、无 `.editorconfig`、无 LICENSE；
+- 审查当时：无 git 仓库、无 `.gitignore`、无 `.editorconfig`、无 LICENSE；
 - 无 ESLint / Prettier / 测试框架 / CI；
 - `pnpm compile` 只覆盖 `src`；
 - 依赖：React 19、WXT 0.21、TypeScript 7、Defuddle 0.19、pdfjs-dist 6.5、KaTeX 0.16、react-markdown 10；后端唯一第三方依赖是 pdfjs-dist（与 README 的“零依赖”不符）。
+
+> 截至 2026-11-08：已初始化 git、`.gitignore` 与 GitHub Actions（windows-latest，`pnpm verify`）；`pnpm compile` 已覆盖 `server/`、`scripts/` 的 `.mjs` 语法；后端 6 个回归套件 + 配置页 39 项断言；仍无 ESLint/Prettier/前端单测。
 
 ### 7.3 本次审查的边界
 

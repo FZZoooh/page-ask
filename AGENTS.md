@@ -7,7 +7,7 @@
 PageAsk：Edge 侧栏扩展 + 本机 Node 后端。侧栏就**当前标签页**（网页 / PDF）向 OpenAI 兼容的 `/responses` 接口提问。
 
 - 扩展：WXT 0.21 + React 19 + TypeScript（strict），`src/`。
-- 后端：`node server/index.mjs`，只监听 `127.0.0.1:8787`，路由/存储全部用 Node 内置模块（`node:http`、`node:sqlite`）；只有 PDF 解析用第三方 `pdfjs-dist`（legacy build）。
+- 后端：`node server/index.mjs`，默认监听 `127.0.0.1:8787`（`PAGEASK_PORT` 可改端口），路由/存储全部用 Node 内置模块（`node:http`、`node:sqlite`）；只有 PDF 解析用第三方 `pdfjs-dist`（legacy build）。
 - API Key 只存在后端 `~/.config/pageask/settings.json`，浏览器侧任何时候都不持有 Key。
 - 刻意只支持自用、不上架；`host_permissions: ['<all_urls>']` 是有意为之（见 `wxt.config.ts` 注释）。
 
@@ -19,7 +19,7 @@ PageAsk：Edge 侧栏扩展 + 本机 Node 后端。侧栏就**当前标签页**�
 | `pnpm dev:edge` | WXT dev + 拉起 Edge（`wxt -b edge`） |
 | `pnpm build` | 生产构建 → `.output/chrome-mv3` |
 | `pnpm compile` | `tsc --noEmit` + `scripts/check-syntax.mjs`（后端/脚本 `.mjs` 语法），**改完必须过** |
-| `pnpm test:server` | 串跑 `scripts/test-*.mjs` 后端回归（临时目录 + 假上游，不碰真实配置） |
+| `pnpm test:server` | 串跑 6 个固定的后端回归脚本（临时目录 + 假上游，不碰真实配置） |
 | `pnpm verify` | `check:i18n` + `compile` + `test:server` + `build`，提交前跑这个 |
 | `pnpm server` | 前台起后端（`node server/index.mjs`） |
 | `pnpm server:win` | 用 PowerShell 脚本起后端 |
@@ -27,7 +27,7 @@ PageAsk：Edge 侧栏扩展 + 本机 Node 后端。侧栏就**当前标签页**�
 
 - 托盘只按 `/health/live` 判断后端；端口被别的程序占用时显示「端口被占用」并暂停自动重启；退出托盘只停自己拉起的后端（外部 `pnpm server` 不动）。
 
-- Node **≥ 22.13**（`node:sqlite` + pdfjs-dist 6.x），包管理器用 pnpm（11.x）。
+- Node **≥ 22.13**（`node:sqlite` + pdfjs-dist 6.x），包管理器用 pnpm（CI 固定 11.x）。
 - 有 git 仓库与 GitHub Actions（`.github/workflows/ci.yml`，windows-latest + Node 22.13 + `pnpm verify`）；远端为 `origin`（GitHub），push/PR 时触发，Dependabot 每周提依赖更新 PR。
 - 改扩展代码后要在 `edge://extensions` 点「重新加载」；改后端要重启进程；只改 `~/.config/pageask/settings.json` 不用重启（后端每次请求都重读）。
 - 版本号只在 `package.json` 维护，`wxt.config.ts` 通过 JSON import 读取；别再手写第二份。
@@ -41,7 +41,7 @@ src/entrypoints/sidepanel/        侧栏：App.tsx 编排状态机；messages.ts
                                   PageCard/RoundPanel/SettingsPanel 为展示组件
 src/lib/                          chat.ts / extract.ts / pdf.ts / settings.ts / i18n.ts / i18n.en-US.ts
 src/components/                   MarkdownView.tsx、icons.tsx
-server/                           后端：index.mjs 路由 + db/tools/pdf/text/log/webui/net/lifecycle
+server/                           后端：index.mjs 路由 + db/tools/pdf/text/log/webui/net/lifecycle/errors/upstream
 server/i18n/                      后端文案字典（zh-CN.mjs + en-US.mjs + en-XA 伪本地化）与 t()/negotiateLocale()
 server/data/                      运行时产物（db、shots/、日志、run.json），不要提交
 scripts/                          PowerShell 启动/托盘/测试实例 + CDP/冒烟脚本
@@ -55,7 +55,7 @@ PLAN.md                           已归档的早期规划（不再维护，勿�
 1. 侧栏启动 → `readActiveTab()`：普通网页用 `scripting.executeScript` 注入 `grabPage()`，再用 Defuddle 抽正文；PDF 由扩展带 cookie 取字节后 `POST /pdf` 交给后端解析；`edge://`、扩展商店等受限页直接报「读不到这个页面」。
 2. 用户发送 → 扩展重新取选区 + 截当前可见画面 → `POST /chat`（SSE 流）。
 3. 后端**不把正文塞进 system prompt**：只传页面元信息/选区，正文由模型按需调工具读取：`read_page`、`screenshot`、`web_search`、`fetch_url`。
-4. 工具循环没有步数上限，只有用户点「停止」（`AbortController`）才结束；每段 assistant 与工具结果都落 SQLite。
+4. 工具循环没有步数上限，但单个工具 60s 超时、连续 3 次失败会熔断剩余工具；用户点「停止」（`AbortController`）随时结束；每段 assistant 与工具结果在回合末用 `addTurn()` 事务落库。
 5. SSE 事件：`meta`、`reasoning`、`content`、`usage`、`tool`、`done`、`error`、`title`。前端 `src/lib/chat.ts` 的 `streamChat()` 手工读 `res.body` 解析。
 6. 进程异常退出：后端启动写 `server/data/run.json`（30s 心跳），正常退出删除；下次启动 `/health.lifecycle.abnormalPreviousExit` 为真，托盘会提醒。若崩溃时最后一条是没回答的 user，侧栏读取会话时调 `POST /conversations/:id/recover` 把它取回输入框并从库里删除（输入框已有草稿时不覆盖，留到下次）。
 
@@ -63,7 +63,7 @@ PLAN.md                           已归档的早期规划（不再维护，勿�
 
 **安全 / 网络**
 - 后端只绑定 `127.0.0.1`，绝不改 `0.0.0.0`。
-- CORS：无 Origin（curl/脚本）、同源 `127.0.0.1:8787`/`localhost:8787`、`chrome-extension://${PAGEASK_EXTENSION_ID}` 之外一律 403。
+- CORS：无 Origin（curl/脚本）、同源 `http://127.0.0.1:8787` / `http://localhost:8787`（端口跟随 `PAGEASK_PORT`）、`chrome-extension://${PAGEASK_EXTENSION_ID}` 之外一律 403。
 - `/settings` 与 `/api/settings*` 在 token 校验**之前**（配置页要能自救）；但 `/api/settings*` 只接受同源请求或带正确 token 的请求。`GET /health/live` 无鉴权，只回报存活信息。
 - Key 不进扩展、不进前端 `chrome.storage`、不写日志、不回传明文（配置页只显示 `sk-554…f398`）。
 - 模型/网页来源的 URL 出站前过 `server/net.mjs`：只允许公网 `http(s)`，本机/内网/云元数据地址直接拒绝；读取按 `content-length` + 流式累计限长，别退回 `arrayBuffer()` 再检查。
@@ -79,7 +79,7 @@ PLAN.md                           已归档的早期规划（不再维护，勿�
 
 **后端**
 - `server/settings.mjs` 是模型配置的唯一真源；每次调用重读文件；`writeSettings` 里 `apiKey === ''` 表示「不修改」；**不读模型相关的环境变量**（避免「改了文件没生效」）。环境变量只决定服务怎么起来：`PAGEASK_PORT`、`PAGEASK_EXTENSION_ID`、`PAGEASK_TOKEN`、`PAGEASK_DATA_DIR`。
-- 工具结果必须包 `<untrusted_content source=...>` 并硬截断（`RESULT_CAP = 8000`）；工具失败只给模型一句中文原因，细节走 `logError`，不要把上游报文透给前端。
+- 工具结果必须包 `<untrusted_content source=...>` 并硬截断（`RESULT_CAP = 8000`）；工具失败只给模型一句简短原因，细节走 `logError`，不要把上游报文透给前端。
 - 退出必须走 `shutdown()`（`SIGINT/SIGTERM/SIGBREAK` 与 `POST /api/shutdown`）：删 `run.json`、关连接、`closeDb()`；不要直接 `process.exit` 跳过，否则 WAL 不 checkpoint 且下次误报异常退出。
 - `addTurn()` 用一个事务同时写 assistant 与 tool 行；工具循环提前结束时必须给未执行的 call 补 `<untrusted_content>` 占位 output，`rowsToItems` 回放时跳过没有 output 的 call，避免上游 400。
 - 数据库加列用 `PRAGMA table_info` + `ALTER TABLE` 就地补，不写破坏性迁移；`messages.role` 只有 `user | assistant | tool`。

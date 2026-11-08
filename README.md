@@ -42,6 +42,8 @@ pnpm server:win
 ```
 
 > 服务默认监听 `127.0.0.1:8787`。首次启动会自动在 `%USERPROFILE%\.config\pageask\` 下生成配置文件。
+>
+> 端口、数据目录、扩展 ID 与访问令牌可分别用环境变量 `PAGEASK_PORT`、`PAGEASK_DATA_DIR`、`PAGEASK_EXTENSION_ID`、`PAGEASK_TOKEN` 覆盖；模型配置仍在配置文件里。
 
 ### 3. 配置 API Key
 
@@ -50,6 +52,8 @@ pnpm server:win
 3. 点击“保存”即可即时生效，无需重启后端服务。
 
 配置页默认跟随浏览器 `Accept-Language` 选择文案（提供简体中文与 English），也可以在页面右上角切换语言，或用 `?lang=zh-CN` / `?lang=en-US` 强制指定。“测试连接”会用当前表单里的地址、模型和 Key（Key 留空时用已保存的）；已保存的 Key 只显示掩码，点“清空 Key”可删除。
+
+> 如果后端设置了 `PAGEASK_TOKEN`，侧栏「设置」里的 **Access token** 必须填同一个值；未设置时留空。侧栏「设置」还可以切换界面语言（自动跟随浏览器 / 简体中文 / English），保存后立即生效。
 
 ### 4. 安装 Edge 侧栏扩展
 
@@ -73,7 +77,7 @@ pnpm server:win
 | :------------- | :------------------------ | :--------------------------------------------------------------------------- |
 | **前端扩展**   | WXT + React + TypeScript  | 采用 WXT 框架构建 Manifest V3 侧栏扩展；正文清洗基于 Defuddle。              |
 | **后端服务**   | Node.js 原生运行时        | 核心采用 `node:http` 与原生 `node:sqlite` 构建，保持轻量与零额外运行时开销。 |
-| **PDF 解析**   | `pdfjs-dist`              | 前后端共享依赖，负责本地 `file://` 与远程 PDF 文件的文本层抽取。             |
+| **PDF 解析**   | `pdfjs-dist`              | 仅后端使用；扩展只负责取字节或交路径，文本层抽取在后端完成。                |
 | **进程与托盘** | PowerShell / Windows Tray | 提供本地守护进程管理，异常崩溃自动恢复，支持随系统自启。                     |
 
 ---
@@ -83,7 +87,7 @@ pnpm server:win
 | 内容                          | 路径                                                |
 | :---------------------------- | :-------------------------------------------------- |
 | 基础配置（API Key、模型参数） | `%USERPROFILE%\.config\pageask\settings.json`       |
-| 本地会话库与日志数据          | `server\data\pageask.db`、`server\data\pageask.log` |
+| 本地数据（会话库/截图/日志/运行标记） | `server\data\`（`pageask.db`、`shots\`、`*.log`、`run.json`） |
 | 扩展构建产物                  | `.output\chrome-mv3\`                               |
 
 ---
