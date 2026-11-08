@@ -1,6 +1,6 @@
 /**
- * 按钮用的图标。统一 16×16 视口、`currentColor`，尺寸由 CSS 的 `.icon` 控制。
- * 都带 aria-hidden：可访问名称由按钮自己的 aria-label 提供，避免读屏念出两遍。
+ * Icons for buttons. Shared 16×16 viewBox and `currentColor`; size comes from CSS `.icon`.
+ * All carry aria-hidden: the button's own aria-label supplies the accessible name, so screen readers speak it once.
  */
 
 type Props = { className?: string };
@@ -14,7 +14,7 @@ const base = {
   focusable: false,
 } as const;
 
-/** 展开三角：收起时指向右，展开后由 CSS 转 90° 朝下 */
+/** Disclosure triangle: points right when collapsed; CSS rotates it 90° down when open */
 export function IconChevron({ open }: { open?: boolean }) {
   return (
     <svg {...base} className={`icon chevron${open ? ' open' : ''}`}>
@@ -23,7 +23,7 @@ export function IconChevron({ open }: { open?: boolean }) {
   );
 }
 
-/** 放大的左引号 */
+/** Oversized opening quotation mark */
 export function IconQuote(_props: Props) {
   return (
     <svg {...base}>
@@ -35,7 +35,7 @@ export function IconQuote(_props: Props) {
   );
 }
 
-/** 发送：向上的箭头 */
+/** Send: arrow pointing up */
 export function IconSend(_props: Props) {
   return (
     <svg {...base} stroke="currentColor" strokeWidth={1.8} fill="none">
@@ -45,7 +45,7 @@ export function IconSend(_props: Props) {
   );
 }
 
-/** 停止：圆角矩形 */
+/** Stop: rounded square */
 export function IconStop(_props: Props) {
   return (
     <svg {...base}>
@@ -54,7 +54,7 @@ export function IconStop(_props: Props) {
   );
 }
 
-/** 复制：两个叠起来的圆角方块 */
+/** Copy: two stacked rounded squares */
 export function IconCopy(_props: Props) {
   return (
     <svg {...base} stroke="currentColor" strokeWidth={1.4} fill="none">
@@ -64,7 +64,7 @@ export function IconCopy(_props: Props) {
   );
 }
 
-/** 重新生成：环形箭头 */
+/** Regenerate: circular arrow */
 export function IconReload(_props: Props) {
   return (
     <svg {...base} stroke="currentColor" strokeWidth={1.4} fill="none">
@@ -74,7 +74,7 @@ export function IconReload(_props: Props) {
   );
 }
 
-/** 已完成（复制成功时的短暂反馈） */
+/** Done (brief confirmation after a successful copy) */
 export function IconCheck(_props: Props) {
   return (
     <svg {...base} stroke="currentColor" strokeWidth={1.8} fill="none">

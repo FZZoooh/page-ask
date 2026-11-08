@@ -359,8 +359,8 @@ function wrap(page, text) {
 }
 
 /**
- * 外部内容统一包一层。正文里如果出现 </untrusted_content>，模型会以为容器提前结束，
- * 后半段网页文字就被当成“系统/用户指令”——这里先把它转义掉。
+ * Wraps external content in one envelope. If the body contains </untrusted_content>, the model thinks the
+ * container ended early and treats the rest of the page text as system/user instructions — escape it first.
  */
 function untrusted(attrs, text) {
   const body = String(text ?? '').replace(/<(\/?\s*untrusted_content)/gi, '&lt;$1');

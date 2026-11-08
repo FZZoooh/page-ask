@@ -1,11 +1,15 @@
-// 冒烟测试：直接打后端的 /chat，把 SSE 事件打印出来（不经过浏览器）。
-// 用法: node scripts/test-chat.mjs ["问题文本"]
-const port = process.env.PAGEASK_PORT ?? '8787';
+// Smoke test: hit the backend /chat directly and print the SSE events (no browser in the loop).
+// Reads the port and token from ~/.config/pageask/settings.json, like the backend itself.
+// Usage: node scripts/test-chat.mjs ["question text"]
+import { readSettings } from '../server/settings.mjs';
+
+const cfg = readSettings();
+const port = cfg.port;
 const text = process.argv[2] ?? '用两点概括这个页面。';
 
 const res = await fetch(`http://127.0.0.1:${port}/chat`, {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers: { 'Content-Type': 'application/json', ...(cfg.token ? { 'X-PageAsk-Token': cfg.token } : {}) },
   body: JSON.stringify({
     page: {
       url: 'http://127.0.0.1:8811/article.html',

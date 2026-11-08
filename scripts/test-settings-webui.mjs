@@ -1,8 +1,9 @@
-// 配置页（GET /settings）与 /api/settings* 的回归：外部文案、错误码、draft 测试、清空 Key、token 下的同源访问。
-// 用临时 HOME / DATA_DIR + 假上游，不碰真实配置。
+// Regression for the settings page (GET /settings) and /api/settings*: externalized copy, error codes,
+// draft tests, clearing the key, and same-origin access when a token is set.
+// Uses a temporary HOME / DATA_DIR plus a fake upstream, never touching real config.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
@@ -40,14 +41,14 @@ async function waitFor(fn, timeoutMs = 8000) {
     try {
       if (await fn()) return true;
     } catch {
-      /* 还没起来 */
+      /* not up yet */
     }
     if (Date.now() > deadline) return false;
     await new Promise((r) => setTimeout(r, 120));
   }
 }
 
-// 假上游：只认正确的 Bearer，用来验证“测试连接”真的用了表单里的 Key
+// Fake upstream: accepts only the correct Bearer, proving "test connection" really uses the form key
 const upstream = http.createServer((req, res) => {
   if (req.url !== '/v1/models') {
     res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -68,17 +69,25 @@ await new Promise((resolve) => upstream.listen(upstreamPort, '127.0.0.1', resolv
 const upstreamBase = `http://127.0.0.1:${upstreamPort}`;
 
 const port = await freePort();
+// No environment variables: the isolated home's settings.json is the only config the child sees.
+mkdirSync(join(home, '.config', 'pageask'), { recursive: true });
+writeFileSync(
+  join(home, '.config', 'pageask', 'settings.json'),
+  JSON.stringify({
+    baseUrl: upstreamBase,
+    model: 'fake-model',
+    apiKey: KEY,
+    state: 'auto',
+    port,
+    token: 'secret',
+    extensionId: 'mmlkafokjmojbmebfofjaakibnmoikkm',
+    dataDir,
+  }),
+);
 const child = spawn(process.execPath, ['server/index.mjs'], {
   cwd: root,
-  env: {
-    ...process.env,
-    PAGEASK_DATA_DIR: dataDir,
-    PAGEASK_PORT: String(port),
-    PAGEASK_TOKEN: 'secret',
-    HOME: home,
-    USERPROFILE: home,
-  },
-  // 沙箱下管道 stdio 会 EPERM，这里不需要读子进程输出
+  env: { ...process.env, HOME: home, USERPROFILE: home },
+  // Piped stdio hits EPERM under the sandbox, and we never read the child's output anyway
   stdio: 'ignore',
 });
 
@@ -91,7 +100,7 @@ async function request(path, init = {}) {
   try {
     body = raw ? JSON.parse(raw) : null;
   } catch {
-    /* HTML 或纯文本 */
+    /* HTML or plain text */
   }
   return { status: res.status, body, raw };
 }
@@ -108,7 +117,8 @@ try {
   const up = await waitFor(async () => (await fetch(`${sameOrigin}/health/live`)).ok);
   check('后端启动', () => assert.ok(up));
 
-  // 1. 页面由外部字典渲染；Accept-Language 选语言，不匹配时回退 zh-CN
+  // 1. The page renders from an external dictionary; Accept-Language picks the locale,
+  //    and a non-matching language falls back to zh-CN
   const enPage = await request('/settings', { headers: { 'Accept-Language': 'en-US,en;q=0.9' } });
   check('en-US 配置页 200', () => assert.equal(enPage.status, 200));
   check('Accept-Language 选 en-US', () => assert.match(enPage.raw, /<html lang="en-US">/));
@@ -124,20 +134,21 @@ try {
   check('客户端拿到整份字典', () => assert.ok(page.raw.includes('"webui.saved"')));
   check('客户端拿到错误码文案', () => assert.ok(page.raw.includes('"error.settings.invalid_state"')));
 
-  // 1a. ?lang= 优先于 Accept-Language；不支持的语言回退默认
+  // 1a. ?lang= wins over Accept-Language; an unsupported language falls back to the default
   const forcedEn = await request('/settings?lang=en-US', { headers: { 'Accept-Language': 'zh-CN' } });
   check('?lang=en-US 覆盖 Accept-Language', () => assert.match(forcedEn.raw, /<html lang="en-US">/));
   const unsupported = await request('/settings?lang=fr-FR');
   check('不支持的语言回退 zh-CN', () => assert.match(unsupported.raw, /<html lang="zh-CN">/));
 
-  // 1b. 伪本地化：?lang=en-XA 走同一份字典，文本显著变长，用于肉眼/截图查布局
+  // 1b. Pseudo-localization: ?lang=en-XA reuses the same dictionary, its text is markedly longer,
+  //     so layout problems are visible by eye or in a screenshot
   const pseudo = await request('/settings?lang=en-XA');
   check('en-XA 配置页 200', () => assert.equal(pseudo.status, 200));
   check('en-XA html lang', () => assert.match(pseudo.raw, /<html lang="en-XA">/));
   check('en-XA 使用伪文案', () => assert.ok(pseudo.raw.includes('[!!') && pseudo.raw.includes('PageAsk')));
   check('en-XA 明显更长', () => assert.ok(pseudo.raw.length > page.raw.length));
 
-  // 2. 错误码：非法 state / 非法 baseUrl
+  // 2. Error codes: invalid state / invalid baseUrl
   const badState = await postJson('/api/settings', { state: 'maybe' }, { Origin: sameOrigin });
   check('非法 state 返回 400', () => assert.equal(badState.status, 400));
   check('非法 state 的错误码', () => assert.equal(badState.body?.code, 'settings.invalid_state'));
@@ -147,7 +158,7 @@ try {
   check('非法 baseUrl 返回 400', () => assert.equal(badUrl.status, 400));
   check('非法 baseUrl 的错误码', () => assert.equal(badUrl.body?.code, 'settings.invalid_base_url'));
 
-  // 3. 保存、掩码、draft 测试、清空
+  // 3. Save, masking, draft test, clear
   const saved = await postJson(
     '/api/settings',
     { baseUrl: upstreamBase, model: 'fake-model', state: 'off', apiKey: KEY },
@@ -181,7 +192,7 @@ try {
   const noKeyTest = await postJson('/api/settings/test', {}, { Origin: sameOrigin });
   check('没有 Key 时测试给出错误码', () => assert.equal(noKeyTest.body?.code, 'settings.missing_api_key'));
 
-  // 4. token 开启时：/api/settings 仍需同源或 token；/health 同源可读
+  // 4. With a token set: /api/settings still needs same origin or the token; /health reads same-origin
   const anonSettings = await request('/api/settings');
   check('无 Origin 读配置 403', () => assert.equal(anonSettings.status, 403));
 

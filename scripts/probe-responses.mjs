@@ -1,10 +1,14 @@
-// 探测 DeepSeek Responses API：工具结果里的图片、思考+工具的历史回传
-// 用法：node scripts/probe-responses.mjs
-const KEY = process.env.DEEPSEEK_API_KEY || '';
-const BASE = (process.env.PAGEASK_BASE_URL || 'https://api.deepseek.com').replace(/\/+$/, '');
-const MODEL = process.env.PAGEASK_MODEL || 'deepseek-flash';
+// Probe the Responses API: images inside tool results, and replaying reasoning+tool history.
+// Reads baseUrl / model / key from ~/.config/pageask/settings.json.
+// Usage: node scripts/probe-responses.mjs
+import { readSettings } from '../server/settings.mjs';
+
+const cfg = readSettings();
+const KEY = cfg.apiKey;
+const BASE = cfg.baseUrl.replace(/\/+$/, '');
+const MODEL = cfg.model;
 if (!KEY) {
-  console.error('缺 DEEPSEEK_API_KEY');
+  console.error('no API key in ~/.config/pageask/settings.json');
   process.exit(1);
 }
 
@@ -22,7 +26,7 @@ async function post(body) {
   try {
     json = JSON.parse(text);
   } catch {
-    /* 错误页/流式 */
+    /* error page, or a streamed body */
   }
   return { status: res.status, text, json };
 }
@@ -115,7 +119,7 @@ console.log('\n=== 3. 思考+工具：历史里不回传 reasoning item ===');
   });
   console.log('turn2(丢弃 reasoning)', second.status, second.json ? summarize(second.json) : second.text.slice(0, 400));
 
-  // 再试一次：把 reasoning item 原样回传
+  // Try once more: hand the reasoning items back verbatim
   const third = await post({
     model: MODEL,
     input: [

@@ -1,15 +1,15 @@
 /**
- * PDF 支持。
+ * PDF support.
  *
- * 浏览器把 PDF 渲染在自己的内嵌查看器里（pdf.js 的 chrome-extension），
- * 页面里既没有可读的 DOM，`scripting.executeScript` 也进不去，
- * 所以「读 PDF」只能：扩展带着登录态把字节取回来 → 交给本地后端解析。
+ * The browser renders PDFs in its own embedded viewer (pdf.js in a chrome-extension),
+ * so the page exposes no readable DOM and `scripting.executeScript` cannot get in.
+ * Reading one therefore means: extension fetches bytes with the user's cookies → local backend parses.
  *
- * 分工：这里只负责下载与编码（浏览器有 cookie），解析全在后端。
+ * Split: this file only downloads and encodes (the browser has the cookies); all parsing is backend.
  */
 import { t, tError } from '@/lib/i18n';
 
-/** 后端 /pdf 返回的东西 */
+/** What the backend's /pdf returns */
 export interface PdfExtract {
   pageCount: number;
   chars: number;
@@ -25,7 +25,7 @@ export class PdfReadError extends Error {
 
 const MAX_BYTES = 64 * 1024 * 1024;
 
-/** 链接看起来是不是 PDF */
+/** Does the link look like a PDF? */
 export function looksLikePdfUrl(url?: string): boolean {
   if (!url) return false;
   let u: URL;
@@ -39,7 +39,7 @@ export function looksLikePdfUrl(url?: string): boolean {
   return /(^|[?&])(format|type|download)=pdf/.test(u.search.toLowerCase());
 }
 
-/** Uint8Array → base64，分块避免大文件把参数栈打爆 */
+/** Uint8Array → base64; chunked so a big file does not blow the argument stack */
 function toBase64(bytes: Uint8Array): string {
   const chunk = 0x8000;
   let binary = '';
@@ -50,8 +50,8 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 /**
- * 本地 file:// PDF：扩展的 fetch 不支持 file 协议（即使勾了「允许访问文件 URL」），
- * 所以直接把路径交给后端，让它读盘。
+ * Local file:// PDF: extension fetch does not support file:// (even with "Allow access to file URLs" on),
+ * so pass the path to the backend and let it read the disk.
  */
 async function readLocalPdf(fileUrl: string, backendUrl: string): Promise<PdfExtract> {
   const endpoint = `${backendUrl.replace(/\/+$/, '')}/pdf`;
@@ -71,7 +71,7 @@ async function readLocalPdf(fileUrl: string, backendUrl: string): Promise<PdfExt
   return finishPdf(parsed);
 }
 
-/** 取当前标签页的 PDF 字节并让后端抽文本 */
+/** Fetch the current tab's PDF bytes and have the backend extract the text */
 export async function readPdfFromTab(url: string, backendUrl: string): Promise<PdfExtract> {
   if (url.startsWith('file://')) return readLocalPdf(url, backendUrl);
 
@@ -89,7 +89,7 @@ export async function readPdfFromTab(url: string, backendUrl: string): Promise<P
   if (buf.byteLength > MAX_BYTES) {
     throw new PdfReadError(t('page.failure.pdfTooBig', { size: `${Math.round(buf.byteLength / 1024 / 1024)} MB` }));
   }
-  // 有些站点把 PDF 包在登录页后面，取回来其实是 HTML
+  // Some sites wrap the PDF behind a login page, so what comes back is actually HTML
   const head = String.fromCharCode(...buf.subarray(0, 5));
   if (head !== '%PDF-') {
     throw new PdfReadError(t('page.failure.pdfNotPdf'));
@@ -114,7 +114,7 @@ export async function readPdfFromTab(url: string, backendUrl: string): Promise<P
   return finishPdf(parsed);
 }
 
-/** 后端 /pdf 的 4xx/5xx 统一翻成可读文案（别再把 500 说成“没有文字层”） */
+/** Turn the backend's /pdf 4xx/5xx into readable text (a 500 must not read as "no text layer") */
 async function pdfHttpError(parsed: Response): Promise<PdfReadError> {
   let detail = `HTTP ${parsed.status}`;
   let code: string | undefined;
@@ -130,12 +130,12 @@ async function pdfHttpError(parsed: Response): Promise<PdfReadError> {
     params = body.params;
     detail = body.message ?? body.error ?? detail;
   } catch {
-    /* 后端没给 JSON 就用状态码 */
+    /* backend sent no JSON: keep the status code */
   }
   return new PdfReadError(t('page.failure.pdfParse', { message: tError(code, params, detail) }));
 }
 
-/** 校验 /pdf 的响应并把正文返给上层 */
+/** Validate the /pdf response and hand the text back to the caller */
 async function finishPdf(parsed: Response): Promise<PdfExtract> {
   const out = (await parsed.json()) as PdfExtract;
   if (!out.text?.trim()) {

@@ -1,5 +1,7 @@
 # PageAsk
 
+[简体中文](#pageask) | [English](#english)
+
 PageAsk 是一款专为 Microsoft Edge 设计的侧栏 AI 助手扩展。无需离开当前网页或阅读界面，即可一键解析当前标签页（支持普通网页与本地/在线 PDF）并向大语言模型提问。
 
 ---
@@ -41,9 +43,9 @@ pnpm server:win
 # pnpm tray:bg
 ```
 
-> 服务默认监听 `127.0.0.1:8787`。首次启动会自动在 `%USERPROFILE%\.config\pageask\` 下生成配置文件。
+> 服务默认监听 `127.0.0.1:8787`。首次启动会自动在 `%USERPROFILE%\.config\pageask\` 下生成配置文件，所有配置都在这一个文件里。
 >
-> 端口、数据目录、扩展 ID 与访问令牌可分别用环境变量 `PAGEASK_PORT`、`PAGEASK_DATA_DIR`、`PAGEASK_EXTENSION_ID`、`PAGEASK_TOKEN` 覆盖；模型配置仍在配置文件里。
+> 配置文件中的 `port`、`dataDir`、`extensionId`、`token` 分别控制端口、数据目录、扩展 ID 与访问令牌（`dataDir` 留空表示 `server/data`）。没有环境变量或启动参数能覆盖它；改这几个字段需要重启后端，托盘每 4 秒重读一次文件并自动重启到新端口。
 
 ### 3. 配置 API Key
 
@@ -53,7 +55,7 @@ pnpm server:win
 
 配置页默认跟随浏览器 `Accept-Language` 选择文案（提供简体中文与 English），也可以在页面右上角切换语言，或用 `?lang=zh-CN` / `?lang=en-US` 强制指定。“测试连接”会用当前表单里的地址、模型和 Key（Key 留空时用已保存的）；已保存的 Key 只显示掩码，点“清空 Key”可删除。
 
-> 如果后端设置了 `PAGEASK_TOKEN`，侧栏「设置」里的 **Access token** 必须填同一个值；未设置时留空。侧栏「设置」还可以切换界面语言（自动跟随浏览器 / 简体中文 / English），保存后立即生效。
+> 如果配置文件里的 `token` 不为空，侧栏「设置」里的 **Access token** 必须填同一个值；`token` 为空时留空。侧栏「设置」还可以切换界面语言（自动跟随浏览器 / 简体中文 / English），保存后立即生效。
 
 ### 4. 安装 Edge 侧栏扩展
 
@@ -113,4 +115,127 @@ pnpm compile      # 类型检查与语法校验
 pnpm check:i18n   # 本地化守护（硬编码中文/错误码/locale/托盘 key）
 pnpm test:server  # 后端独立测试套件
 pnpm verify       # 提交前验证（本地化 + 编译 + 测试 + 构建）
+```
+
+---
+
+<a id="english"></a>
+
+## English
+
+[简体中文](#pageask) | English
+
+PageAsk is a side-panel AI assistant built for Microsoft Edge. Without leaving the current page or reading view, you can extract the active tab (regular web pages and local or online PDFs) in one click and ask a large language model about it.
+
+---
+
+### Features
+
+- **Multi-format extraction**: pulls the main content out of ordinary web pages, and parses the text layer of both local and online PDF documents.
+- **Ask about a selection**: select text in an answer to quote it in a follow-up question while keeping the multi-turn context coherent.
+- **Lightweight local service**: storage and model forwarding both happen locally, with no extra third-party relay in the middle.
+- **System tray integration**: runs quietly in the Windows tray, with a process watchdog and start-at-login support.
+- **Detailed metrics**: context token counting, latency monitoring and performance statistics.
+
+---
+
+### Requirements
+
+- **Node.js**: `≥ 22.13` (the backend relies on native `node:sqlite` and modern PDF parsing)
+- **Package manager**: `pnpm`
+- **Browser**: Microsoft Edge (with Developer mode enabled)
+
+---
+
+### Quick start
+
+#### 1. Install dependencies and build the extension
+
+```powershell
+pnpm install
+pnpm build
+```
+
+The build output goes to `.output/chrome-mv3`.
+
+#### 2. Start the local service
+
+```powershell
+pnpm server:win
+# or start the resident tray (recommended):
+# pnpm tray:bg
+```
+
+> The service listens on `127.0.0.1:8787` by default. The first start creates the config file under `%USERPROFILE%\.config\pageask\`, and that one file holds the entire configuration.
+>
+> Its `port`, `dataDir`, `extensionId` and `token` fields control the port, data directory, extension ID and access token (`dataDir` empty means `server/data`). No environment variable or startup argument can override them; changing these fields needs a backend restart, and the tray re-reads the file every 4 seconds and restarts onto a new port by itself.
+
+#### 3. Configure the API key
+
+1. Open **<http://127.0.0.1:8787/settings>** in the browser (or click "Configure" in the tray context menu).
+2. Enter your model provider's API key (for example DeepSeek or any other OpenAI-compatible endpoint).
+3. Click "Save" — it takes effect immediately, with no backend restart.
+
+The settings page picks its language from the browser's `Accept-Language` header (Simplified Chinese and English are available). You can also switch languages in the top-right corner, or force one with `?lang=zh-CN` / `?lang=en-US`. "Test connection" uses the URL, model and key currently in the form (when the key field is empty, the saved key is used); a saved key is only ever displayed masked, and "Clear key" deletes it.
+
+> If `token` in the config file is non-empty, the **Access token** field in the panel's Settings must contain the same value; leave it empty when `token` is empty. The panel's Settings also switches the UI language (auto / Simplified Chinese / English) and applies it immediately after saving.
+
+#### 4. Install the Edge side-panel extension
+
+1. Open Edge and go to `edge://extensions`.
+2. Turn on **Developer mode** on the left side of the page.
+3. Click **Load unpacked** and select `.output/chrome-mv3` in the project root.
+
+---
+
+### Usage
+
+- **Open the panel**: on any web page or PDF viewer, **right-click → "Ask PageAsk about this page"**, or click the PageAsk icon in the toolbar.
+- **Asking questions**: the panel header shows the extracted page title, character count and estimated tokens; just type your question in the input box.
+- **System tray**: when started with `pnpm tray:bg`, the tray context menu offers service start/stop, configuration, start-at-login and log viewing.
+
+---
+
+### Architecture
+
+| Module              | Technology                | Notes                                                                                       |
+| :------------------ | :------------------------ | :------------------------------------------------------------------------------------------ |
+| **Extension**       | WXT + React + TypeScript  | Manifest V3 side panel built with WXT; content cleanup is based on Defuddle.                |
+| **Backend**         | Native Node.js runtime    | Built on `node:http` and native `node:sqlite`, keeping it lightweight with no extra runtime. |
+| **PDF parsing**     | `pdfjs-dist`              | Backend only; the extension just supplies bytes or a path, text extraction happens server-side. |
+| **Process & tray**  | PowerShell / Windows Tray | Local daemon management, automatic recovery after crashes, and start-at-login.              |
+
+---
+
+### Where data lives
+
+| Content                                        | Path                                                          |
+| :--------------------------------------------- | :------------------------------------------------------------ |
+| Base config (API key, model parameters)        | `%USERPROFILE%\.config\pageask\settings.json`                 |
+| Local data (conversations, screenshots, logs, run marker) | `server\data\` (`pageask.db`, `shots\`, `*.log`, `run.json`) |
+| Extension build output                         | `.output\chrome-mv3\`                                         |
+
+---
+
+### FAQ
+
+**Q: The panel says "can't read this page"?**  
+A: Browser security policy prevents content-script injection into `edge://*` pages and the extension store. Use it on a regular web page or a PDF instead.
+
+**Q: A local PDF (`file://`) won't parse?**  
+A: Because of the extension's own sandbox restrictions, local PDFs are read from disk and parsed by the backend service. Make sure the local backend is running.
+
+**Q: The panel goes blank or disappears after switching tabs?**  
+A: This is known behavior of the current Edge side panel. Click the PageAsk toolbar icon again to bring back the state of the active tab.
+
+---
+
+### Development
+
+```powershell
+pnpm dev:edge     # Edge dev mode with hot reload
+pnpm compile      # type check + syntax check
+pnpm check:i18n   # localization guard (hard-coded Chinese / error codes / locales / tray keys)
+pnpm test:server  # backend test suite
+pnpm verify       # pre-commit check (i18n + compile + tests + build)
 ```

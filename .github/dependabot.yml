@@ -1,7 +1,7 @@
 version: 2
 
 updates:
-  # pnpm 走 npm 生态；Dependabot 会同时更新 package.json 与 pnpm-lock.yaml
+  # pnpm uses the npm ecosystem; Dependabot updates both package.json and pnpm-lock.yaml
   - package-ecosystem: npm
     directory: "/"
     schedule:
@@ -14,7 +14,7 @@ updates:
       prefix: "chore(deps)"
     labels:
       - dependencies
-    # minor/patch 合并成组，major 单独开 PR，避免一次大升级混在噪声里
+    # minor/patch updates are grouped, major updates get their own PR, so one big upgrade does not drown in noise
     groups:
       production-minor-patch:
         dependency-type: production
@@ -26,8 +26,8 @@ updates:
         update-types:
           - minor
           - patch
-    # katex 0.17+ 需要 rehype-katex 同步支持；当前 7.0.1 仍依赖 katex ^0.16，
-    # 单独升级会导致「0.19 的 CSS + 0.16 的渲染标记」版本错位。
+    # katex 0.17+ needs matching support in rehype-katex; 7.0.1 still depends on katex ^0.16,
+    # so upgrading it alone would pair "0.19 CSS with 0.16 render markup".
     ignore:
       - dependency-name: "katex"
         versions: [">=0.17.0"]

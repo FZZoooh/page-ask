@@ -1,5 +1,5 @@
-// 用 CDP 连到扩展的 service worker，检查 API 可用性 / 菜单是否创建 / 手势限制。
-// 用法: node scripts/probe-sw.mjs [port]
+// Attach to the extension's service worker over CDP to check API availability / menu creation / gesture limits.
+// Usage: node scripts/probe-sw.mjs [port]
 const port = process.argv[2] ?? '9222';
 const base = `http://127.0.0.1:${port}`;
 const list = await (await fetch(`${base}/json/list`)).json();

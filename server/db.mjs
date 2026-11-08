@@ -1,32 +1,32 @@
-// PageAsk 本地后端的持久化层：一个 SQLite 文件 + 几条固定查询。
-// 用 Node 内置 node:sqlite（Node >= 22.5，实测 24.18 无需 flag）。
+// Persistence layer for the local PageAsk backend: one SQLite file plus a few fixed queries.
+// Uses the built-in node:sqlite (Node >= 22.5; verified on 24.18 with no flag needed).
 //
-// 从 P3 起，messages 表还要能存「工具调用」：
-//   assistant 行：tool_calls = JSON 数组（OpenAI 格式，含 id/name/arguments）
-//   tool      行：tool_call_id / tool_name / tool_args，content 是工具返回的文本
-// 从 v0.9 起还存截图文件名（tool 行的 image_path，文件落在 data/shots/ 下），
-// 回放历史时重新读出来塞进 function_call_output，这样「回头再看那张图」也能看。
+// Since P3 the messages table also has to store "tool calls":
+//   assistant rows: tool_calls = JSON array (OpenAI format, with id/name/arguments)
+//   tool      rows: tool_call_id / tool_name / tool_args, content is the text the tool returned
+// Since v0.9 it also stores screenshot filenames (tool rows' image_path, files under data/shots/), read back
+// when replaying history and folded into function_call_output, so "look at that image again" still works.
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
+import { dataDir } from './settings.mjs';
 
-const DATA_DIR = resolve(process.env.PAGEASK_DATA_DIR ?? join(import.meta.dirname, 'data'));
-const DB_FILE = join(DATA_DIR, 'pageask.db');
-/** data 目录：生命周期标记、截图、日志都放这里 */
-export const dataDir = DATA_DIR;
+const DB_FILE = join(dataDir, 'pageask.db');
+/** Data directory: lifecycle markers, screenshots and logs all live here (path comes from settings.json) */
+export { dataDir };
 
 mkdirSync(dirname(DB_FILE), { recursive: true });
 
-/** 截图落盘目录：data/shots/<uuid>.jpg */
-export const shotsDir = join(DATA_DIR, 'shots');
+/** Screenshot landing directory: data/shots/<uuid>.jpg */
+export const shotsDir = join(dataDir, 'shots');
 mkdirSync(shotsDir, { recursive: true });
 
 const db = new DatabaseSync(DB_FILE);
 db.exec('PRAGMA journal_mode = WAL');
 db.exec('PRAGMA foreign_keys = ON');
-// 别再让第二个进程（或托盘探活时的另一个实例）一写就撞 SQLITE_BUSY：
-// 等 5 秒再报错，正常的并发写会自己排上队。
+// Stop a second process (or another instance probing liveness from the tray) from hitting
+// SQLITE_BUSY on the first write: wait 5 seconds before erroring, normal concurrent writes queue up.
 db.exec('PRAGMA busy_timeout = 5000');
 db.exec(`
   CREATE TABLE IF NOT EXISTS conversations (
@@ -51,7 +51,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_msg_conv  ON messages (conversation_id, created_at);
 `);
 
-// P2 的老库没有工具相关列，这里就地补齐（SQLite 的 ADD COLUMN 是廉价的）
+// P2 databases predate the tool columns; patch them in place here (SQLite ADD COLUMN is cheap)
 {
   const have = new Set(db.prepare('PRAGMA table_info(messages)').all().map((r) => r.name));
   const wanted = [
@@ -74,7 +74,7 @@ const now = () => Date.now();
 
 export const dbFile = DB_FILE;
 
-/* ---------------- 会话 ---------------- */
+/* ---------------- conversations ---------------- */
 
 export function listConversations(url) {
   const rows = db
@@ -132,7 +132,7 @@ export function touchConversation(id, { title } = {}) {
   }
 }
 
-/* ---------------- 消息 ---------------- */
+/* ---------------- messages ---------------- */
 
 export function addMessage({
   conversationId,
@@ -154,8 +154,8 @@ export function addMessage({
 }) {
   const id = randomUUID();
   const ts = now();
-  // 用 SAVEPOINT 而不是 BEGIN：addTurn 已经开了事务，这里必须能嵌进去；
-  // 单独调用时它自己就是一次完整事务，INSERT 与 touch 不会只成一半。
+  // Use SAVEPOINT rather than BEGIN: addTurn already holds a transaction and this has to nest inside it;
+  // called on its own it is a complete transaction, so the INSERT and touch can't half-apply.
   db.exec('SAVEPOINT add_message');
   try {
     db.prepare(
@@ -191,7 +191,7 @@ export function addMessage({
       db.exec('ROLLBACK TO add_message');
       db.exec('RELEASE add_message');
     } catch {
-      // 事务可能已经被外层回滚，保留原始错误
+      // the transaction may already have been rolled back by the outer scope; keep the original error
     }
     throw err;
   }
@@ -218,10 +218,10 @@ export function addMessage({
 }
 
 /**
- * 一轮（assistant + 它引发的 tool 行）一次性写入。
- * 工具执行到一半被中止时，调用方会把未执行的 call 补成占位 output；
- * 这里保证这些行要么全在、要么全不在 —— 历史里不会出现
- * “有 function_call、没有 function_call_output”的悬空对。
+ * Writes one turn (assistant + the tool rows it spawned) in a single shot.
+ * When the tool loop is aborted halfway, the caller fills every unexecuted call with placeholder output;
+ * this guarantees those rows are either all present or all absent — history never ends up
+ * with a dangling "function_call without function_call_output" pair.
  */
 export function addTurn({ conversationId, assistant, tools = [] }) {
   db.exec('BEGIN IMMEDIATE');
@@ -234,15 +234,15 @@ export function addTurn({ conversationId, assistant, tools = [] }) {
     try {
       db.exec('ROLLBACK');
     } catch {
-      // 事务可能已经因底层错误回滚了，别让 ROLLBACK 覆盖真正的错误
+      // the transaction may already have rolled back on the underlying error; don't let ROLLBACK mask it
     }
     throw err;
   }
 }
 
 /**
- * 「重新生成」用：删掉最后一条 user 消息之后的所有行（assistant / tool），
- * 保留那条 user 消息本身。返回被保留的 user 行（没有就返回 null）。
+ * For "regenerate": delete every row after the last user message (assistant / tool),
+ * keeping that user message itself. Returns the retained user row (null if there is none).
  */
 export function truncateAfterLastUser(conversationId) {
   const last = db
@@ -258,8 +258,8 @@ export function truncateAfterLastUser(conversationId) {
     )
     .all(conversationId, last.rowid);
 
-  // 只删「调用发生前已经存在」的行：另一个侧栏在两次查询之间插入的新行
-  // （rowid 更大且超过 boundary）必须留下，否则双面板同时重生成会误删对方刚写的内容。
+  // Delete only rows that already existed before the call: new rows another side panel inserts between
+  // the two queries (higher rowid, past boundary) must survive, or simultaneous regenerations wipe each other.
   const boundary = db
     .prepare('SELECT COALESCE(MAX(rowid), 0) AS maxRowid FROM messages WHERE conversation_id = ?')
     .get(conversationId).maxRowid;
@@ -281,12 +281,12 @@ export function truncateAfterLastUser(conversationId) {
     throw err;
   }
 
-  // 重新生成会丢掉旧回答：把不再被任何行引用的截图一并删掉，别留孤儿文件。
+  // Regenerating discards the old answer: delete screenshots no row references anymore, so no orphan files.
   pruneShots(doomed.map((row) => row.image_path));
   return { id: last.id };
 }
 
-/** 删除一组截图文件，但只删已经没有任何消息引用的（截图按内容寻址，可能被多行共享） */
+/** Delete a set of screenshot files, but only ones no message references (content-addressed, rows may share) */
 export function pruneShots(paths) {
   for (const path of paths) {
     if (!path) continue;
@@ -295,16 +295,16 @@ export function pruneShots(paths) {
     try {
       unlinkSync(join(shotsDir, path));
     } catch {
-      /* 文件可能已不在 */
+      /* the file may be gone already */
     }
   }
 }
 
 /**
- * 进程中途退出会留下「最后一条是 user、没有 assistant 回答」的会话。
- * 侧栏读到这种会话时把这句提问取回输入框，并从库里删掉：
- * 用户重发后不会出现两条一样的提问。只删最后一行，且必须是 user，
- * 避免误删已经得到回答的内容。
+ * A mid-process exit leaves behind conversations whose last row is a user message with no assistant answer.
+ * When the side panel reads such a conversation it takes that question back into the composer and
+ * deletes it from the DB, so resending won't produce two identical questions. Only the last row is
+ * deleted, and only if it is a user row, so content that already got an answer is never lost.
  */
 export function recoverLastUserMessage(conversationId) {
   db.exec('BEGIN IMMEDIATE');
@@ -325,7 +325,7 @@ export function recoverLastUserMessage(conversationId) {
     try {
       db.exec('ROLLBACK');
     } catch {
-      /* 事务可能已自己回滚，别覆盖原始错误 */
+      /* the transaction may have rolled back on its own; don't mask the original error */
     }
     throw err;
   }
@@ -339,8 +339,8 @@ export function historyItems(conversationId) {
 }
 
 /**
- * 有状态模式用：找出「链锚点」——最后一条带 response_id 的 assistant 消息。
- * 返回它的 rowid 与 response id；没有就返回 null（第一轮，或一直是纯无状态跑下来的老会话）。
+ * For stateful mode: find the "chain anchor" — the last assistant message carrying a response_id.
+ * Returns its rowid and response id; null if absent (first turn, or a conversation that only ran stateless).
  */
 export function lastResponseAnchor(conversationId) {
   const row = db
@@ -355,8 +355,8 @@ export function lastResponseAnchor(conversationId) {
 }
 
 /**
- * 有状态模式用：只取锚点之后的行转成 input。
- * 锚点之前的内容上游已经存下来了（previous_response_id），不用再发一遍。
+ * For stateful mode: take only the rows after the anchor and turn them into input.
+ * Everything before the anchor is already stored upstream (previous_response_id), so it isn't resent.
  */
 export function historyItemsSince(conversationId, anchorRowid) {
   const rows = db
@@ -369,18 +369,18 @@ export function historyItemsSince(conversationId, anchorRowid) {
 }
 
 /**
- * 行 → Responses API 的 input items（无状态全量、有状态只发尾部，两处共用）
- * - 用户消息 → {role:'user', content:[{type:'input_text'}]}
- * - 助手那轮的思考 → {type:'reasoning', content:[{type:'reasoning_text'}]}（放在该轮输出之前）
- * - 助手正文 → {role:'assistant', content:[{type:'output_text'}]}
- * - 助手那轮的 tool_calls → 逐条 {type:'function_call', call_id, name, arguments}
- * - tool 行 → {type:'function_call_output', call_id, output}；有截图就把图片一起带上
- * reasoning item 不传虽然也不报错，但传回去效果更好（用户实测反馈），所以照样重发。
+ * Row → Responses API input items (shared by stateless full replay and stateful tail-only sends)
+ * - user message → {role:'user', content:[{type:'input_text'}]}
+ * - that turn's reasoning → {type:'reasoning', content:[{type:'reasoning_text'}]} (before the turn's output)
+ * - assistant body → {role:'assistant', content:[{type:'output_text'}]}
+ * - that turn's tool_calls → one {type:'function_call', call_id, name, arguments} each
+ * - tool row → {type:'function_call_output', call_id, output}; the image rides along if there is a screenshot
+ * Not sending reasoning items back raises no error, but sending them works better (user-measured), so they go too.
  */
 function rowsToItems(rows) {
   const out = [];
-  // 历史里可能残留旧版本写下的悬空 call（旧逻辑先写 assistant、再逐个写 tool）。
-  // 回放时只保留确实有 tool 行的 call：宁可少一条调用记录，也不要让上游 400。
+  // History may still hold dangling calls from older versions (old logic wrote the assistant row, then
+  // each tool row). On replay keep only calls that have a real tool row: one missing record beats a 400.
   const answeredCalls = new Set();
   for (const r of rows) {
     if (r.role === 'tool' && r.tool_call_id) answeredCalls.add(r.tool_call_id);
@@ -433,7 +433,7 @@ function rowsToItems(rows) {
   return out;
 }
 
-/** 该会话用到的所有截图文件名（删会话时用来清文件） */
+/** Every screenshot filename this conversation uses (for clearing files when it is deleted) */
 export function imagePathsFor(conversationId) {
   return db
     .prepare('SELECT image_path FROM messages WHERE conversation_id = ? AND image_path IS NOT NULL')
@@ -441,10 +441,10 @@ export function imagePathsFor(conversationId) {
     .map((r) => r.image_path);
 }
 
-/** 截图文件名 → data URL；文件不在就返回 null（历史里只是少张图，不该报错） */
+/** Screenshot filename → data URL; null if the file is gone (history just misses an image, that must not throw) */
 const shotCache = new Map();
-// 截图是 base64 data URL，单条可能有几百 KB。缓存只保留最近用到的若干张：
-// 不设上限时长会话会把每条历史截图都钉在内存里，删会话也不会释放。
+// A screenshot is a base64 data URL, often a few hundred KB. The cache keeps only the most recently
+// used few: unbounded, a long conversation would pin every past screenshot in memory, never released.
 const SHOT_CACHE_MAX = 16;
 
 function imageMime(buf) {
@@ -459,7 +459,7 @@ function imageMime(buf) {
 function shotToDataUrl(name) {
   if (!name) return null;
   if (shotCache.has(name)) {
-    // LRU：命中后挪到队尾
+    // LRU: move to the tail on a hit
     const hit = shotCache.get(name);
     shotCache.delete(name);
     shotCache.set(name, hit);
@@ -481,8 +481,8 @@ function shotToDataUrl(name) {
 }
 
 /**
- * 启动时清掉没有被任何消息引用的截图，以及崩溃留下的半截 `.tmp-*` 文件。
- * 只删超过 1 小时的文件：另一个实例/正在进行的一轮可能刚写盘还没来得及落库。
+ * On startup, delete screenshots no message references, plus half-written `.tmp-*` files a crash left behind.
+ * Only files older than 1 hour: another instance / an in-flight turn may have written one, not yet in the DB.
  */
 export function cleanupOrphanShots({ maxAgeMs = 60 * 60 * 1000 } = {}) {
   const referenced = new Set(
@@ -508,24 +508,24 @@ export function cleanupOrphanShots({ maxAgeMs = 60 * 60 * 1000 } = {}) {
       unlinkSync(full);
       removed++;
     } catch {
-      /* 文件可能刚被别的进程删掉，跳过 */
+      /* the file may have just been deleted by another process; skip it */
     }
   }
   return removed;
 }
 
-/** 正常退出前关库：让 SQLite 做一次 checkpoint，别把最近的数据全留在 -wal 里 */
+/** Close the DB before a normal exit: let SQLite checkpoint once instead of leaving recent data in -wal */
 export function closeDb() {
   try {
     db.close();
   } catch {
-    /* 已经关了或还有语句在跑，退出流程里不值得再抛 */
+    /* already closed, or a statement is still running; not worth throwing during shutdown */
   }
 }
 
-/** 会话里问了几轮、最后一句用户话和最近一条助手正文（自动标题用） */
+/** How many turns a conversation has, its last user text and latest assistant body (for auto-titling) */
 export function statsFor(conversationId) {
-  // 只取计数与最后一条正文：不要把整个会话的消息正文读进内存
+  // Only the counts and the last bodies: don't pull every message body of the conversation into memory
   const count = (role) =>
     db
       .prepare(
@@ -546,7 +546,7 @@ export function statsFor(conversationId) {
   };
 }
 
-/* ---------------- 行 → 对象 ---------------- */
+/* ---------------- rows → objects ---------------- */
 
 function toConversation(row) {
   return {
@@ -555,8 +555,8 @@ function toConversation(row) {
     title: row.title,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    // 最后一条消息的时间；列表按它显示与排序（老库里 updated_at 只在建会话/生成标题时更新，
-    // 直接用它的话就会退化成「对话创建时间」）
+    // Timestamp of the last message; the list displays and sorts by it (in old DBs updated_at was
+    // only bumped on creation/title generation, so using it directly degenerates to "creation time")
     lastMessageAt: row.last_message_at ?? undefined,
     messageCount: row.message_count ?? undefined,
     lastUserText: row.last_user_text ?? undefined,
@@ -574,7 +574,7 @@ function toMessage(row) {
     tokensOut: row.tokens_out,
     ms: row.ms,
     processMs: row.process_ms ?? null,
-    // 该段回复对应的上游 response id（有状态模式用它做 previous_response_id 链锚点）
+    // Upstream response id for this reply (stateful mode uses it as the previous_response_id anchor)
     responseId: row.response_id ?? null,
     toolCalls: safeJson(row.tool_calls),
     toolCallId: row.tool_call_id ?? null,

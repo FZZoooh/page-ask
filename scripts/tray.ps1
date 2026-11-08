@@ -1,22 +1,23 @@
-﻿# PageAsk 托盘程序（Windows）
+# PageAsk tray app (Windows)
 #
-# 双击 / `pnpm tray` 运行：常驻托盘，负责
-#   1) 启动本地后端（node server/index.mjs）
-#   2) 看门狗：每 4 秒探一次端口，后端挂了自动拉起
-#   3) 菜单里：状态、启动、停止、重启、打开日志、打开数据目录、开机自启、退出
-#      退出时只停掉自己拉起的后端（外部 pnpm server 不动）
+# Run by double-click / `pnpm tray`: stays resident in the tray and
+#   1) starts the local backend (node server/index.mjs)
+#   2) watchdog: probes the port every 4s and restarts the backend when it dies
+#   3) menu: status, start, stop, restart, open log, open data dir, autostart, quit
+#      on quit it stops only the backend it started (an external `pnpm server` is left alone)
 #
-# 参数：
-#   -Port 8787        后端端口
-#   -InstallAutostart 只写开机自启的快捷方式，不启动托盘
-#   -RemoveAutostart  只删开机自启
-#   -Diagnose         不启动托盘，打印后端状态与自启命令后退出（排查用）
+# The backend port and the data directory come from ~/.config/pageask/settings.json — the same file
+# the backend and the settings page use. No switch or environment variable can override them.
 #
-# 说明：只用 PowerShell 自带能力（WinForms 托盘 + 快捷方式 COM），不引任何依赖。
+# Parameters:
+#   -InstallAutostart only write the autostart shortcut; do not start the tray
+#   -RemoveAutostart  only remove the autostart entry
+#   -Diagnose         no tray: print backend state and autostart command, then exit (for debugging)
+#
+# Notes: only built-in PowerShell capabilities (WinForms tray + shortcut COM); no dependencies.
 
 [CmdletBinding()]
 param(
-  [int]$Port = 8787,
   [switch]$InstallAutostart,
   [switch]$RemoveAutostart,
   [switch]$Diagnose
@@ -26,8 +27,8 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-# 托盘文案放在 scripts/i18n/<culture>/Tray.psd1，按系统 UI 语言取；
-# 先试完整 culture，再试语言前缀，最后回退 en-US / zh-CN。日志（Write-Tray）保持英文。
+# Tray strings live in scripts/i18n/<culture>/Tray.psd1, chosen by the system UI language:
+# try the full culture first, then the language prefix, then fall back to en-US / zh-CN. Logs stay English.
 function Get-TrayStrings {
   param([string]$Culture)
   $base = Join-Path $PSScriptRoot 'i18n'
@@ -49,23 +50,67 @@ $script:Root = Split-Path -Parent $PSScriptRoot
 $script:DataDir = Join-Path $script:Root 'server\data'
 $script:TrayLog = Join-Path $script:DataDir 'tray.log'
 $script:ServerErr = Join-Path $script:DataDir 'server.err.log'
-$script:Port = $Port
+$script:Port = 8787
 $script:Child = $null
 $script:Starts = 0
 $script:WasDown = $false
 $script:PortBlocked = $false
-# 看门狗退避：连续失败时 10s → 20s → 40s → 60s，成功后重置
+# Watchdog backoff: 10s → 20s → 40s → 60s on consecutive failures; reset after a success
 $script:RestartDelay = 10
 $script:NextRestartAt = [datetime]::MinValue
-# 「用户点了停止」和「后端自己崩了」要区分开：前者看门狗必须闭嘴，否则刚停就被拉起来
+# Separate "user clicked stop" from "backend crashed": the watchdog stays silent for the first, else it revives
 $script:StoppedByUser = $false
-
-New-Item -ItemType Directory -Force -Path $script:DataDir | Out-Null
 
 function Write-Tray([string]$msg) {
   $line = '{0} {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $msg
   Add-Content -Path $script:TrayLog -Value $line -Encoding utf8
 }
+
+# The one config source: settings.json in the user profile. Returns $null when it is missing or
+# broken; callers then use the defaults instead of inventing a second config location.
+function Get-PageAskSettings {
+  # not `$home`: that is the read-only automatic variable (and names are case-insensitive)
+  $userHome = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($env:HOME) { $env:HOME } else { return $null }
+  $file = Join-Path $userHome '.config\pageask\settings.json'
+  if (-not (Test-Path $file)) { return $null }
+  try {
+    return Get-Content -Raw -Path $file | ConvertFrom-Json
+  } catch {
+    Write-Tray ("settings.json is not valid JSON; using defaults: {0}" -f $_.Exception.Message)
+    return $null
+  }
+}
+
+function Get-ConfiguredPort {
+  $s = Get-PageAskSettings
+  if ($s -and $s.port -and [int]$s.port -ge 1 -and [int]$s.port -le 65535) { return [int]$s.port }
+  return 8787
+}
+
+# Same rules as server/settings.mjs: empty means <repo>\server\data, "~" is the user profile,
+# and a relative path is resolved against the repo root.
+function Resolve-ConfiguredDataDir([string]$value) {
+  if (-not $value) { return (Join-Path $script:Root 'server\data') }
+  if ($value.StartsWith('~')) {
+    $value = Join-Path $env:USERPROFILE $value.Substring(1).TrimStart('\', '/')
+  }
+  if ([System.IO.Path]::IsPathRooted($value)) { return $value }
+  return (Join-Path $script:Root $value)
+}
+
+function Update-DataDir {
+  $s = Get-PageAskSettings
+  $wanted = Resolve-ConfiguredDataDir ($(if ($s) { [string]$s.dataDir } else { '' }))
+  if ($wanted -eq $script:DataDir) { return }
+  $script:DataDir = $wanted
+  $script:TrayLog = Join-Path $script:DataDir 'tray.log'
+  $script:ServerErr = Join-Path $script:DataDir 'server.err.log'
+  New-Item -ItemType Directory -Force -Path $script:DataDir | Out-Null
+}
+
+$script:Port = Get-ConfiguredPort
+Update-DataDir
+New-Item -ItemType Directory -Force -Path $script:DataDir | Out-Null
 
 function Get-NodeExe {
   $cmd = Get-Command node -ErrorAction SilentlyContinue
@@ -76,9 +121,9 @@ function Get-NodeExe {
   return $null
 }
 
-# 后端状态：up = 确认是我们的后端；foreign = 端口被别的程序占用；down = 没人监听。
-# 只认 /health/live 的 {ok,app}，不再用 TCP connect 当“活着”的证据——
-# 否则任何程序占了 8787，托盘都会显示“运行中”，真正的后端永远起不来。
+# Backend state: up = confirmed our backend; foreign = another program owns the port; down = nobody listening.
+# Only /health/live's {ok,app} counts; a TCP connect is no longer accepted as proof of "alive" —
+# otherwise any program holding the port makes the tray say "running", and the real backend never starts.
 function Get-BackendState {
   try {
     $r = Invoke-WebRequest -Uri "http://127.0.0.1:$($script:Port)/health/live" -UseBasicParsing -TimeoutSec 2
@@ -86,7 +131,7 @@ function Get-BackendState {
     if ($j.ok -eq $true -and $j.app -eq 'pageask') { return 'up' }
     return 'foreign'
   } catch {
-    # HTTP 不通不代表端口空着：再探一次 TCP，能连上就是别人占着
+    # HTTP failing does not mean the port is free: probe TCP once more; if it connects, someone else holds it
     $client = New-Object System.Net.Sockets.TcpClient
     try {
       $iar = $client.BeginConnect('127.0.0.1', $script:Port, $null, $null)
@@ -115,7 +160,7 @@ function Get-HealthModel {
   }
 }
 
-# 上次是不是崩溃/被强杀退出的（后端在 run.json 里留了标记）
+# Did the previous run die by crash or force-kill? (the backend leaves a marker in run.json)
 function Get-AbnormalExit {
   try {
     $r = Invoke-WebRequest -Uri "http://127.0.0.1:$($script:Port)/health" -UseBasicParsing -TimeoutSec 3
@@ -130,7 +175,7 @@ function Start-Backend {
   $state = Get-BackendState
   if ($state -eq 'up') { return $true }
   if ($state -eq 'foreign') {
-    # 8787 被别的服务占着：再起 node 只会 EADDRINUSE 反复崩溃，先别试
+    # The port is held by another service: another node would just EADDRINUSE-loop, so do not try
     if (-not $script:PortBlocked) {
       Write-Tray ("port {0} is occupied by another program; not starting" -f $script:Port)
       $script:PortBlocked = $true
@@ -145,9 +190,9 @@ function Start-Backend {
     return $false
   }
 
-  # Key 只在 ~/.config/pageask/settings.json（配置页维护），这里不做任何环境变量兜底
+  # The key lives only in ~/.config/pageask/settings.json (maintained by the settings page); no env-var fallback
 
-  # 退出后把控制台窗口一起收掉：node 本身没窗口，-WindowStyle Hidden 只是保险
+  # Kill the console window on exit too: node has no window of its own, -WindowStyle Hidden is just insurance
   $script:Child = Start-Process -FilePath $node `
     -ArgumentList 'server/index.mjs' `
     -WorkingDirectory $script:Root `
@@ -157,13 +202,13 @@ function Start-Backend {
   $script:Starts++
   Write-Tray ("start: pid={0} port={1}" -f $script:Child.Id, $script:Port)
 
-  # 等端口起来（最多 8 秒）
+  # Wait for the port to come up (8 seconds at most)
   for ($i = 0; $i -lt 16; $i++) {
     Start-Sleep -Milliseconds 500
     if (Test-Backend) {
       if (Get-AbnormalExit) {
         Write-Tray 'previous run ended abnormally; pending question will be restored in the side panel'
-        # 侧栏打开时会把没回答的那条提问放回输入框，这里只提醒一句
+        # The side panel puts the unanswered question back in the input box; here we only warn
         if ($notify) {
           $notify.ShowBalloonTip(4000, $script:Tray.AppName, $script:Tray.BalloonAbnormal, [System.Windows.Forms.ToolTipIcon]::Warning)
         }
@@ -179,8 +224,8 @@ function Start-Backend {
 }
 
 function Stop-Backend {
-  # 先请后端自己退出：会关库、做一次 WAL checkpoint，比直接杀进程安全。
-  # 开了 PAGEASK_TOKEN 时这里没有令牌，会 403，退回下面的强杀逻辑。
+  # Ask the backend to exit itself first: it closes the DB and does a WAL checkpoint, safer than killing it.
+  # The call is same-origin (Origin header below), which the backend accepts whether or not a token is set.
   if (Test-Backend) {
     $origin = "http://127.0.0.1:$($script:Port)"
     try {
@@ -202,8 +247,8 @@ function Stop-Backend {
     try { Stop-Process -Id $script:Child.Id -Force -ErrorAction Stop; $killed += $script:Child.Id } catch { }
   }
 
-  # 兜底：收掉监听该端口的进程——但必须先确认它真的是 PageAsk 后端，
-  # 不能按端口盲杀（8787 可能被别的服务占用）
+  # Fallback: take down the process listening on the port — but first confirm it really is the PageAsk backend;
+  # never kill blindly by port (another service may hold it).
   try {
     $pids = @(Get-NetTCPConnection -LocalPort $script:Port -State Listen -ErrorAction SilentlyContinue |
       Select-Object -ExpandProperty OwningProcess -Unique)
@@ -229,18 +274,18 @@ function Restart-Backend {
   [void](Start-Backend)
 }
 
-# ---------- 开机自启 ----------
+# ---------- Autostart ----------
 
 $StartupDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup'
 $Shortcut = Join-Path $StartupDir $script:Tray.AutostartShortcutName
 
-# 优先 PowerShell 7（pwsh），找不到才退回系统自带的 5.1。
-# 注意：Windows 没有「默认 PowerShell」这种全局开关，powershell.exe 永远是 5.1，
-# 所以这里的办法是「把入口里的解释器写死成 pwsh」。
+# Prefer PowerShell 7 (pwsh); fall back to the built-in 5.1 only when it is missing.
+# Note: Windows has no global "default PowerShell" switch — powershell.exe is always 5.1,
+# so the trick here is to hard-wire the interpreter into the entry point.
 function Get-Pwsh7 {
-  # 顺序有讲究：先找「不会随版本号变」的稳定路径。
-  # Get-Command pwsh 在 Store/MSIX 版上返回的是 ...\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe\pwsh.exe，
-  # 一旦商店更新版本，这个路径就失效了，所以它放最后当兜底。
+  # Order matters: look for stable paths that do not change with the version number first.
+  # On the Store/MSIX build Get-Command pwsh returns ...\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe\pwsh.exe,
+  # which breaks as soon as the Store bumps the version, so it is kept last as a fallback.
   foreach ($p in @(
       (Join-Path $env:ProgramFiles 'PowerShell\7\pwsh.exe'),
       (Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\pwsh.exe')
@@ -254,22 +299,21 @@ function Get-Pwsh7 {
 
 function Get-AutostartCommand {
   $trayScript = Join-Path $script:Root 'scripts\tray.ps1'
-  # 自启必须带上当前端口，否则用 -Port 9000 装完自启，重启后又跑回 8787
-  $portArgs = "-Port $($script:Port)"
+  # No port argument: the tray reads settings.json on every start, so autostart always follows it
   $pwsh = Get-Pwsh7
   if ($pwsh) {
-    # MSIX 版 pwsh 的执行策略是锁死的（LocalMachine=RemoteSigned），
-    # 但本地未打标记的脚本本来就允许运行，-ExecutionPolicy Bypass 只是保险。
+    # The MSIX pwsh build has a locked execution policy (LocalMachine=RemoteSigned),
+    # but local unmarked scripts are allowed to run anyway; -ExecutionPolicy Bypass is just insurance.
     return @{
       Exe  = $pwsh
-      Args = '-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $trayScript + '" ' + $portArgs
+      Args = '-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $trayScript + '"'
     }
   }
   $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
   if (-not (Test-Path $psExe)) { $psExe = (Get-Process -Id $PID).Path }
   return @{
     Exe  = $psExe
-    Args = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $trayScript + '" ' + $portArgs
+    Args = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $trayScript + '"'
   }
 }
 
@@ -304,15 +348,15 @@ if ($Diagnose) {
 if ($InstallAutostart) { Install-Autostart; Write-Host ($script:Tray.HostAutostartInstalled -f $Shortcut); exit 0 }
 if ($RemoveAutostart) { Remove-Autostart; Write-Host $script:Tray.HostAutostartRemoved; exit 0 }
 
-# ---------- 单实例 ----------
+# ---------- Single instance ----------
 
-# 单实例按端口隔离：同一个端口只允许一个托盘，不同端口可以各跑一个
+# Single instance is isolated per port: one tray per port, different ports may each run their own
 $mutex = New-Object System.Threading.Mutex($false, "PageAskTraySingleton-$($script:Port)")
 $acquired = $false
 try {
   $acquired = $mutex.WaitOne(0)
 } catch [System.Threading.AbandonedMutexException] {
-  # 上一个托盘崩溃时没 ReleaseMutex，这里接管，不要因此拒绝启动
+  # The previous tray crashed without ReleaseMutex; take the lock over instead of refusing to start
   $acquired = $true
 }
 if (-not $acquired) {
@@ -321,7 +365,7 @@ if (-not $acquired) {
   exit 0
 }
 
-# ---------- 托盘 ----------
+# ---------- Tray ----------
 
 $iconPath = Join-Path $script:Root 'public\icon\32.png'
 $bmp = [System.Drawing.Bitmap]::FromFile($iconPath)
@@ -372,11 +416,11 @@ $refresh = {
     $miStatus.Text = $script:Tray.StatusRunning -f $script:Port, $suffix
     $notify.Text = $script:Tray.NotifyRunning
   } elseif ($state -eq 'foreign') {
-    # 端口被别人占着：说清楚，别让用户以为是我们没起来
+    # Port taken by someone else: state it plainly so the user does not think we failed to start
     $miStatus.Text = $script:Tray.StatusPortForeign -f $script:Port
     $notify.Text = $script:Tray.NotifyPortForeign
   } elseif ($script:StoppedByUser) {
-    # 手动停的：别再过一会儿自己冒出来，状态也要说清楚是「你停的」
+    # Stopped by hand: do not resurface later, and make the status say plainly "you stopped it"
     $miStatus.Text = $script:Tray.StatusStoppedManual
     $notify.Text = $script:Tray.NotifyStoppedManual
   } else {
@@ -414,7 +458,7 @@ $miRestart.add_Click({
   & $refresh
 })
 $miConsole.add_Click({
-  # 配置页要后端在跑；没跑就先拉起来再打开
+  # The settings page needs the backend up; start it first if it is down, then open the page
   if (-not (Test-Backend)) {
     $script:StoppedByUser = $false
     $script:WasDown = $false
@@ -440,13 +484,26 @@ $miQuit.add_Click({
 
 $notify.add_DoubleClick({ & $refresh; $menu.Show([System.Windows.Forms.Cursor]::Position) })
 
-# ---------- 看门狗 ----------
+# ---------- Watchdog ----------
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 4000
 $timer.add_Tick({
   if ($script:Quitting) { return }
-  # 用户手动停的，看门狗不许插手（否则「停止」按钮形同虚设）
+
+  # settings.json stays authoritative while the tray runs: follow a port / data-dir change at once
+  $wantedPort = Get-ConfiguredPort
+  if ($wantedPort -ne $script:Port) {
+    Write-Tray ("watchdog: settings.json now asks for port {0}; restarting" -f $wantedPort)
+    if (-not $script:StoppedByUser) { Stop-Backend }
+    $script:Port = $wantedPort
+    Update-DataDir
+    if (-not $script:StoppedByUser) { [void](Start-Backend) }
+    return
+  }
+  Update-DataDir
+
+  # Stopped by the user: the watchdog must not interfere (else the Stop button means nothing)
   if ($script:StoppedByUser) {
     $script:WasDown = $false
     return
@@ -464,7 +521,7 @@ $timer.add_Tick({
   }
 
   if ($state -eq 'foreign') {
-    # 端口被别人占着：反复起 node 只会 EADDRINUSE，记一次日志就停手
+    # Port taken by someone else: starting node again only gives EADDRINUSE, so log once and stop
     if (-not $script:PortBlocked) {
       Write-Tray ("watchdog: port {0} occupied by another program; auto-restart paused" -f $script:Port)
       $script:PortBlocked = $true
@@ -475,7 +532,7 @@ $timer.add_Tick({
   $script:PortBlocked = $false
   $script:WasDown = $true
 
-  # 崩溃循环退避：失败后 10s → 20s → 40s → 60s，成功或手动操作后重置
+  # Crash-loop backoff: 10s → 20s → 40s → 60s after failures; reset on success or manual action
   if ((Get-Date) -lt $script:NextRestartAt) { return }
 
   Write-Tray 'watchdog: backend down, restarting'
@@ -500,14 +557,14 @@ try {
 } finally {
   $timer.Stop()
 
-  # 退出托盘时收掉「自己拉起的」后端，避免留下无主 node；
-  # 如果是用户自己在别的终端 pnpm server 起的（Child 为空），不要误杀。
+  # On quit, stop the backend "we started ourselves" so no orphan node is left behind;
+  # if the user started it with `pnpm server` in another terminal (Child is null), do not kill it by mistake.
   if ($script:Child -and -not $script:Child.HasExited) {
     Stop-Backend
     Write-Tray 'child backend stopped on quit'
   }
 
-  # 释放单实例锁，避免下次启动被自己的残留 mutex 挡住
+  # Release the single-instance lock so the next launch is not blocked by our own leftover mutex
   try { $mutex.ReleaseMutex() } catch { }
   $mutex.Dispose()
   Write-Tray 'tray exited'

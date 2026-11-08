@@ -8,7 +8,7 @@ interface ComposerProps {
   pageReady: boolean;
   busy: boolean;
   canSend: boolean;
-  /** 当前网页选区；空串表示没有选区 */
+  /** Current page selection; an empty string means nothing is selected */
   selectionHint: string;
   onInput: () => void;
   onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => void;
@@ -17,7 +17,7 @@ interface ComposerProps {
   onStop: () => void;
 }
 
-/** 输入区：单行是胶囊，多行平滑长成圆角矩形 */
+/** Composer: a pill on one line, growing smoothly into a rounded rectangle as it fills */
 export function Composer({
   editorRef,
   configured,
@@ -50,7 +50,7 @@ export function Composer({
             <span className="sel-hint-mark" aria-hidden="true">
               ❝
             </span>
-            {/* 永远单行：CSS 截断，长选区不撑高输入框 */}
+            {/* Always one line: CSS truncates it, so a long selection cannot stretch the composer */}
             <span className="sel-hint-text">{selectionHint}</span>
           </div>
         )}

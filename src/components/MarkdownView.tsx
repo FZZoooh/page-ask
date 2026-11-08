@@ -9,8 +9,8 @@ const remarkPlugins = [remarkGfm, remarkMath, remarkBreaks];
 const rehypePlugins = [[rehypeKatex, { throwOnError: false, strict: false, output: 'html' }]] as const;
 
 /**
- * 只允许能安全打开的协议；`javascript:` / `data:` / `blob:` 一律降级成纯文本。
- * 相对链接按 https 解析后只保留 http(s)，所以也不会把侧栏导航到奇怪的地方。
+ * Allow only protocols that are safe to open; `javascript:` / `data:` / `blob:` fall back to plain text.
+ * Relative links resolve against https and keep only http(s), so they can't send the side panel anywhere odd.
  */
 function safeHref(href: string | undefined): string | null {
   if (!href) return null;
@@ -24,7 +24,7 @@ function safeHref(href: string | undefined): string | null {
 }
 
 const components: Components = {
-  // 所有链接都在新标签页打开：侧栏里点链接不应该把当前页面顶掉
+  // Open every link in a new tab: clicking one in the side panel must not replace the page being read
   a: ({ href, children }) => {
     const safe = safeHref(href);
     if (!safe) return <span>{children}</span>;
@@ -34,8 +34,8 @@ const components: Components = {
       </a>
     );
   },
-  // 不自动加载远程图片：模型输出的 ![](https://…) 会泄露 IP/UA 并撑坏布局，
-  // 这里只渲染成可点的文字链接。
+  // Don't auto-load remote images: a model-emitted ![](https://…) leaks IP/UA and wrecks the layout,
+  // so render only a clickable text link here.
   img: ({ src, alt }) => {
     const safe = typeof src === 'string' && /^https?:\/\//i.test(src) ? src : null;
     if (!safe) return <span>{alt ?? ''}</span>;
@@ -45,7 +45,7 @@ const components: Components = {
       </a>
     );
   },
-  // 表格横向溢出时能滚
+  // Let wide tables scroll instead of overflowing
   table: ({ children }) => (
     <div className="table-wrap">
       <table>{children}</table>
@@ -54,8 +54,8 @@ const components: Components = {
 };
 
 /**
- * 渲染一段 Markdown（含 GFM 表格、LaTeX 公式）。
- * memo：流式期间每 50ms 刷新一次，未变化的历史回答不应重跑 remark + KaTeX。
+ * Renders a Markdown block (GFM tables, LaTeX math).
+ * memo: streaming re-renders every 50ms, so unchanged earlier answers must not re-run remark + KaTeX.
  */
 export const MarkdownView = memo(function MarkdownView({ text }: { text: string }) {
   return (

@@ -1,13 +1,14 @@
-// PageAsk 本地后端：把「页面 + 对话」发给 OpenAI 兼容接口，SSE 流式回传，并把整段对话落盘。
-// 零依赖：只用 node: 内置模块（node:sqlite / http / fetch）。
+// PageAsk local backend: sends page + conversation to an OpenAI-compatible endpoint, streams the reply over SSE,
+// and persists the whole conversation to disk. Zero dependencies: Node built-ins only (node:sqlite / http / fetch).
 //
-// P3：页面正文不再整篇塞进 system prompt，改成 read_page 工具由模型自己读；
-//     另加 web_search / fetch_url（DeepSeek 官方 Search & Fetch 接口）。
-//     工具循环不设步数上限——用户在侧栏里点「停止」才会结束这一轮。
+// P3: page text is no longer stuffed into the system prompt; the model reads it through the read_page tool,
+//     plus web_search / fetch_url (DeepSeek's official Search & Fetch APIs).
+//     The tool loop has no step cap — a turn ends only when the user hits "Stop" in the side panel.
 //
-// 启动：node server/index.mjs        （默认 127.0.0.1:8787）
-// 配置：settings.json（后端提供 /settings 配置页，托盘菜单与扩展设置页都能打开）
-// 只有「服务怎么起来」还在环境变量：PAGEASK_PORT、PAGEASK_EXTENSION_ID、PAGEASK_TOKEN、PAGEASK_DATA_DIR
+// start: node server/index.mjs        (defaults to 127.0.0.1:8787)
+// config: settings.json (the backend serves /settings; open it from the tray menu or the extension settings page)
+// Every setting comes from settings.json: baseUrl / model / apiKey / state plus port, token,
+// extensionId and dataDir. No environment variable and no startup argument may override it.
 import { createServer } from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -53,28 +54,28 @@ const VERSION = (() => {
   }
 })();
 
-/* ---------------- 配置 ---------------- */
+/* ---------------- config ---------------- */
 
-loadDotEnv(join(import.meta.dirname, '.env'));
-
-const PORT = Number(process.env.PAGEASK_PORT ?? 8787);
-const HOST = '127.0.0.1'; // 只监听本机，绝不 0.0.0.0
-// 「服务怎么起来」相关的仍留在环境变量里；其余配置在 settings.json（配置页可改，见 /settings）
-const TOKEN = process.env.PAGEASK_TOKEN ?? '';
-const EXT_ID = process.env.PAGEASK_EXTENSION_ID ?? 'mmlkafokjmojbmebfofjaakibnmoikkm';
+// Every setting, including port / token / extensionId / dataDir, comes from settings.json:
+// no environment variable and no startup argument may override it (see server/settings.mjs).
+const cfg = readSettings();
+const PORT = cfg.port;
+const HOST = '127.0.0.1'; // loopback only, never 0.0.0.0
+const TOKEN = cfg.token;
+const EXT_ID = cfg.extensionId;
 const ALLOWED_ORIGINS = new Set([`chrome-extension://${EXT_ID}`]);
 const SELF_ORIGINS = new Set([`http://${HOST}:${PORT}`, `http://localhost:${PORT}`]);
 const MAX_BODY = 4 * 1024 * 1024;
-// 一旦上游证明不支持 previous_response_id（400/404/422 + 相关报错），本次进程内不再尝试
+// once upstream proves it can't do previous_response_id (400/404/422 + related errors), never retry in this process
 let statefulUnsupported = false;
-/** conversationId → 正在跑的轮次数；读历史时靠它避免把「正在生成」的提问当成崩溃残留删掉 */
+/** conversationId → running turns; history replay uses it so an in-flight question isn't deleted as crash residue */
 const activeChats = new Map();
 
 /**
- * 「auto」模式下判断这个上游大概支不支持有状态。
- * 只认已知支持 previous_response_id 的官方端点；其它 OpenAI 兼容实现（DeepSeek 等）
- * 一律按无状态跑——因为万一它「收下参数但不当回事」，表现就是模型悄悄忘掉上文，
- * 比直接报错难查得多。
+ * In "auto" mode, guess whether this upstream is likely stateful.
+ * Only official endpoints known to support previous_response_id count; every other OpenAI-compatible
+ * implementation (DeepSeek etc.) runs stateless — if it silently accepts the parameter and ignores it,
+ * the model quietly forgets context, which is far harder to diagnose than a plain error.
  */
 const STATEFUL_HOSTS = [
   /^api\.openai\.com$/i,
@@ -91,23 +92,23 @@ function looksStateful(baseUrl) {
 }
 
 const MAX_OUTPUT_TOKENS = 8192;
-/** 工具名 → 前端步骤条上显示的中文名（失败/中止路径也要用，别退回英文函数名） */
+/** tool name → Chinese step-bar label (failure/abort paths too; never fall back to the English function name) */
 const TOOL_LABELS = { read_page: '读取页面', screenshot: '截图', web_search: '联网搜索', fetch_url: '抓取网页' };
-const UPSTREAM_TIMEOUT = 300_000; // 单次上游请求 5 分钟，工具循环由用户点「停止」控制
-const TOOL_TIMEOUT = 60_000; // 单个工具 1 分钟，避免 web_search/fetch 把整轮挂死
-const MAX_TOOL_FAILURES = 3; // 连续失败 3 次就熔断剩余工具，让模型用已有信息收尾
+const UPSTREAM_TIMEOUT = 300_000; // one upstream request gets 5 min; the tool loop is ended by the user's "Stop"
+const TOOL_TIMEOUT = 60_000; // one tool gets 1 min so web_search/fetch can't hang the whole turn
+const MAX_TOOL_FAILURES = 3; // 3 consecutive failures circuit-break the remaining tools so the model wraps up
 
-// 没有 Key 也照常起来：配置页（/settings）要能打开，用户填完立刻生效
+// start even without a key: the /settings page must open, and a key filled in there takes effect at once
 {
   const s = readSettings();
   if (!s.apiKey) console.error(`[pageask] no API key yet; open http://${HOST}:${PORT}/settings to set one`);
 }
 
-// 上次是不是被强杀/崩溃：run.json 还在就说明没走 shutdown 流程
+// was the last exit a kill/crash? a leftover run.json means shutdown() never ran
 try {
   startLifecycle(VERSION);
 } catch (err) {
-  // 标记文件写不了不该让整个后端起不来
+  // a marker file that can't be written must not keep the whole backend from starting
   logError('lifecycle_start', err, {});
 }
 try {
@@ -133,7 +134,7 @@ server.listen(PORT, HOST, () => {
   console.log(`[pageask] settings page http://${HOST}:${PORT}/settings  (config file ${settingsFile})`);
 });
 
-/** 正常退出：先删标记、关连接、关库，再退出；托盘和 Ctrl+C 都走这里 */
+/** clean exit: remove the marker, close connections and the db, then exit; both tray and Ctrl+C go through here */
 let shuttingDown = false;
 function shutdown(reason) {
   if (shuttingDown) return;
@@ -144,7 +145,7 @@ function shutdown(reason) {
     server.close();
     server.closeAllConnections?.();
   } catch {
-    /* 已经关了 */
+    /* already closed */
   }
   closeDb();
   process.exit(0);
@@ -157,7 +158,7 @@ process.on('SIGBREAK', () => shutdown('SIGBREAK'));
 async function handle(req, res) {
   const url = new URL(req.url ?? '/', `http://${HOST}:${PORT}`);
 
-  // 预检
+  // preflight
   if (req.method === 'OPTIONS') {
     if (!applyCors(req, res)) return sendJson(res, 403, errorPayload('auth.origin'));
     res.writeHead(204).end();
@@ -165,15 +166,15 @@ async function handle(req, res) {
   }
 
   if (!applyCors(req, res)) return sendJson(res, 403, errorPayload('auth.origin'));
-  // 托盘的「停止」用：先让后端正常退出（关库、checkpoint），失败再 force kill。
-  // 只接受同源请求或正确 token；托盘没有 token 时会 403，退回旧的强杀逻辑。
+  // used by the tray's "Stop": exit cleanly first (close db, checkpoint), force kill only if that fails.
+  // same-origin or correct token only; without a token the tray gets 403 and falls back to the old force kill.
   if (req.method === 'POST' && url.pathname === '/api/shutdown') {
     if (!allowSettingsRequest(req)) return sendJson(res, 403, errorPayload('auth.forbidden'));
     sendJson(res, 202, { ok: true });
     setTimeout(() => shutdown('http'), 50);
     return;
   }
-  // 配置页与它的接口：本机、同源才可用，且不受 PAGEASK_TOKEN 约束（否则页面自己都进不去）
+  // settings page + its API: loopback same-origin, exempt from the token (else the page itself can't get in)
   if (url.pathname === '/settings' && req.method === 'GET') {
     const html = settingsPageHtml({
       version: `v${VERSION}`,
@@ -195,7 +196,7 @@ async function handle(req, res) {
     if (!allowSettingsRequest(req)) return sendJson(res, 403, errorPayload('auth.forbidden'));
   }
 
-  // 托盘/看门狗用的存活探针：不需要 token，也不暴露任何配置
+  // liveness probe for the tray/watchdog: no token needed, exposes no config
   if (req.method === 'GET' && url.pathname === '/health/live') {
     return sendJson(res, 200, { ok: true, app: 'pageask', version: VERSION });
   }
@@ -212,7 +213,7 @@ async function handle(req, res) {
       let baseUrl;
       if (typeof body?.baseUrl === 'string' && body.baseUrl.trim()) {
         try {
-          // 只接受干净的 http(s) 地址：不允许内嵌账号密码，也不把 query/hash 带进拼接
+          // clean http(s) only: no embedded credentials, and no query/hash dragged into the URL join
           const u = new URL(body.baseUrl.trim());
           if (!/^https?:$/.test(u.protocol) || u.username || u.password || u.search || u.hash) {
             throw new Error('bad base url');
@@ -237,8 +238,8 @@ async function handle(req, res) {
     }
   }
 
-  // POST /api/settings/test：拿表单里的 Base URL / Key 去敲上游的 /models。
-  // 允许传 draft，避免“改了地址点测试，其实测的是旧配置”。
+  // POST /api/settings/test: probe upstream /models with the form's Base URL / Key.
+  // accepting a draft avoids "changed the URL, hit test, but actually tested the old config".
   if (req.method === 'POST' && url.pathname === '/api/settings/test') {
     let body = {};
     try {
@@ -281,7 +282,7 @@ async function handle(req, res) {
     }
   }
 
-  // 配置页要读 /health 才能在页面底部显示运行时状态；token 开启时同源页面仍放行
+  // the settings page reads /health for the runtime status at the bottom; with a token on, same-origin still passes
   if (TOKEN && !checkToken(req) && !(url.pathname === '/health' && sameOriginRequest(req))) {
     return sendJson(res, 401, errorPayload('auth.bad_token'));
   }
@@ -295,13 +296,13 @@ async function handle(req, res) {
       baseUrl: s.baseUrl,
       hasKey: Boolean(s.apiKey),
       state: s.state,
-      // 实际会不会用有状态：配置允许、端点看着像、且本进程还没被上游打过脸
+      // whether stateful is actually used: config allows it, endpoint looks right, and this process hasn't been burned
       statefulActive:
         (s.state === 'on' || (s.state === 'auto' && looksStateful(s.baseUrl))) && !statefulUnsupported,
       settingsFile,
       db: dbFile,
       tools: RESPONSES_TOOLS.map((t) => t.name),
-      // 上次是否异常退出：托盘/脚本可以据此提醒「可能丢了一轮」
+      // abnormal last exit: the tray/scripts use it to warn that a turn may have been lost
       lifecycle: lifecycleInfo(),
     });
   }
@@ -314,9 +315,9 @@ async function handle(req, res) {
   }
 
   // POST /conversations/:id/recover
-  // 进程中途退出会留下「最后一条是 user、没有回答」的会话。这里把这句话取回给侧栏，
-  // 同时从库里删掉，用户重发后不会出现两条一样的提问。
-  // 正在生成的会话不能删（否则回答回来时只剩一条没有提问的 assistant）。
+  // A mid-process exit leaves a conversation whose last row is an unanswered user message. Hand that text back
+  // to the side panel and delete it from the db, so resending doesn't leave two identical questions.
+  // A conversation with a turn in flight must not be touched (the reply would come back with no question).
   const recoverMatch = url.pathname.match(/^\/conversations\/([^/]+)\/recover$/);
   if (recoverMatch && req.method === 'POST') {
     const id = decodeURIComponent(recoverMatch[1]);
@@ -336,7 +337,7 @@ async function handle(req, res) {
       return conv ? sendJson(res, 200, conv) : sendJson(res, 404, errorPayload('conversation.not_found'));
     }
     if (req.method === 'DELETE') {
-      // 连同这个会话的截图文件一起删；先删会话行，再只清理不再被引用的文件
+      // drop the conversation's screenshot files too: delete the row first, then prune only files nothing references
       const paths = imagePathsFor(id);
       const removed = deleteConversation(id);
       if (removed) pruneShots(paths);
@@ -346,7 +347,7 @@ async function handle(req, res) {
     }
   }
 
-  // POST /conversations  {url,title}  → 显式开新对话
+  // POST /conversations  {url,title}  → explicitly start a new conversation
   if (req.method === 'POST' && url.pathname === '/conversations') {
     let body;
     try {
@@ -358,10 +359,10 @@ async function handle(req, res) {
     return sendJson(res, 200, createConversation({ url: body.url, title: body.title ?? '' }));
   }
 
-  // POST /pdf  {base64} 或 {url}  → 抽好的正文
+  // POST /pdf  {base64} or {url}  → extracted page text
   //
-  // 为什么放在服务端：扩展只做「带着 cookie 把字节取回来」，
-  // 解析交给 Node（pdfjs-dist 要吃 CPU，也不该塞进侧栏的面包屑里）。
+  // why the server: the extension only fetches the bytes with cookies,
+  // leaving parsing to Node (pdfjs-dist eats CPU and shouldn't be crammed into the side panel).
   if (req.method === 'POST' && url.pathname === '/pdf') {
     return handlePdf(req, res);
   }
@@ -374,7 +375,7 @@ async function handle(req, res) {
   return sendJson(res, 404, errorPayload('request.not_found'));
 }
 
-/** POST /pdf：bytes 由扩展上传（带登录态的 PDF），或给个 url 让后端自己抓（公开 PDF） */
+/** POST /pdf: bytes from the extension (logged-in PDFs), or a url the backend fetches itself (public PDFs) */
 async function handlePdf(req, res) {
   let body;
   try {
@@ -389,7 +390,7 @@ async function handlePdf(req, res) {
     if (typeof body?.base64 === 'string' && body.base64) {
       bytes = new Uint8Array(Buffer.from(body.base64, 'base64'));
     } else if (typeof body?.fileUrl === 'string' && body.fileUrl) {
-      // 本地文件：扩展拿不到 file:// 的字节（fetch 不支持 file 协议），只能后端直接读盘
+      // local file: the extension can't read file:// bytes (fetch has no file protocol), so the backend reads the disk
       bytes = readLocalPdf(body.fileUrl);
     } else if (typeof body?.url === 'string' && /^https?:\/\//i.test(body.url)) {
       bytes = await downloadPdf(body.url);
@@ -401,7 +402,7 @@ async function handlePdf(req, res) {
       return sendJson(res, 400, errorPayload('pdf.not_pdf'));
     }
 
-    // pdfjs 会把 buffer 转移给 worker（原数组被 detach），所以长度要先记下来
+    // pdfjs transfers the buffer to its worker (the original array is detached), so record the length first
     const byteLength = bytes.byteLength;
     const out = await extractPdfText(bytes, { maxPages: body?.maxPages, maxChars: body?.maxChars });
     logEvent('pdf_extract', {
@@ -416,7 +417,7 @@ async function handlePdf(req, res) {
   } catch (err) {
     const rawCode = err instanceof PdfError ? err.code : 'pdf_failed';
     const code = normalizePdfCode(rawCode);
-    // 本地路径类错误属于“请求有问题”，回 400，且不要把绝对路径回显给客户端
+    // local-path errors mean a bad request: 400, and never echo the absolute path back to the client
     const clientError = ['pdf.bad_file_url', 'pdf.not_found', 'pdf.not_file', 'pdf.too_big'].includes(code);
     logError('pdf_extract_failed', { message: String(err?.message ?? err), code });
     return sendJson(res, clientError ? 400 : 502, {
@@ -426,7 +427,7 @@ async function handlePdf(req, res) {
   }
 }
 
-/** 读本地 file:// PDF（扩展的 fetch 走不了 file 协议，所以交给后端读盘） */
+/** read a local file:// PDF (the extension's fetch can't do file:, so the backend reads the disk) */
 function readLocalPdf(fileUrl) {
   let path;
   try {
@@ -445,7 +446,7 @@ function readLocalPdf(fileUrl) {
   return new Uint8Array(readFileSync(path));
 }
 
-/** 直接下载 PDF 字节（公开链接；不带任何凭据，也不允许打本机/内网） */
+/** download PDF bytes directly (public links only; no credentials, and never loopback/LAN) */
 async function downloadPdf(url) {
   assertPublicHttpUrl(url);
   const res = await fetch(url, {
@@ -458,11 +459,11 @@ async function downloadPdf(url) {
   return new Uint8Array(buf);
 }
 
-/* ---------------- 自动标题 ---------------- */
+/* ---------------- auto-title ---------------- */
 
 /**
- * 第一对「用户输入 + 助手回复」落库之后，让模型起一个短标题。
- * 只在会话目前恰好一问一答时生成；任何失败都返回 null，前端继续用页面标题。
+ * Once the first user + assistant pair is persisted, let the model pick a short title.
+ * Only when the conversation is exactly one Q and one A; any failure returns null, and the page title stays.
  */
 async function autoTitle({ conversationId, model, user, answer }) {
   if (!answer || !answer.trim()) return null;
@@ -506,7 +507,7 @@ async function autoTitle({ conversationId, model, user, answer }) {
   }
 }
 
-/** 从 Responses 的 output 里拼出所有 message 的文本 */
+/** join the text of every message in a Responses output */
 function messageText(json) {
   const parts = [];
   for (const item of json?.output ?? []) {
@@ -538,8 +539,8 @@ async function handleChat(req, res) {
   if (!text) return sendJson(res, 400, errorPayload('chat.empty_text'));
   if (!page?.url) return sendJson(res, 400, errorPayload('chat.missing_page'));
 
-  // 首次使用最常见的一步没做：还没填 Key。这里直接说清楚去哪儿填，
-  // 否则会一路转发到上游、拿回一个 401，用户看到的是「Unauthorized」。
+  // The most common first-run miss: no key yet. Say where to set one up front,
+  // otherwise the request goes all the way upstream, returns 401, and the user just sees "Unauthorized".
   const configured = readSettings();
   if (!configured.apiKey) {
     return sendJson(
@@ -551,11 +552,11 @@ async function handleChat(req, res) {
     );
   }
 
-  // 会话：给了 id 就续，否则按 URL 新建
+  // conversation: continue the given id, otherwise create one for the URL
   let conv = body.conversationId ? getConversation(body.conversationId) : null;
   if (!conv) conv = createConversation({ url: page.url, title: page.title ?? '' });
   else if (conv.url !== page.url) {
-    // 同一会话只在同一页面上续，防止串页
+    // a conversation only continues on the same page, so pages never get mixed up
     conv = createConversation({ url: page.url, title: page.title ?? '' });
   }
 
@@ -572,7 +573,7 @@ async function handleChat(req, res) {
     'X-Accel-Buffering': 'no',
   });
   let finished = false;
-  let phaseMs = null; // 本轮「思考 + 工具调用」阶段耗时；第一段正文出现时定格
+  let phaseMs = null; // reasoning + tool-call phase of this turn; frozen when the first content segment appears
   const emit = (event, data) => {
     if (finished || res.writableEnded || res.destroyed) return;
     if (event === 'content' && phaseMs == null) phaseMs = Date.now() - started;
@@ -582,25 +583,25 @@ async function handleChat(req, res) {
   const model = typeof body?.model === 'string' && body.model.trim() ? body.model.trim() : readSettings().model;
   emit('meta', { conversationId: conv.id, userMessageId: userMsg.id, model });
 
-  // 客户端断开（点了「停止」或关掉面板）→ 中止上游，已产出的内容照样落盘
+  // client gone ("Stop" or panel closed) → abort upstream; whatever was produced is still persisted
   const controller = new AbortController();
   const onClose = () => {
     if (!finished) controller.abort();
   };
   req.on('close', onClose);
-  // 浏览器 abort 掉 fetch 时，req 的 close 不一定触发（keep-alive 复用连接），res 更可靠
+  // when the browser aborts fetch, req 'close' may not fire (keep-alive reuses the socket); res is more reliable
   res.on('close', onClose);
   res.on('error', onClose);
 
-  // 会话状态有两种跑法：
-  //   无状态 —— 每轮把完整 input（含历史与工具调用对）重发一遍（DeepSeek 就是这样）
-  //   有状态 —— 上游支持 previous_response_id：只发锚点之后的新 items，历史留在上游
-  // 刚刚入库的那条 user 消息已经包含在 input 里了。
+  // Conversation state runs one of two ways:
+  //   stateless — resend the full input every turn, history + tool call pairs included (DeepSeek works like this)
+  //   stateful  — upstream supports previous_response_id: send only items after the anchor, history stays upstream
+  // The user message just persisted is already part of input.
   const cfg = readSettings();
   const stateMode = cfg.state ?? 'auto';
-  // auto：只有像官方 OpenAI 那样的端点才默认走有状态；on：用户明确要求，照发
+  // auto: only endpoints like official OpenAI default to stateful; on: the user asked for it, so send anyway
   const wantChain = (stateMode === 'on' || (stateMode === 'auto' && looksStateful(cfg.baseUrl))) && !statefulUnsupported;
-  let anchor = null; // 上一段已完成的 response id（有状态模式的链锚点）
+  let anchor = null; // response id of the last completed segment (the chain anchor in stateful mode)
   let anchorRowid = null;
   if (wantChain) {
     const found = lastResponseAnchor(conv.id);
@@ -631,23 +632,23 @@ async function handleChat(req, res) {
       try {
         turn = await streamTurn({ input, instructions, model, signal: controller.signal, emit, previousResponseId: anchor, store: wantChain });
       } catch (err) {
-        // 链断了：上游把那条 response 删了/过期了（OpenAI 存 30 天，也可能被组织策略清掉），
-        // 或者这个上游压根不认 previous_response_id（DeepSeek 就会 400：
-        // "No tool call found for tool output with call_id …" —— 它没有上一轮的上下文，
-        // 于是我们在新请求里发的 function_call_output 全都对不上号）。
-        // 判定方式刻意不用报错文案：只要「这一轮带了 previous_response_id」且是 4xx，
-        // 就退回无状态重发一次——猜错文案会漏判，而多试一次是无害的（真错还会再错）。
+        // chain gone: upstream deleted/expired that response (OpenAI keeps 30 days, org policy can purge it too),
+        // or this upstream doesn't honor previous_response_id at all (DeepSeek returns 400:
+        // "No tool call found for tool output with call_id …" — it has no previous-turn context,
+        // so every function_call_output we send in the new request has nothing to attach to).
+        // The check deliberately avoids matching error text: if this turn carried previous_response_id and got a 4xx,
+        // fall back to a stateless resend once — text matching misses cases; a retry is cheap and a real error repeats.
         const chainGone = anchor != null && err instanceof UpstreamError && [400, 404, 409, 422].includes(err.status);
-        // 已经流给前端的内容不能重发：重试会把同一段文字再追加一遍。
-        // 只有「还没吐字就失败」才值得退回无状态重跑。
+        // What already streamed to the front end can't be resent: a retry would append the same text twice.
+        // Only a failure that produced no text yet is worth a stateless rerun.
         if (!chainGone || anchor == null || err.streamed) throw err;
         logEvent('stateful_fallback', {
           conversationId: conv.id,
           status: err.status,
           detail: String(err.detail ?? '').slice(0, 200),
         });
-        // 只有 404（端点/响应不存在）才值得永久关掉有状态；400/409/422 可能只是这一次
-        // 的上下文对不上（比如上游临时丢了 response），下轮还可以再试，别一棒子打死。
+        // Only 404 (endpoint/response missing) justifies permanently disabling stateful; 400/409/422 may just mean
+        // this turn's context didn't line up (upstream dropped it for now) — retry next turn, don't kill it.
         if (err.status === 404) statefulUnsupported = true;
         anchor = null;
         input = historyItems(conv.id);
@@ -658,22 +659,22 @@ async function handleChat(req, res) {
         totals.tokensOut += turn.usage.output_tokens ?? 0;
       }
 
-      // 超时且一个字都没拿到：没有可保留的内容，按错误处理，别写一条空回答。
+      // timed out with nothing received: nothing to keep, treat it as an error — don't write an empty answer.
       if (turn.timedOut && !turn.content && !turn.reasoning) {
         throw new UpstreamError(504, `上游在 ${Math.round(UPSTREAM_TIMEOUT / 1000)} 秒内没有返回内容`, 'upstream.timeout', {
           seconds: Math.round(UPSTREAM_TIMEOUT / 1000),
         });
       }
 
-      // 上游用 response.incomplete 结束（常见于 max_output_tokens 截断）：
-      // 已生成的内容照常落库，但必须标记为不完整，不能当成功回答。
+      // upstream ended with response.incomplete (usually max_output_tokens truncation):
+      // persist what was generated as usual, but mark it incomplete — it is not a successful answer.
       if (turn.incomplete) {
         logEvent('turn_incomplete', { conversationId: conv.id, chars: turn.content.length, calls: turn.calls.length });
       }
 
-      // 本轮要落库的行先攒在内存里：assistant 与它引发的全部 tool 行必须在
-      // 同一个事务里写下去，否则工具执行到一半被中止，历史里会留下
-      // “有 function_call、没有 function_call_output”的悬空对，之后每轮都会 400。
+      // Rows for this turn are buffered first: the assistant row and every tool row it triggered must be
+      // written in one transaction, otherwise a mid-tool abort leaves a dangling
+      // function_call with no function_call_output pair in history, and every later turn gets a 400.
       const assistantFields = {
         conversationId: conv.id,
         content: turn.content,
@@ -684,33 +685,33 @@ async function handleChat(req, res) {
         tokensIn: turn.usage?.input_tokens ?? null,
         tokensOut: turn.usage?.output_tokens ?? null,
         ms: Date.now() - started,
-        // 「思考 + 工具调用」阶段耗时只落在最终那段回答上（工具调用段为 null）
+        // the reasoning + tool-call phase duration lands only on the final answer segment (tool-call segments get null)
         processMs: turn.calls.length ? null : phaseMs,
         responseId: turn.responseId,
         aborted: Boolean(turn.aborted || turn.timedOut || turn.incomplete),
       };
 
-      // 先决定下一跳的上下文，再执行工具（入参顺序与旧逻辑保持一致）
+      // decide the next hop's context before running tools (argument order matches the old logic)
       const chaining = wantChain && !statefulUnsupported;
       if (chaining && turn.responseId) {
         anchor = turn.responseId;
-        input = []; // 上游已存下这一段（含刚产出的 items），之后只发新东西
+        input = []; // upstream already stored this segment (including the items just produced); only send new stuff now
       } else if (chaining && anchor) {
-        anchor = null; // 这次没拿到 id，没法再链：退回完整历史
+        anchor = null; // no id this time, can't chain: fall back to full history
         input = historyItems(conv.id);
       } else {
         input.push(...turn.items.filter((it) => it?.type));
       }
 
-      // 只有正文/思考、没有工具调用的那一段，落库即结束
+      // a segment with only content/reasoning and no tool calls ends the turn once persisted
       if (!turn.calls.length) {
         if (!turn.content && !turn.reasoning) {
-          // 被停止/超时且一个字都没产出：没有可落盘的内容，别再往历史里塞空行
+          // stopped/timed out with no output at all: nothing to persist, don't stuff an empty row into history
           if (turn.aborted || turn.timedOut) {
             emit('done', { conversationId: conv.id, aborted: true, totals, steps, ms: Date.now() - started });
             break;
           }
-          // 上游正常收流却什么都没给：不能当成功，否则 UI 只看到一个空气泡
+          // stream ended cleanly but produced nothing: not a success — otherwise the UI shows an empty bubble
           throw new UpstreamError(502, '', 'upstream.empty');
         }
         const assistant = addTurn({ conversationId: conv.id, assistant: assistantFields }).assistant;
@@ -728,8 +729,8 @@ async function handleChat(req, res) {
           aborted: Boolean(turn.aborted || turn.timedOut || turn.incomplete),
           ms: Date.now() - started,
         });
-        // 第一轮问答结束后起标题（失败不影响主流程）；中止/超时/截断的不起，
-        // 否则半截回答会被拿去总结，标题反而误导。
+        // title after the first Q&A round (failure doesn't block the flow); not for aborted/timed-out/truncated turns,
+        // otherwise a half answer gets summarized and the title misleads.
         if (!turn.aborted && !turn.timedOut && !turn.incomplete) {
           const title = await autoTitle({ conversationId: conv.id, model, user: text, answer: turn.content });
           if (title) emit('title', { conversationId: conv.id, title });
@@ -737,11 +738,11 @@ async function handleChat(req, res) {
         break;
       }
 
-      // 逐个执行工具，结果先攒着，最后和 assistant 一起落库
+      // run tools one by one, buffer results, persist them together with the assistant row
       const toolRows = [];
       const answered = new Set();
       const stopRequested = () => controller.signal.aborted || res.destroyed;
-      // 连续失败就熔断：模型偶尔会反复用同样参数撞同一堵墙，没必要把整轮拖死。
+      // circuit-break on repeated failures: same args hit the same wall; don't sink the whole turn.
       let consecutiveFailures = 0;
       let haltReason = null;
 
@@ -753,7 +754,7 @@ async function handleChat(req, res) {
         const args = parseArgs(call.arguments);
         emit('tool', { phase: 'start', id: call.call_id, name: call.name, args });
 
-        // 单个工具也要有上限：web_search/fetch 卡住时不能把整轮挂到 300 秒超时。
+        // even one tool needs a cap: a stuck web_search/fetch must not hang the turn until the 300s timeout
         const timeout = AbortSignal.timeout(TOOL_TIMEOUT);
         const toolSignal = AbortSignal.any([controller.signal, timeout]);
         let result;
@@ -772,7 +773,7 @@ async function handleChat(req, res) {
             };
           } else {
             const message = err instanceof ToolError ? err.userMessage() : String(err?.message ?? err);
-            // 详情只进日志文件，前端只看到「失败」
+            // details go to the log file only; the front end just sees "failed"
             logError('tool_error', err, { conversationId: conv.id, tool: call.name, args });
             result = {
               text: `工具 ${call.name} 执行失败：${message}。可以换个参数重试，或直接说明拿不到这项信息。`,
@@ -785,7 +786,7 @@ async function handleChat(req, res) {
 
         consecutiveFailures = result.failed ? consecutiveFailures + 1 : 0;
 
-        // 截图落盘一份，历史回放时还能再看（其余工具只有文本）
+        // persist a copy of the screenshot so history replay can show it (other tools are text only)
         let imagePath = null;
         if (result.imageData) imagePath = saveShot(result.imageData);
 
@@ -798,7 +799,7 @@ async function handleChat(req, res) {
           imagePath,
         });
         answered.add(call.call_id);
-        // Responses API 允许把图片直接放进工具结果里（chat completions 不行）
+        // the Responses API allows images inside tool results (chat completions does not)
         input.push({
           type: 'function_call_output',
           call_id: call.call_id,
@@ -831,8 +832,8 @@ async function handleChat(req, res) {
         }
       }
 
-      // 中止/熔断时，没来得及执行的 call 也要补一条 output。悬空 call 比“没执行”
-      // 更糟：它会永久污染历史，之后每一轮请求都可能被上游拒绝。
+      // On abort/circuit-break every call that never ran still gets an output. A dangling call is worse than
+      // "not executed": it poisons history for good, and every later request may be rejected upstream.
       for (const call of turn.calls) {
         if (answered.has(call.call_id)) continue;
         const note =
@@ -893,10 +894,10 @@ async function handleChat(req, res) {
 }
 
 /**
- * 单次上游流式请求（Responses API）。
- * 流里的事件名按官方文档：response.output_text.delta / response.reasoning_text.delta /
- * response.output_item.* / response.completed；但为了不被细节差异卡住，
- * 文本与工具调用最终以 response.completed 里的 `output` 为准（delta 只用于实时显示）。
+ * One streaming upstream request (Responses API).
+ * Event names follow the official docs: response.output_text.delta / response.reasoning_text.delta /
+ * response.output_item.* / response.completed; but to avoid tripping on small differences,
+ * text and tool calls are taken from `output` in response.completed (deltas are for live display only).
  */
 async function streamTurn({ input, instructions, model, signal, emit, previousResponseId = null, store = false }) {
   const cfg = readSettings();
@@ -908,18 +909,18 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
     input,
     tools: RESPONSES_TOOLS,
     max_output_tokens: MAX_OUTPUT_TOKENS,
-    // 思考模式默认开启、effort 默认 high；这里不传 reasoning 就是默认值
+    // reasoning is on by default with effort high; omitting reasoning here means those defaults
   };
   if (previousResponseId) {
-    // 有状态模式：上游只发「锚点之后」的新 items，前面的历史由它自己存着。
-    // store 必须为 true，否则这次响应不会被保存、下一轮就找不到它了。
+    // stateful mode: only the items after the anchor go upstream; earlier history stays there.
+    // store must be true, or this response isn't saved and the next turn can't find it.
     body.previous_response_id = previousResponseId;
   }
-  // 首次建锚也要显式 store：不能赌上游默认值（自建网关默认 false 时第二轮必 404）
+  // even the first anchor must set store: don't trust defaults (self-hosted gateway defaults false → 2nd turn 404)
   if (store || previousResponseId) body.store = true;
-  // 用户停止与 300s 超时都可能把这条流掐断。两者都不该丢已经流给用户的正文：
-  // 停止看 signal，超时看同时挂上的 timeout；读到一半就返回部分结果，
-  // 由调用方落库并标记 aborted，而不是把整轮丢掉。
+  // User stop and the 300s timeout can both cut this stream. Neither should lose text already sent to the user:
+  // stop comes via signal, timeout via the timer attached to the same abort; return the partial result midway
+  // and let the caller persist it as aborted instead of dropping the whole turn.
   const emptyTurn = (flags = {}) => ({
     content: '',
     reasoning: '',
@@ -1004,8 +1005,8 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
       }
     }
   } catch (err) {
-    // 流被 abort 打断时 undici 会抛 AbortError/TimeoutError；只要是我们自己
-    // 发起的停止或超时，就当“部分结果”处理，保留已经累积的正文。
+    // when the stream is aborted undici throws AbortError/TimeoutError; if the stop or timeout was ours,
+    // treat it as a "partial result" and keep the text accumulated so far.
     if (signal.aborted || stopSignal.aborted) {
       interrupted = true;
       timedOut = !signal.aborted;
@@ -1014,17 +1015,17 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
     }
   }
 
-  // 上游明确报了 failed/error：即使已经流了一些字，也不能当成功。
-  // 有真实状态码就沿用它，friendly() 才能给出 401/429 这类准确提示。
+  // upstream explicitly reported failed/error: not a success even if some text streamed.
+  // use the real status code when present, so friendly() can give an accurate 401/429 hint.
   if (failure || final?.status === 'failed') {
     const status = failureStatus(failure ?? final?.error);
     const err = new UpstreamError(status, JSON.stringify(failure ?? final?.error ?? { message: '上游返回失败' }), 'upstream.failed');
-    // 标记是否已经流给前端过：调用方据此决定能不能安全重试
+    // mark whether anything already streamed: the caller uses it to decide if a retry is safe
     err.streamed = Boolean(content || reasoning);
     throw err;
   }
 
-  // 已经收到 completed/incomplete 就算这一轮正常结束，即使随后被 abort。
+  // once completed/incomplete arrived the turn counts as finished, even if aborted afterwards.
   const turnAborted = interrupted && !final;
   const turnTimedOut = turnAborted && timedOut;
 
@@ -1032,7 +1033,7 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
   const usage = final?.usage ?? null;
   if (usage) emit('usage', usage);
 
-  // 以最终 output 校正正文：delta 少发了就把缺口补上，UI 才不会半截
+  // correct content from the final output: fill any delta gap so the UI isn't left half-drawn
   const finalText = messageText({ output: out });
   if (finalText && finalText !== content) {
     if (!content) {
@@ -1040,8 +1041,8 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
     } else if (finalText.startsWith(content)) {
       emit('content', { delta: finalText.slice(content.length) });
     } else {
-      // 上游最终文本和流出来的 delta 对不上（内容过滤/重新生成），整段替换，
-      // 否则前端显示的是旧 delta、库里存的是 finalText，两边永久分叉
+      // final text and streamed deltas disagree (content filter / regeneration): replace the whole thing,
+      // or the front end shows the old deltas while the db holds finalText — permanently forked.
       emit('replace', { text: finalText });
     }
     content = finalText;
@@ -1077,20 +1078,20 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
   };
 }
 
-/** 把 data URL 形式的截图写成 data/shots/<内容哈希>.jpg，返回文件名；失败返回 null */
+/** write a data-URL screenshot to data/shots/<content hash>.jpg and return the file name; null on failure */
 function saveShot(dataUrl) {
   const m = /^data:image\/(jpeg|png|webp);base64,(.+)$/i.exec(dataUrl ?? '');
   if (!m) return null;
   const buf = Buffer.from(m[2], 'base64');
-  // 按内容寻址：模型在同一轮里重复调用 screenshot 时，同一张图只落一个文件。
-  // 删除时 db 会先确认没有别的行引用它，避免把共享文件删掉。
+  // content-addressed: when the model calls screenshot repeatedly in one turn, one image maps to one file.
+  // on delete the db first checks that no other row references it, so shared files aren't removed.
   const digest = createHash('sha256').update(buf).digest('hex').slice(0, 32);
   const name = `${digest}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
   const target = join(shotsDir, name);
   const tmp = `${target}.tmp-${process.pid}`;
   try {
     if (existsSync(target)) return name;
-    // 先写临时文件再 rename：崩溃时留下的是可清理的 .tmp，而不是一张半截图
+    // write a temp file then rename: a crash leaves a cleanable .tmp, not a half-written screenshot
     writeFileSync(tmp, buf, { mode: 0o600 });
     renameSync(tmp, target);
     return name;
@@ -1098,7 +1099,7 @@ function saveShot(dataUrl) {
     try {
       unlinkSync(tmp);
     } catch {
-      /* 没写成功就没有临时文件 */
+      /* nothing was written, so there is no temp file */
     }
     logError('save_shot', err, {});
     return null;
@@ -1115,7 +1116,7 @@ function parseArgs(raw) {
   }
 }
 
-/** Responses API 的 failed 事件只有 error.code，没有 HTTP status；按 code 映射，别一律 502 */
+/** a Responses failed event carries only error.code, not an HTTP status; map by code instead of always 502 */
 function failureStatus(failure) {
   if (Number.isInteger(failure?.status)) return failure.status;
   const code = String(failure?.code ?? failure?.error?.code ?? '');
@@ -1155,9 +1156,9 @@ class UpstreamError extends Error {
   }
 }
 
-/* ---------------- 提示词 ---------------- */
+/* ---------------- prompts ---------------- */
 
-/** 标题/URL 来自网页，不能带换行或控制字符——否则会伪造出新的“提示词段落” */
+/** title/URL come from the page: no newlines or control chars, or they could forge a new prompt paragraph */
 function oneLine(value, max) {
   return String(value ?? '')
     .replace(/[\r\n\t]+/g, ' ')
@@ -1167,7 +1168,7 @@ function oneLine(value, max) {
     .slice(0, max);
 }
 
-/** 只转义会提前闭合 <untrusted_content> 的片段，其余原文保持可读 */
+/** escape only what would close <untrusted_content> early; everything else stays readable */
 function escapeUntrusted(text) {
   return String(text ?? '').replace(/<(\/?\s*untrusted_content)/gi, '&lt;$1');
 }
@@ -1199,7 +1200,7 @@ function buildSystemPrompt(page) {
     const ctx = typeof sc?.context === 'string' ? sc.context : '';
     const s = Number.isInteger(sc?.start) ? sc.start : -1;
     const e = Number.isInteger(sc?.end) ? sc.end : -1;
-    // 只有「确实切得出来、且切出来跟选区一字不差」时才附上下文，防止标错位置
+    // attach context only when it slices cleanly and matches the selection exactly, so offsets can't be wrong
     if (ctx && s >= 0 && e > s && e <= ctx.length && ctx.slice(s, e) === selection) {
       lines2.push(`选中部分（« » 之间）：${escapeUntrusted(selection)}`);
       lines2.push(
@@ -1257,11 +1258,11 @@ function buildSystemPrompt(page) {
   return lines.filter((line) => line !== undefined).join('\n');
 }
 
-/* ---------------- 工具函数 ---------------- */
+/* ---------------- helpers ---------------- */
 
 /**
- * Responses API 的 SSE 带事件名（`event: response.output_text.delta` + `data: {...}`），
- * 所以按空行切块、一次产出 {event, data}。
+ * Responses API SSE carries event names (`event: response.output_text.delta` + `data: {...}`),
+ * so split on blank lines and yield one {event, data} at a time.
  */
 async function* parseSseEvents(stream) {
   const reader = stream.getReader();
@@ -1298,8 +1299,8 @@ async function* parseSseEvents(stream) {
 
 function applyCors(req, res) {
   const origin = req.headers.origin;
-  if (!origin) return true; // curl / 本地脚本
-  // 配置页自己（同源）不需要 CORS 头，但必须放行，否则页面里的 fetch 会被 403 挡掉
+  if (!origin) return true; // curl / local scripts
+  // the settings page itself (same-origin) needs no CORS header but must pass, or its fetch gets 403
   if (SELF_ORIGINS.has(origin)) return true;
   if (!ALLOWED_ORIGINS.has(origin)) return false;
   res.setHeader('Access-Control-Allow-Origin', origin);
@@ -1310,7 +1311,7 @@ function applyCors(req, res) {
   return true;
 }
 
-/** 请求是不是从配置页本身（同源）发出的 */
+/** whether the request comes from the settings page itself (same-origin) */
 function sameOriginRequest(req) {
   const origin = req.headers.origin;
   if (origin && SELF_ORIGINS.has(origin)) return true;
@@ -1320,15 +1321,15 @@ function sameOriginRequest(req) {
     try {
       if (SELF_ORIGINS.has(new URL(referer).origin)) return true;
     } catch {
-      /* 非法 Referer，按外部请求处理 */
+      /* bad Referer: treat it as an external request */
     }
   }
   return false;
 }
 
 /**
- * 配置读写只允许：带了正确 token 的请求，或配置页自己的同源请求。
- * 这样开着 PAGEASK_TOKEN 也能用配置页，同时挡住别的网页借浏览器改 baseUrl 偷 Key。
+ * Config read/write only allows: a request with the correct token, or a same-origin one from the settings page.
+ * So a token can stay set while the settings page works, and other pages can't rewrite baseUrl to steal the key.
  */
 function allowSettingsRequest(req) {
   if (TOKEN && checkToken(req)) return true;
@@ -1359,8 +1360,8 @@ async function readJson(req, res, maxBytes = MAX_BODY) {
       if (tooLarge) return;
       size += c.length;
       if (size > maxBytes) {
-        // 不要 destroy：那会让客户端只看到 fetch failed。让请求自然结束，
-        // 调用方拿到 400 后正常回包，剩下的字节直接丢弃。
+        // Don't destroy: the client would only see "fetch failed". Let the request end naturally,
+        // the caller replies 400 normally, and the remaining bytes are simply discarded.
         tooLarge = true;
         reject(new Error('body too large'));
         return;
@@ -1377,23 +1378,4 @@ async function readJson(req, res, maxBytes = MAX_BODY) {
     });
     req.on('error', reject);
   });
-}
-
-/** 极简 .env：KEY=VALUE，忽略 # 注释；已存在的真实环境变量优先 */
-function loadDotEnv(file) {
-  let text;
-  try {
-    text = readFileSync(file, 'utf8');
-  } catch {
-    return;
-  }
-  for (const line of text.split('\n')) {
-    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/i);
-    if (!m) continue;
-    const key = m[1];
-    if (process.env[key]) continue;
-    let val = m[2].trim();
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1);
-    process.env[key] = val;
-  }
 }

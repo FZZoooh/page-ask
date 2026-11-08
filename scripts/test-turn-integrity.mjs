@@ -1,14 +1,14 @@
-// 检查“一轮 = assistant + 全部 tool 行”的落库与回放约束。
-// 用临时数据目录，不碰 server/data 里的真实会话。
+// Checks the persistence and replay constraints of "one turn = assistant + all its tool rows".
+// Uses a temporary HOME (whose settings.json points at a temporary data dir) and never touches the
+// real conversations in server/data.
 //
-// 跑法：node scripts/test-turn-integrity.mjs
+// Run: node scripts/test-turn-integrity.mjs
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { makeTestConfig } from './temp-config.mjs';
 
-const dataDir = mkdtempSync(join(tmpdir(), 'pageask-turn-'));
-process.env.PAGEASK_DATA_DIR = dataDir;
+// server/db.mjs resolves the data dir from settings.json at import time, and there are no env
+// vars anymore: makeTestConfig writes a throw-away home first, so it must run before the import.
+const { cleanup } = makeTestConfig({ port: 8787 });
 
 const { addTurn, createConversation, getConversation, historyItems } = await import('../server/db.mjs');
 
@@ -24,7 +24,7 @@ function check(name, fn) {
 }
 
 try {
-  // 1) 正常的工具轮次：assistant 的每个 call 都有对应 tool 行
+  // 1) Normal tool turn: every call on the assistant has a matching tool row
   const conv = createConversation({ url: 'https://example.com/a', title: 'turn' });
   addTurn({
     conversationId: conv.id,
@@ -59,8 +59,8 @@ try {
     assert.equal(convDb.messages[2].role, 'tool');
   });
 
-  // 2) 旧数据兼容：assistant 有 2 个 call，但只落了 1 个 tool 行。
-  //    回放时不能把第 2 个 call 发出去（上游会 400），但已有的那个必须保留。
+  // 2) Legacy data: the assistant has 2 calls but only 1 tool row was persisted.
+  //    Replay must not send the second call (upstream would 400), yet the existing one must survive.
   const legacy = createConversation({ url: 'https://example.com/b', title: 'legacy' });
   addTurn({
     conversationId: legacy.id,
@@ -81,7 +81,7 @@ try {
     assert.equal(items.filter((i) => i.type === 'function_call_output').length, 1);
   });
 
-  // 3) 中止标记能落库（前端据此显示“已停止”）
+  // 3) The abort flag persists (the front end uses it to show "stopped")
   const stopped = createConversation({ url: 'https://example.com/c', title: 'stopped' });
   addTurn({
     conversationId: stopped.id,
@@ -95,9 +95,9 @@ try {
   });
 } finally {
   try {
-    rmSync(dataDir, { recursive: true, force: true });
+    cleanup();
   } catch {
-    // Windows 上 SQLite 的 -wal/-shm 偶尔还占着句柄，留给系统临时目录清理
+    // On Windows SQLite's -wal/-shm sometimes still hold a handle; leave them to temp cleanup
   }
 }
 

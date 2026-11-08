@@ -1,5 +1,5 @@
-// 用假时钟把 fmtTime 的边界跑一遍：今天/昨天/周内/更早/去年/跨年
-// 注意：非今天的都带具体时刻（「周三 16:04」这种）
+// Drive fmtTime through its boundaries with a fake clock: today / yesterday / within the week / older /
+// last year / across New Year. Note: anything but today also carries the wall-clock time ("Wed 16:04").
 import assert from 'node:assert/strict';
 
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -20,7 +20,7 @@ function fmtTime(ts, nowMs) {
 
 const at = (y, m, d, h = 12, min = 0) => new Date(y, m - 1, d, h, min).getTime();
 
-// 现在：2026-11-06（周五）21:21
+// "Now" is 2026-11-06 (Friday) 21:21
 const now = at(2026, 11, 6, 21, 21);
 const cases = [
   ['今天稍早', at(2026, 11, 6, 16, 4), '16:04'],
@@ -38,7 +38,7 @@ for (const [label, ts, want] of cases) {
   console.log(`✓ ${label.padEnd(14)} -> ${got}`);
 }
 
-// 跨年边界：1 月 2 日看 12 月 31 日（2 天前）应该是「周X + 时刻」，不是 12/31 也不是 2025/12/31
+// New Year boundary: seen on Jan 2, Dec 31 (2 days back) must render "weekday + time", neither 12/31 nor 2025/12/31
 const nyd = at(2026, 1, 2, 10, 0);
 for (const [label, ts, want] of [
   ['新年 1 天前', at(2026, 1, 1, 9, 30), '昨天 09:30'],
@@ -51,7 +51,7 @@ for (const [label, ts, want] of [
   console.log(`✓ ${label.padEnd(14)} -> ${got}（today=1/2）`);
 }
 
-// 跨年但超过一周：要带年份，也带时刻
+// Across New Year but more than a week back: the year is included, and so is the time
 const got = fmtTime(at(2025, 12, 20, 21, 45), nyd);
 assert.equal(got, '2025/12/20 21:45', `跨年超一周应为 2025/12/20 21:45，实际 ${got}`);
 console.log(`✓ ${'跨年 13 天前'.padEnd(14)} -> ${got}`);

@@ -1,19 +1,23 @@
-// 探测 DeepSeek 的流式返回形状：delta 里有哪些字段、stream_options 是否被接受、usage 何时出现。
-// 用法: $env:DEEPSEEK_API_KEY=... ; node scripts/probe-api.mjs
-const key = process.env.DEEPSEEK_API_KEY;
+// Probe the upstream stream shape: which delta fields exist, whether stream_options is accepted,
+// when usage arrives. Reads baseUrl / model / key from ~/.config/pageask/settings.json.
+// Usage: node scripts/probe-api.mjs
+import { readSettings } from '../server/settings.mjs';
+
+const cfg = readSettings();
+const key = cfg.apiKey;
 if (!key) {
-  console.error('缺少 DEEPSEEK_API_KEY');
+  console.error('no API key in ~/.config/pageask/settings.json');
   process.exit(1);
 }
 
 const body = {
-  model: process.env.PAGEASK_MODEL ?? 'deepseek-flash',
+  model: cfg.model,
   messages: [{ role: 'user', content: '用一句话解释什么是 SSE，并用 $E=mc^2$ 举例。' }],
   stream: true,
   stream_options: { include_usage: true },
 };
 
-const res = await fetch('https://api.deepseek.com/chat/completions', {
+const res = await fetch(`${cfg.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
   method: 'POST',
   headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
   body: JSON.stringify(body),

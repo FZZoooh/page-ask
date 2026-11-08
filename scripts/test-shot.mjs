@@ -1,12 +1,14 @@
-// 端到端验证「截图落盘 + 历史回放带图」：
-//  1) 第一轮让模型调 screenshot（page.screenshot 里塞一张纯色图）
-//  2) 检查 server/data/shots/ 是否多出文件
-//  3) 第二轮追问，确认带图的历史能被上游接受（不 422）
-// 用法：node scripts/test-shot.mjs [端口]
-const PORT = Number(process.argv[2] ?? 8787);
+// End-to-end check of "screenshot persisted to disk + replayed history carries the image":
+//  1) turn 1 makes the model call screenshot (page.screenshot carries a solid-colour image)
+//  2) assert a new file appeared under server/data/shots/
+//  3) turn 2 follows up: history with the image must be accepted upstream (no 422)
+// Run: node scripts/test-shot.mjs [port]
+import { readSettings } from '../server/settings.mjs';
+
+const PORT = Number(process.argv[2] ?? readSettings().port);
 const BASE = `http://127.0.0.1:${PORT}`;
 
-// 64x64 纯红 PNG（和探测脚本里用的是同一张）
+// 64x64 solid red PNG (the same one the probe script uses)
 const RED =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 

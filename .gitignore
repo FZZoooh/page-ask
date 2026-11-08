@@ -1,23 +1,23 @@
-# 依赖与构建产物
+# Dependencies and build output
 node_modules/
 .output/
 .wxt/
 .npm-cache/
 
-# 本地运行数据：数据库、截图、日志（可能含页面内容）
+# Local runtime data: database, screenshots, logs (may contain page content)
 server/data/
 *.log
 
-# 本地配置与密钥（真源在 ~/.config/pageask/settings.json，这里只兜底）
+# Local config and secrets (the source of truth is ~/.config/pageask/settings.json; this is a fallback)
 .env
 .env.*
 !.env.example
 settings.json
 settings.json.broken-*
 
-# 浏览器测试实例的 profile（可能含扩展 storage 里的令牌）
+# Browser test instance profile (may contain tokens in extension storage)
 .edge-profile*/
 
-# 编辑器 / 系统
+# Editor / OS
 .DS_Store
 Thumbs.db

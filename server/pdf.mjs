@@ -1,7 +1,7 @@
-// PDF 正文抽取（Node 侧，只在服务端跑）。
+// PDF page-text extraction (Node side, server only).
 //
-// 用 pdfjs-dist 的 legacy 构建：它不依赖 canvas，只做文本层解析，
-// 并且自带 CMaps / standard_fonts，能处理中文这类 CID 字体。
+// use the legacy pdfjs-dist build: no canvas dependency, text-layer parsing only,
+// plus bundled CMaps / standard_fonts, so CJK (CID) fonts work.
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -13,7 +13,7 @@ const FONT_URL = join(PDFJS_ROOT, 'standard_fonts') + '/';
 
 const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
 
-/** 硬上限：页数与总字数，防止一个超大 PDF 把内存/上下文打爆 */
+/** hard caps on pages and total chars, so one oversized PDF can't blow up memory/context */
 export const MAX_PAGES = 400;
 export const MAX_CHARS = 400_000;
 
@@ -25,7 +25,7 @@ export class PdfError extends Error {
 }
 
 /**
- * 从 PDF 字节流里抽文本。
+ * Extract text from a PDF byte stream.
  * @param {Uint8Array} bytes
  * @param {{maxPages?: number, maxChars?: number, onProgress?: (done:number,total:number)=>void}} [opts]
  * @returns {Promise<{pageCount:number, pages:Array<{n:number,text:string}>, text:string, chars:number, truncated:boolean}>}
@@ -42,7 +42,7 @@ export async function extractPdfText(bytes, opts = {}) {
       cMapUrl: CMAP_URL,
       cMapPacked: true,
       standardFontDataUrl: FONT_URL,
-      // 不要回源到网络取字体/CMap；扩展商店里也不会允许
+      // never fetch fonts/CMaps over the network; the extension store wouldn't allow it either
       useSystemFonts: false,
       isEvalSupported: false,
       verbosity: 0,
@@ -88,7 +88,7 @@ export async function extractPdfText(bytes, opts = {}) {
   return { pageCount, pages, text, chars: text.length, truncated };
 }
 
-/** 把 pdfjs 的 text items 拼成行文本：按 hasEOL 断行，去掉行尾连字符断词 */
+/** join pdfjs text items into lines: break on hasEOL, undo end-of-line hyphenation */
 function joinTextItems(items) {
   const lines = [];
   let line = '';
@@ -113,7 +113,7 @@ function joinTextItems(items) {
   for (const raw of lines) {
     const l = raw.replace(/[ \t\u00a0]+/g, ' ').trim();
     if (!l) continue;
-    // 英文排版常见的行尾断词：上一行以 - 结尾、下一行小写开头
+    // the usual English line-break hyphenation: previous line ends in -, next starts lowercase
     const prev = out.at(-1);
     if (prev !== undefined && /[A-Za-z]-$/.test(prev) && /^[a-z]/.test(l)) {
       out[out.length - 1] = prev.slice(0, -1) + l;
@@ -124,7 +124,7 @@ function joinTextItems(items) {
   return out.join('\n');
 }
 
-/** 每页加一个小标题，方便模型按页引用，也方便下面按页做「搜关键词」 */
+/** give each page a small heading, so the model can cite pages and the keyword search below works page by page */
 function renderMarkdown(pages) {
   if (!pages.length) return '';
   if (pages.length === 1) return pages[0].text;

@@ -1,12 +1,12 @@
-// 文本小工具：给 read_page 的「按关键词找段落」用。
-// 不追求完美切分，只要能把长文按语义块切出来、命中段落带点上下文就够。
+// text helpers: for read_page's "find paragraphs by keyword".
+// no perfect chunking needed — just split long text into semantic blocks and give hits some context.
 
 /**
- * 在 Markdown 正文里找包含 query 的段落。
- * @param {string} body 正文
- * @param {string} query 关键词（不区分大小写）
- * @param {number} max 最多返回几段
- * @returns {string[]} 命中段落（已去掉过短的噪音行）
+ * Find paragraphs in a Markdown body that contain query.
+ * @param {string} body page text
+ * @param {string} query keyword (case-insensitive)
+ * @param {number} max how many paragraphs to return at most
+ * @returns {string[]} matching paragraphs (short noise lines already dropped)
  */
 export function findParagraphs(body, query, max = 12) {
   const needle = query.toLowerCase();
@@ -18,7 +18,7 @@ export function findParagraphs(body, query, max = 12) {
   const hits = [];
   for (const block of blocks) {
     if (!block.toLowerCase().includes(needle)) continue;
-    // 超长块（比如整篇没有空行）截一段上下文，避免一条命中就吃满预算
+    // a huge block (e.g. the whole page with no blank lines) is excerpted, so one hit can't eat the budget
     const text = block.length > 1200 ? excerpt(block, needle, 1200) : block;
     hits.push(text);
     if (hits.length >= max) break;
@@ -26,7 +26,7 @@ export function findParagraphs(body, query, max = 12) {
   return hits;
 }
 
-/** 在长块里以命中位置为中心取一段 */
+/** take a slice centred on the match inside a long block */
 function excerpt(block, needle, size) {
   const at = block.toLowerCase().indexOf(needle);
   if (at < 0) return block.slice(0, size);

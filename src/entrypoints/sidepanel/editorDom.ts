@@ -1,6 +1,6 @@
-/** contenteditable 的纯 DOM 操作：不碰 React state，方便单测与复用 */
+/** Pure DOM helpers for contenteditable: no React state, so they stay testable and reusable */
 
-/** 把 contenteditable 的内容序列化成消息文本：引用 chip → <q>…</q>，其余按字面 */
+/** Serialize contenteditable content to message text: quote chips become <q>…</q>, everything else stays literal */
 export function serializeEditor(el: HTMLElement | null): string {
   if (!el) return '';
   const out = { s: '' };
@@ -27,8 +27,8 @@ export function serializeEditor(el: HTMLElement | null): string {
 }
 
 /**
- * 在光标处插入纯文本（\n → <br>）；没有文档选区时用 fallback（编辑器内最后一次光标）。
- * 换行不再走这里：Shift+Enter 交给浏览器原生 insertLineBreak，避免行尾占位问题。
+ * Insert plain text at the caret (\n → <br>); no document selection → fallback (last editor caret).
+ * Line breaks no longer pass through here: Shift+Enter uses native insertLineBreak, avoiding placeholder-at-EOL.
  */
 export function insertTextAtCaret(el: HTMLElement, text: string, fallback: Range | null): void {
   el.focus();
@@ -63,7 +63,7 @@ export function insertTextAtCaret(el: HTMLElement, text: string, fallback: Range
   }
 }
 
-/** 把恢复出来的提问填回输入框；消息里序列化的 <q>…</q> 还原成引用 chip */
+/** Put a recovered question back into the editor; serialized <q>…</q> becomes quote chips again */
 export function fillEditor(el: HTMLElement, text: string): void {
   el.innerHTML = '';
   for (const part of text.split(/(<q>[\s\S]*?<\/q>)/g)) {
@@ -84,7 +84,7 @@ export function fillEditor(el: HTMLElement, text: string): void {
   }
 }
 
-/** 输入框里已经有用户草稿时不要用恢复内容覆盖它 */
+/** A recovery must not overwrite a draft the user already typed into the editor */
 export function editorHasDraft(el: HTMLElement | null): boolean {
   return Boolean(el?.textContent?.trim());
 }

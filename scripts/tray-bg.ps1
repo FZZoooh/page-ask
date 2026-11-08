@@ -1,28 +1,30 @@
-﻿# 把托盘从「前台占着终端」甩到后台：
-#   pnpm tray      -> 前台运行，Ctrl+C 才会退出，终端被占住
-#   pnpm tray:bg   -> 用这个：新进程 + 隐藏窗口，命令立刻返回
+﻿# Move the tray from "hogging the terminal in the foreground" to the background:
+#   pnpm tray      -> runs in the foreground; only Ctrl+C exits it, and the terminal stays occupied
+#   pnpm tray:bg   -> use this: new process + hidden window, the command returns immediately
 #
-# 原理就是 Start-Process：它会新建进程（自己带一个控制台，用 -WindowStyle Hidden 藏起来），
-# 当前终端不等它，所以马上回到提示符。不是 nohup / setsid 那套 unix 手法。
+# The mechanism is plain Start-Process: it creates a new process (with its own console, hidden by -WindowStyle Hidden),
+# and the current terminal does not wait for it, so the prompt is back at once. Not the nohup / setsid unix trick.
 #
-# 注意：这是「用户会话内的后台进程」，注销/重启就没了——要开机自启请用托盘菜单里的
-# 「开机自启」（写 Startup 快捷方式）。
+# Note: this is a "background process inside the user session"; logoff/reboot kills it — for autostart use
+# "autostart" in the tray menu (writes a Startup shortcut).
 [CmdletBinding()]
 param()
 
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-$tray = Join-Path $root 'scripts\tray.ps1'
+# PowerShell variables are case-insensitive: `$tray` and the `$Tray` dictionary are the same variable,
+# so the path must not be called `$tray` — the hashtable would overwrite it and Test-Path would fail.
+$trayScript = Join-Path $root 'scripts\tray.ps1'
 $i18n = Join-Path $PSScriptRoot 'i18n'
 try {
   $Tray = Import-LocalizedData -BaseDirectory $i18n -FileName 'Tray.psd1' -UICulture $PSUICulture
 } catch {
   $Tray = Import-LocalizedData -BaseDirectory $i18n -FileName 'Tray.psd1' -UICulture 'zh-CN'
 }
-if (-not (Test-Path $tray)) { throw ($Tray.BgMissing -f $tray) }
+if (-not (Test-Path $trayScript)) { throw ($Tray.BgMissing -f $trayScript) }
 
-# 和 tray.ps1 里的 Get-Pwsh7 保持一致：优先稳定路径，最后才用 Get-Command 兜底
+# Keep in sync with Get-Pwsh7 in tray.ps1: stable paths first, Get-Command only as the last fallback
 function Get-Pwsh7 {
   foreach ($p in @(
       (Join-Path $env:ProgramFiles 'PowerShell\7\pwsh.exe'),
@@ -38,10 +40,10 @@ function Get-Pwsh7 {
 $pwsh = Get-Pwsh7
 if ($pwsh) {
   $exe = $pwsh
-  $argv = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $tray)
+  $argv = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $trayScript)
 } else {
   $exe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-  $argv = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $tray)
+  $argv = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $trayScript)
 }
 
 $proc = Start-Process -FilePath $exe -ArgumentList $argv -WorkingDirectory $root -WindowStyle Hidden -PassThru

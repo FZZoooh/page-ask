@@ -1,9 +1,10 @@
-// 前缀缓存检验：同一会话连打多轮，混合截图与工具调用，逐轮打印上游 usage。
-// 用法：node scripts/test-cache.mjs [端口]
-// 关键指标：usage.input_tokens_details.cached_tokens（命中缓存的输入 token 数）
+// Prefix-cache probe: many turns in one conversation, screenshots and tool calls mixed in; prints
+// upstream usage per turn. Run: node scripts/test-cache.mjs [port]
+// Key metric: usage.input_tokens_details.cached_tokens (input tokens served from cache)
 import { readFileSync } from 'node:fs';
+import { readSettings } from '../server/settings.mjs';
 
-const PORT = Number(process.argv[2] ?? 8787);
+const PORT = Number(process.argv[2] ?? readSettings().port);
 const BASE = `http://127.0.0.1:${PORT}`;
 
 const shotPath = process.argv[3] ?? '.cache-shot.jpg';
@@ -100,7 +101,7 @@ async function turn(conversationId, text) {
   return { conversationId: meta?.conversationId, usages, tools, done, error };
 }
 
-// 生成一张纯色 JPEG 作为“截图”，保证每轮字节完全一致（否则前缀必然不同）
+// Solid-colour JPEG as the "screenshot": identical bytes every turn, else the prefix necessarily differs
 console.log(`截图素材：${shotPath}（${shotB64.length} base64 字符）`);
 console.log(`轮数：${TURNS.length}\n`);
 

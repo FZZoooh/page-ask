@@ -1,16 +1,16 @@
 /**
- * 配置页 HTML（`GET /settings`）。刻意不用任何构建步骤：一个字符串、内联样式和内联脚本，
- * 打开就能改 Key / 上游地址 / 模型，保存后下一个请求立刻生效（后端每次都重读 settings.json）。
+ * Settings page HTML (`GET /settings`). Deliberately no build step: one string, inline styles
+ * and script; edit key / upstream / model, and a save applies on the next request (settings.json re-read).
  *
- * 所有文案来自 `server/i18n/zh-CN.mjs`：页面渲染时按 `Accept-Language` / `?lang=` 选字典，
- * 再把整份字典嵌给客户端脚本，避免中文散落在 HTML 与 JS 里。加语言只需加字典。
+ * All copy comes from `server/i18n/zh-CN.mjs`: picked at render time by `Accept-Language` / `?lang=`
+ * and embedded whole for the client script, so Chinese stays out of HTML/JS; a new language = a new dict.
  */
 import { DEFAULT_LOCALE, dictionary, format } from './i18n/index.mjs';
 
 export function settingsPageHtml({ version, locale = DEFAULT_LOCALE }) {
   const dict = dictionary(locale);
   const t = (key, vars) => format(dict[key] ?? key, vars);
-  // `</script>` 不能出现在内联脚本里；字典本身没有 HTML，这里仍把 `<` 转义掉
+  // `</script>` must not appear in an inline script; the dictionary has no HTML, but escape `<` anyway
   const clientDict = JSON.stringify(dict).replace(/</g, '\\u003c');
 
   return `<!doctype html>

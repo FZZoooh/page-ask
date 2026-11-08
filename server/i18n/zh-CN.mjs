@@ -40,7 +40,7 @@ export const messages = {
   'webui.readFailed': '读不到配置：{message}',
   'webui.networkFailed': '连接后端失败：{message}',
   'webui.healthUnavailable': '无法连接',
-  'webui.healthTokenRequired': '需要访问令牌（PAGEASK_TOKEN），状态信息不可用',
+  'webui.healthTokenRequired': '需要访问令牌（settings.json 的 token），状态信息不可用',
   'webui.metaFile': '配置文件：',
   'webui.metaProvider': '提供商：',
   'webui.metaModel': '模型：',

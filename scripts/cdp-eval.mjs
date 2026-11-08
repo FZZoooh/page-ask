@@ -1,6 +1,6 @@
-// 通用 CDP 工具：在匹配 URL 的目标里执行一段 JS。
-// 用法: node scripts/cdp-eval.mjs <端口> <URL 子串> <表达式>
-// 例:   node scripts/cdp-eval.mjs 9333 sidepanel.html "document.title"
+// Generic CDP tool: evaluate a JS expression in the target whose URL matches.
+// Usage: node scripts/cdp-eval.mjs <port> <URL substring> <expression>
+// Example: node scripts/cdp-eval.mjs 9333 sidepanel.html "document.title"
 const [port = '9222', match = '', expr = '1+1'] = process.argv.slice(2);
 
 const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();

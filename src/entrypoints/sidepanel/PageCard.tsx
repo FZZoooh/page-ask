@@ -10,7 +10,7 @@ interface PageCardProps {
   onCopy: () => void;
 }
 
-/** 页面卡片：默认只留一行，避免挤占对话空间 */
+/** Page card: one line by default so it does not crowd out the conversation */
 export function PageCard({ page, open, copied, onToggle, onCopy }: PageCardProps) {
   return (
     <section className="page">

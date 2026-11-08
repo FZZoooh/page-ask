@@ -1,12 +1,12 @@
 /**
- * P4 本地化守护：
- *   1. UI 层禁止新增硬编码中文（只看字符串字面量，忽略注释与 `[pageask]` 日志）。
- *   2. 错误码覆盖：server 字典里的 `error.*` 都要在扩展字典里有对应文案；
- *      server 源码里出现的 code 字面量必须在字典中存在。
- *   3. locale 字典 key 对齐；`en-XA` 伪本地化必须存在且明显更长（测布局用）。
- *   4. 托盘脚本引用的 `$script:Tray.*` key 必须在 Tray.psd1 中存在。
+ * P4 localization guard:
+ *   1. UI code must not add hard-coded Chinese (string literals only; comments and `[pageask]` logs are exempt).
+ *   2. Error-code coverage: every `error.*` key in the server dictionary needs matching extension copy;
+ *      code literals appearing in server sources must exist in the dictionary.
+ *   3. Locale keys stay aligned; `en-XA` pseudo-localization must exist and be clearly longer (layout tests).
+ *   4. Every `$script:Tray.*` key referenced by the tray scripts must exist in Tray.psd1.
  *
- * 用法：`node scripts/check-i18n.mjs`（由 `pnpm verify` 调用）。
+ * Usage: `node scripts/check-i18n.mjs` (called by `pnpm verify`).
  */
 import { readFileSync } from 'node:fs';
 import { globSync } from 'node:fs';
@@ -18,7 +18,7 @@ function fail(file, line, message) {
   problems.push(`${file}:${line}  ${message}`);
 }
 
-/** 去掉 JS/TS 注释并收集字符串字面量（含模板串）。 */
+/** Strip JS/TS comments and collect string literals (template strings included). */
 function collectJsStrings(text) {
   const out = [];
   let i = 0;
@@ -75,7 +75,7 @@ function collectJsStrings(text) {
   return out;
 }
 
-/** PowerShell：去掉 `<# #>` 与 `#` 注释，收集单/双引号字符串。 */
+/** PowerShell: strip `<# #>` and `#` comments, collect single/double-quoted strings. */
 function collectPsStrings(text) {
   const out = [];
   let i = 0;
@@ -137,8 +137,8 @@ function collectPsStrings(text) {
 const CJK = /[\u4e00-\u9fff]/;
 
 function checkHardcodedChinese() {
-  // 两份字典本身就是文案：zh-CN 全是中文，en-US 里的语言名刻意保留母语写法
-  //（「简体中文」），都不属于「组件里写死中文」。
+  // Both dictionaries are the copy itself: zh-CN is all Chinese and en-US keeps the
+  // native-script language label on purpose, so neither counts as hard-coded UI text.
   const dicts = new Set(['src/lib/i18n.ts', 'src/lib/i18n.en-US.ts']);
   const jsFiles = globSync('src/**/*.{ts,tsx}').filter((f) => !dicts.has(f.replaceAll('\\', '/')));
   const psFiles = ['scripts/tray.ps1', 'scripts/tray-bg.ps1'];
@@ -148,7 +148,7 @@ function checkHardcodedChinese() {
     const text = readFileSync(file, 'utf8');
     for (const s of collectJsStrings(text)) {
       if (!CJK.test(s.value)) continue;
-      // 开发日志统一以 [pageask] 开头，不属于用户界面文案
+      // Dev logs all start with [pageask]; they are not user-facing UI copy
       if (s.value.trimStart().startsWith('[pageask]')) continue;
       fail(file, s.line, `硬编码中文：${JSON.stringify(s.value.slice(0, 80))}`);
     }
@@ -183,7 +183,7 @@ async function checkErrorCodes() {
       .map((value) => value.slice('error.'.length)),
   );
 
-  // 扩展侧独有的错误（网络/加载/剪贴板），后端不会发这些 code
+  // Errors only the extension raises (network/load/clipboard); the backend never sends these codes
   const clientOnly = new Set([
     'backendDetail',
     'backendStatus',
@@ -204,8 +204,8 @@ async function checkErrorCodes() {
     }
   }
 
-  // server 源码里显式写出的 code 必须在字典里。只看 errorPayload 与
-  // new UpstreamError 的 code 参数，避免把 `settings.saved` 这类事件名当成错误码。
+  // Codes spelled out in server sources must exist in the dictionary. Scan only the `errorPayload`
+  // and `new UpstreamError` code args, so event names like `settings.saved` are not read as error codes.
   for (const file of globSync('server/**/*.mjs').filter((f) => !f.includes('/i18n/'))) {
     const text = readFileSync(file, 'utf8');
     const codes = [

@@ -1,5 +1,5 @@
-// 回归：上游 response.incomplete（常见于 max_output_tokens 截断）要保留正文并标记 aborted，
-// 非法 JSON 请求要 400 而不是顶层 500。用法：node scripts/test-incomplete-and-bad-body.mjs
+// Regression: upstream response.incomplete (usually a max_output_tokens cut) must keep the text and flag
+// it aborted; malformed JSON must 400, not top-level 500. Run: node scripts/test-incomplete-and-bad-body.mjs
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
@@ -64,14 +64,23 @@ const upstream = createServer((req, res) => {
 });
 await new Promise((r) => upstream.listen(upstreamPort, '127.0.0.1', r));
 
+const port = await freePort();
 writeFileSync(
   join(home, '.config', 'pageask', 'settings.json'),
-  JSON.stringify({ baseUrl: `http://127.0.0.1:${upstreamPort}`, model: 'fake', apiKey: 'test-key', state: 'off' }),
+  JSON.stringify({
+    baseUrl: `http://127.0.0.1:${upstreamPort}`,
+    model: 'fake',
+    apiKey: 'test-key',
+    state: 'off',
+    port,
+    token: '',
+    extensionId: 'mmlkafokjmojbmebfofjaakibnmoikkm',
+    dataDir: data,
+  }),
 );
 
-const port = await freePort();
 const child = spawn(process.execPath, [join(root, 'server', 'index.mjs')], {
-  env: { ...process.env, USERPROFILE: home, HOME: home, PAGEASK_DATA_DIR: data, PAGEASK_PORT: String(port) },
+  env: { ...process.env, USERPROFILE: home, HOME: home },
   stdio: 'ignore',
 });
 
@@ -131,7 +140,7 @@ try {
   upstream.closeAllConnections?.();
   await new Promise((r) => upstream.close(r));
 
-  // 落库检查放在进程退出后：WAL 已 checkpoint 或仍可读
+  // DB check runs after the process is gone: the WAL is either checkpointed or still readable
   try {
     const db = new DatabaseSync(join(data, 'pageask.db'));
     const row = db
@@ -148,7 +157,7 @@ try {
     rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     rmSync(data, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   } catch {
-    /* Windows 上 sqlite 句柄偶尔晚一点释放，临时目录留给系统清理 */
+    /* Windows releases the sqlite handle a moment late now and then; leave the temp dir to the OS */
   }
 }
 

@@ -1,5 +1,5 @@
-// 后端接口客户端：会话读写 + 流式对话。
-// 后端在 127.0.0.1:8787，只认 chrome-extension://<本扩展> 的 Origin。
+// Backend API client: conversation read/write + streaming chat.
+// Backend lives at 127.0.0.1:8787 and only accepts chrome-extension://<this extension> origins.
 import type { ExtractedPage, SelectionInfo } from './extract';
 import { t, tError } from './i18n';
 import { baseUrl, type Settings } from './settings';
@@ -10,7 +10,7 @@ export interface ConversationMeta {
   title: string;
   createdAt: number;
   updatedAt: number;
-  /** 最后一条消息的时间；历史列表按它显示，缺省时回退到 updatedAt */
+  /** Time of the last message; the history list orders by it, falling back to updatedAt when absent */
   lastMessageAt?: number;
   messageCount?: number;
   lastUserText?: string;
@@ -25,11 +25,11 @@ export interface StoredMessage {
   tokensIn: number | null;
   tokensOut: number | null;
   ms: number | null;
-  /** 本轮「思考 + 工具调用」阶段的耗时（毫秒）；只有最终那段回答带 */
+  /** Time this turn spent thinking + calling tools (ms); only the final answer segment carries it */
   processMs?: number | null;
-  /** assistant 段可能带工具调用（OpenAI 格式） */
+  /** An assistant segment may carry tool calls (OpenAI format) */
   toolCalls?: ToolCall[] | null;
-  /** role === 'tool' 时：它是哪次调用、哪个工具、参数是什么 */
+  /** When role === 'tool': which call it belongs to, which tool ran, what args it got */
   toolFailed?: boolean | null;
   toolCallId?: string | null;
   toolName?: string | null;
@@ -48,11 +48,11 @@ export interface Conversation extends ConversationMeta {
 }
 
 export interface Usage {
-  // Responses API 的字段
+  // Responses API fields
   input_tokens?: number;
   output_tokens?: number;
   output_tokens_details?: { reasoning_tokens?: number };
-  // Chat Completions 时代的字段（历史会话里仍是这个形状）
+  // Chat Completions era fields (old conversations still have this shape)
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
@@ -71,7 +71,7 @@ export type ChatEvent =
       id: string;
       name: string;
       args?: Record<string, unknown>;
-      /** end 阶段才有：给 UI 的文字标签、参数摘要、是否失败、返回长度 */
+      /** Only on phase end: UI label, args summary, whether it failed, result length */
       label?: string;
       detail?: string;
       ok?: boolean;
@@ -86,7 +86,7 @@ export type ChatEvent =
         content: string;
         reasoning: string;
         ms: number;
-        /** 本轮「思考 + 工具调用」阶段耗时（毫秒） */
+        /** Time this turn spent thinking + calling tools (ms) */
         processMs?: number;
         tokensIn?: number | null;
         tokensOut?: number | null;
@@ -97,16 +97,16 @@ export type ChatEvent =
       ms?: number;
     }
   | { type: 'error'; message: string; code?: string; params?: Record<string, string | number> }
-  /** 第一轮问答后服务端自动起的标题 */
+  /** Title the server generates after the first Q&A round */
   | { type: 'title'; conversationId: string; title: string };
 
-/* ---------------- 基础请求 ---------------- */
+/* ---------------- Basic requests ---------------- */
 
 function endpoint(settings: Settings, path: string): string {
   return `${baseUrl(settings)}${path}`;
 }
 
-/** 后端设了 PAGEASK_TOKEN 时，所有请求都要带同一个令牌 */
+/** When the backend's settings.json sets a token, every request must carry the same token */
 function authHeaders(settings: Settings): Record<string, string> {
   const token = settings.token?.trim();
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -119,14 +119,14 @@ interface ApiErrorBody {
   params?: Record<string, string | number>;
 }
 
-/** 后端的错误体统一是 { error, message, code, params }：有 code 走本地文案，否则拼状态码。 */
+/** Backend error bodies are always { error, message, code, params }: code picks local copy, else status. */
 async function backendErrorText(res: Response): Promise<string> {
   const raw = await res.text().catch(() => '');
   let body: ApiErrorBody | null = null;
   try {
     body = raw ? (JSON.parse(raw) as ApiErrorBody) : null;
   } catch {
-    /* 非 JSON 错误体，保留原文 */
+    /* not a JSON error body: keep the raw text */
   }
   if (body?.code) return tError(body.code, body.params, body.message ?? body.error);
   const detail = (body?.message ?? body?.error ?? raw).slice(0, 300);
@@ -176,9 +176,9 @@ export interface RecoveredQuestion {
 }
 
 /**
- * 读取会话时调用：如果最后一条是「没有回答的 user 提问」（上次进程中途退出），
- * 后端把它取回并删掉，侧栏填进输入框，用户重发后不会出现两条一样的提问。
- * 409 表示没有可恢复的提问，或这一轮还在生成，返回 null。
+ * Called on conversation load: a trailing unanswered user question (the previous process died
+ * mid-turn) comes back from the backend, which deletes it, and the panel refills the composer,
+ * so a resend does not leave two identical questions. 409 = nothing to recover or still running → null.
  */
 export async function recoverPendingQuestion(settings: Settings, id: string): Promise<RecoveredQuestion | null> {
   let res: Response;
@@ -195,19 +195,19 @@ export async function recoverPendingQuestion(settings: Settings, id: string): Pr
   return (await res.json()) as RecoveredQuestion;
 }
 
-/* ---------------- 流式对话 ---------------- */
+/* ---------------- Streaming chat ---------------- */
 
 export interface ChatRequest {
   settings: Settings;
   conversationId?: string | null;
   page: Pick<ExtractedPage, 'url' | 'title' | 'markdown' | 'viewport' | 'kind' | 'pages' | 'selection'> & {
-    /** 选中的文字 + 它所在的段落（让模型能判断语气/指代） */
+    /** Selected text + the paragraph it sits in (lets the model judge tone and what "it" refers to) */
     selectionContext?: SelectionInfo | null;
   };
-  /** 截图（data URL）；模型调用 screenshot 工具时会用到 */
+  /** Screenshot (data URL); used when the model calls the screenshot tool */
   screenshot?: { dataUrl: string; width: number; height: number } | null;
   text: string;
-  /** 重新生成：后端会删掉上一轮的回答（最后一条 user 消息之后的行）再重跑 */
+  /** Regenerate: the backend drops the previous answer (rows after the last user message) and reruns */
   regenerate?: boolean;
   signal?: AbortSignal;
 }
@@ -342,7 +342,7 @@ export async function* streamChat(req: ChatRequest): AsyncGenerator<ChatEvent> {
     }
     }
   } finally {
-    // 调用方中途 break 时也要把连接收掉，别让服务端继续挂着自动标题的连接
+    // Close the connection even when the caller breaks early; do not leave the auto-title stream open
     reader.cancel().catch(() => {});
   }
 }

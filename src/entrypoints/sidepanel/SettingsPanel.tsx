@@ -11,12 +11,12 @@ interface Props {
 
 type Probe = { ok: true; key: MessageKey; params?: Record<string, string | number> } | { ok: false; text: string };
 
-/** 只认 http(s) URL；解析失败返回 null，避免把整页内容发到非法地址 */
+/** Accept http(s) URLs only; null on parse failure, so page content is never posted to a bogus address */
 function parseBackendUrl(raw: string): URL | null {
   try {
     const url = new URL(raw.trim());
     if (!['http:', 'https:'].includes(url.protocol) || !url.hostname) return null;
-    // `localhost.` / `127.0.0.1.` 是合法写法，去掉尾点后再判断是否回环
+    // `localhost.` / `127.0.0.1.` are valid forms; strip the trailing dot before the loopback check
     url.hostname = url.hostname.replace(/\.+$/, '');
     return url;
   } catch {
@@ -24,7 +24,7 @@ function parseBackendUrl(raw: string): URL | null {
   }
 }
 
-/** 默认只信本机后端；别的地址要用户二次确认 */
+/** Trust the local backend by default; any other host needs a second confirmation from the user */
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 
 export function SettingsPanel({ value, onDone, onClose }: Props) {
@@ -42,7 +42,7 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
     locale: draft.locale,
   });
 
-  /** 校验草稿地址；失败时直接写进 probe，调用方返回即可 */
+  /** Validate the draft URL; on failure it writes probe itself, so callers only need to return */
   const validated = (): URL | null => {
     const parsed = parseBackendUrl(normalized().backendUrl);
     if (!parsed) setProbe({ ok: false, text: t('settings.invalidUrl') });
@@ -73,7 +73,7 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
   const handleTest = async () => {
     const parsed = validated();
     if (!parsed) return;
-    // 测试连接会把当前令牌发给该地址：非本机先让用户确认
+    // The connection test sends the current token to that address: confirm first for non-local hosts
     if (!LOOPBACK_HOSTS.has(parsed.hostname) && !window.confirm(t('settings.remoteConfirm', { host: parsed.host }))) {
       return;
     }
@@ -135,7 +135,7 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
         </select>
       </label>
 
-      {/* 「显示详细信息」的说明放在 title 里，悬停才出现，不占版面 */}
+      {/* The "show details" explanation lives in title: hover-only, so it costs no layout space */}
       <label className="check" title={t('settings.verboseHint')}>
         <input
           type="checkbox"
@@ -157,7 +157,7 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
         </button>
       </div>
 
-      {/* API Key / 上游地址 / 默认模型在后端，这里只给一个入口 */}
+      {/* API key / upstream URL / default model live in the backend; this is only the way in */}
       <button
         className="console-link"
         onClick={() => {

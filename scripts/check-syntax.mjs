@@ -1,5 +1,5 @@
-// `pnpm compile` 只跑 tsc，覆盖不到 .mjs；这里对后端与脚本做一次真实的语法检查。
-// 用法：node scripts/check-syntax.mjs
+// `pnpm compile` only runs tsc, which never sees .mjs; run a real syntax check on backend + scripts here.
+// Usage: node scripts/check-syntax.mjs
 import { readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
@@ -9,7 +9,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const dirs = ['server', 'scripts'];
 const files = [];
 
-// 递归：server/i18n/ 等子目录里的 .mjs 同样要检查。
+// Recursive: .mjs files in subdirectories such as server/i18n/ must be checked too.
 function collect(dir) {
   for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
     const rel = `${dir}/${entry.name}`;

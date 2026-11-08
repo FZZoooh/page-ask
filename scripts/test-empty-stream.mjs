@@ -1,5 +1,5 @@
-// 回归：上游 200 正常收流但一个字都没给时，必须报错，不能静默成功。
-// 用法：node scripts/test-empty-stream.mjs
+// Regression: upstream answers 200 and streams normally but yields not a single character — that must
+// be an error, never a silent success. Run: node scripts/test-empty-stream.mjs
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
@@ -45,14 +45,23 @@ const upstream = createServer((req, res) => {
 });
 await new Promise((r) => upstream.listen(upstreamPort, '127.0.0.1', r));
 
+const port = await freePort();
 writeFileSync(
   join(home, '.config', 'pageask', 'settings.json'),
-  JSON.stringify({ baseUrl: `http://127.0.0.1:${upstreamPort}`, model: 'fake', apiKey: 'test-key', state: 'off' }),
+  JSON.stringify({
+    baseUrl: `http://127.0.0.1:${upstreamPort}`,
+    model: 'fake',
+    apiKey: 'test-key',
+    state: 'off',
+    port,
+    token: '',
+    extensionId: 'mmlkafokjmojbmebfofjaakibnmoikkm',
+    dataDir: data,
+  }),
 );
 
-const port = await freePort();
 const child = spawn(process.execPath, [join(root, 'server', 'index.mjs')], {
-  env: { ...process.env, USERPROFILE: home, HOME: home, PAGEASK_DATA_DIR: data, PAGEASK_PORT: String(port) },
+  env: { ...process.env, USERPROFILE: home, HOME: home },
   stdio: 'ignore',
 });
 
@@ -98,7 +107,7 @@ try {
     rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     rmSync(data, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   } catch {
-    /* Windows 上 sqlite 句柄偶尔晚一点释放，临时目录留给系统清理 */
+    /* Windows releases the sqlite handle a moment late now and then; leave the temp dir to the OS */
   }
 }
 

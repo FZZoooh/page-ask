@@ -1,8 +1,9 @@
-// 非正常退出检测、busy_timeout、孤儿截图清理、断尾提问恢复的回归测试。
-// 用临时 HOME / DATA_DIR，不碰真实配置与数据库。
+// Regression tests for abnormal-exit detection, busy_timeout, orphan screenshot cleanup,
+// and recovery of a truncated trailing question.
+// Uses a temporary HOME / DATA_DIR and never touches the real config or database.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -13,9 +14,28 @@ const temp = mkdtempSync(join(tmpdir(), 'pageask-lifecycle-'));
 const dataDir = join(temp, 'data');
 const home = join(temp, 'home');
 const shots = join(dataDir, 'shots');
-process.env.PAGEASK_DATA_DIR = dataDir;
 process.env.HOME = home;
 process.env.USERPROFILE = home;
+
+// The backend reads port / data dir / key from settings.json only, so every (re)start rewrites
+// this file instead of passing environment variables.
+function writeConfig(port) {
+  mkdirSync(join(home, '.config', 'pageask'), { recursive: true });
+  writeFileSync(
+    join(home, '.config', 'pageask', 'settings.json'),
+    JSON.stringify({
+      baseUrl: 'http://127.0.0.1:1',
+      model: 'test-model',
+      apiKey: 'sk-test',
+      state: 'auto',
+      port,
+      token: '',
+      extensionId: 'mmlkafokjmojbmebfofjaakibnmoikkm',
+      dataDir,
+    }),
+  );
+}
+writeConfig(8787);
 
 const { addMessage, cleanupOrphanShots, closeDb, createConversation, recoverLastUserMessage, shotsDir } = await import(
   '../server/db.mjs'
@@ -41,7 +61,7 @@ async function waitFor(fn, timeoutMs = 8000) {
     try {
       if (await fn()) return true;
     } catch {
-      /* 还没起来 */
+      /* not up yet */
     }
     if (Date.now() > deadline) return false;
     await new Promise((r) => setTimeout(r, 120));
@@ -49,10 +69,11 @@ async function waitFor(fn, timeoutMs = 8000) {
 }
 
 function startServer(port) {
+  writeConfig(port);
   const child = spawn(process.execPath, ['server/index.mjs'], {
     cwd: root,
-    env: { ...process.env, PAGEASK_DATA_DIR: dataDir, PAGEASK_PORT: String(port), HOME: home, USERPROFILE: home },
-    // 沙箱下管道 stdio 会 EPERM，这里不需要读子进程输出
+    env: { ...process.env, HOME: home, USERPROFILE: home },
+    // Piped stdio hits EPERM under the sandbox, and we never read the child's output anyway
     stdio: 'ignore',
   });
   return child;
@@ -76,7 +97,7 @@ async function getJson(port, path, init) {
   try {
     body = await res.json();
   } catch {
-    /* 非 JSON */
+    /* not JSON */
   }
   return { status: res.status, body };
 }
@@ -84,7 +105,7 @@ async function getJson(port, path, init) {
 const conv = createConversation({ url: 'http://example.com/article' });
 addMessage({ conversationId: conv.id, role: 'user', content: '这条提问被进程中断了 <q>引文</q>' });
 
-// 孤儿截图：旧且没被引用 → 删；旧但被引用 → 留
+// Orphan screenshots: old and unreferenced → delete; old but referenced → keep
 const orphan = join(shots, 'orphan.jpg');
 const kept = join(shots, 'kept.jpg');
 writeFileSync(orphan, 'orphan');
@@ -147,7 +168,7 @@ check('强杀后重启标记为异常退出', () => {
   assert.equal(typeof second.body.lifecycle.previousPid, 'number');
 });
 
-// 让 conv3 保持“最后一条是没有回答的 user”
+// Leave conv3's last row an unanswered user message
 const got = await getJson(port2, `/conversations/${conv3.id}/recover`, { method: 'POST' });
 check('HTTP 恢复接口返回文本并删除', () => {
   assert.equal(got.status, 200);
@@ -173,7 +194,7 @@ assert.equal(
 );
 await stopServer(child);
 
-// WAL checkpoint 后主库应包含最近写入（存在 -wal 时允许它仍在）
+// After the WAL checkpoint the main DB should hold recent writes (a leftover -wal is allowed)
 check('退出后主库文件存在且已关闭', () => assert.equal(statSync(join(dataDir, 'pageask.db')).isFile(), true));
 
 console.log('全部通过');

@@ -177,8 +177,8 @@ export const enUS = {
   'settings.remoteConfirm':
     'The backend is not on this machine ({host}). Page text, selections, and screenshots will leave this computer. Save anyway?',
   'settings.token': 'Access token',
-  'settings.tokenPlaceholder': 'Leave blank if PAGEASK_TOKEN is not set',
-  'settings.tokenHint': "Must match the backend's PAGEASK_TOKEN; stored only in this browser",
+  'settings.tokenPlaceholder': 'Leave blank if settings.json has no token',
+  'settings.tokenHint': "Must match the token in the backend's settings.json; stored only in this browser",
   'settings.save': 'Save',
   'settings.saving': 'Saving…',
   'settings.test': 'Test connection',

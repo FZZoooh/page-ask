@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 /**
- * 验证「选中文字 + 所在段落」是否真的帮到模型。
+ * Verify whether "selected text + its surrounding paragraph" actually helps the model.
  *
- * 用法：node scripts/test-selection-context.mjs [baseUrl]
+ * Usage: node scripts/test-selection-context.mjs [baseUrl]
  *
- * 场景：选中的只有一个「它」和一个短语，单看不知道指什么；段落上下文里能看出来。
- * 对比「只有选区」和「选区 + 上下文」两种请求，看模型是否要额外调工具、
- * 以及回答是否准确。
+ * Scenario: the selection is nothing but "it" plus one short phrase and is ambiguous on its own;
+ * the paragraph context reveals what "it" refers to. Compare a selection-only request with a
+ * selection-plus-context one: does the model need extra tool calls, and is the answer accurate?
  */
 
-const BASE = process.argv[2] ?? 'http://127.0.0.1:8787';
+import { readSettings } from '../server/settings.mjs';
+
+const BASE = process.argv[2] ?? `http://127.0.0.1:${readSettings().port}`;
 
 const PAGE_TEXT = [
   '浏览器扩展侧栏开发入门',

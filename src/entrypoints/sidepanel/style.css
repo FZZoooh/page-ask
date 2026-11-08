@@ -3,13 +3,13 @@
   --bg: #fcfcfc;
   --fg: #0b0b0b;
   --muted: #6b7280;
-  /* 小字元信息（字数/耗时/token）比 muted 再深一点，11.5px 下才够对比 */
+  /* Small metadata (chars/latency/tokens) sits a bit darker than muted: needed for contrast at 11.5px */
   --meta: #5b6472;
   --line: #e5e7eb;
   --card: #ffffff;
   --accent: #2f6fed;
   --accent-fg: #ffffff;
-  /* 正文里的链接单独一个色，深色下需要更亮，不能跟 accent 绑死 */
+  /* Body links get their own color: they must be brighter in dark theme, so do not tie them to accent */
   --link: #1f5fe0;
   --error-bg: #fef2f2;
   --error-line: #fecaca;
@@ -21,7 +21,7 @@
   --md-strong: #000000;
   --bubble: #e9f3fe;
   --bubble-fg: #0b0b0b;
-  /* 发送按钮两套主题共用一个蓝 */
+  /* The send button keeps one blue across both themes */
   --send: #3e65c4;
   --input-bg: #ffffff;
   --input-line: #e5e7eb;
@@ -29,13 +29,13 @@
   --think-line: #e5e7eb;
   --think-fg: #6b7280;
   --round-bg: #fafafa;
-  /* 按钮触发区与图标尺寸：只在这里改，正文缩进会跟着算 */
+  /* Button hit area and icon size: change them only here; the answer indent is derived from them */
   --icon-btn: 26px;
   --icon-size: 17px;
-  /* 正文左缩进 = 图标在按钮里的单侧留白，于是图标左缘正好落在正文左缘上，
-     而按钮盒子仍从容器左缘开始（hover 底色不会被裁） */
+  /* Answer indent = the icon's one-side padding inside the button, so the icon's left edge
+     aligns with the answer; the button still starts at the container edge, so hover is not clipped */
   --answer-inset: calc((var(--icon-btn) - var(--icon-size)) / 2);
-  /* 滚动条：平时很淡，鼠标压上去才回到系统默认的那条灰 */
+  /* Scrollbar: faint by default, back to the system default gray only while the pointer is on it */
   --sb-thumb: #d6d6d6;
   --sb-thumb-hover: #5a5a5a;
 }
@@ -43,7 +43,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    /* 纯黑底：卡片靠 1px 边框和极轻的提亮分层 */
+    /* Pure black background: cards are separated by 1px borders and a barely-there lift */
     --bg: #000000;
     --fg: #e8eaed;
     --muted: #a3adba;
@@ -74,8 +74,8 @@
   }
 }
 
-/* 滚动条：平时淡（#d6d6d6），鼠标压上去才变深。
-   用 ::-webkit-scrollbar 家族而不是 scrollbar-color —— 只有前者能对「滑块本身」做 hover。 */
+/* Scrollbar: faint (#d6d6d6) by default, darker only while hovered. Uses the ::-webkit-scrollbar family
+   instead of scrollbar-color — only the former can style :hover on the thumb itself. */
 *::-webkit-scrollbar {
   width: 12px;
   height: 12px;
@@ -86,7 +86,7 @@
 }
 
 *::-webkit-scrollbar-thumb {
-  /* 透明边框 + padding-box 裁切 = 视觉上更细的滑块 */
+  /* Transparent border + padding-box clipping = a visually thinner thumb */
   border: 3px solid transparent;
   border-radius: 999px;
   background-color: var(--sb-thumb);
@@ -126,11 +126,11 @@ body {
   gap: 8px;
   height: 100%;
   padding: 10px 10px 0;
-  /* 任何情况下都不让内容溢出到面板外面（溢出会被裁掉且无法滚动） */
+  /* Never let content overflow the panel (it would be clipped and unreachable by scroll) */
   overflow: hidden;
 }
 
-/* ---------- 顶栏 ---------- */
+/* ---------- header ---------- */
 
 .hd {
   display: flex;
@@ -140,7 +140,7 @@ body {
   flex: 0 0 auto;
 }
 
-/* 当前对话标题：没生成时是空的，靠 flex 把右侧按钮顶到最右 */
+/* Current conversation title: empty until generated; flex keeps the right-hand buttons pinned right */
 .hd-title.in {
   animation: titleIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -167,7 +167,7 @@ body {
   flex: 0 0 auto;
 }
 
-/* ---------- 按钮 ---------- */
+/* ---------- buttons ---------- */
 
 button {
   font: inherit;
@@ -200,8 +200,8 @@ button.primary:hover:not(:disabled) {
   background: color-mix(in srgb, var(--accent) 88%, black);
 }
 
-/* 设置面板的「保存」固定用 #4b63c3，不跟 accent 走：
-   深色主题下 accent 会变亮蓝，混色出来的按钮会跟这里的视觉重量对不上 */
+/* The settings "Save" button is pinned to #4b63c3 instead of following accent: in dark theme
+   accent turns bright blue, and a color-mixed button would no longer match that visual weight */
 button.primary.save {
   background: #4b63c3;
   border-color: #4b63c3;
@@ -228,7 +228,7 @@ button.primary.save:hover:not(:disabled) {
   border-color: var(--line);
 }
 
-/* ---------- 页面卡片 ---------- */
+/* ---------- page card ---------- */
 
 .page {
   flex: 0 0 auto;
@@ -238,7 +238,7 @@ button.primary.save:hover:not(:disabled) {
   padding: 8px 10px;
 }
 
-/* 标题 + 元信息整体的点击区：看起来不是按钮，但整块可点 */
+/* Title + metadata form one click target: not styled as a button, yet the whole block is clickable */
 .page-toggle {
   display: block;
   width: 100%;
@@ -317,7 +317,7 @@ button.primary.save:hover:not(:disabled) {
   opacity: 0.75;
 }
 
-/* 「PDF N 页」这种小标签 */
+/* Small tag such as "PDF N pages" */
 .tag {
   padding: 0 5px;
   border-radius: 4px;
@@ -362,7 +362,7 @@ button.primary.save:hover:not(:disabled) {
   margin: 6px 0 0;
 }
 
-/* ---------- 对话列表 ---------- */
+/* ---------- conversation list ---------- */
 
 .list {
   flex: 1 1 auto;
@@ -372,22 +372,22 @@ button.primary.save:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  /* 底部留白：gap(12px) + 这里的 8px，保证最后一行不贴着输入区 */
+  /* Bottom breathing room: gap(12px) + 8px here keeps the last line off the composer */
   padding: 2px 2px 8px;
   scroll-padding-bottom: 12px;
   overscroll-behavior: contain;
 }
 
-/* 滚动锚点：零高度，只用来 scrollIntoView */
+/* Scroll anchor: zero height, exists only for scrollIntoView */
 .list-end {
   flex: 0 0 auto;
   height: 0;
 }
 
 /*
- * 关键：.list 是 flex 纵向容器，子项默认 flex-shrink:1。
- * 话一多，内容总高超过容器时子项会被压缩，而带 overflow 的表格/代码块
- * min-height 是 0 → 直接被裁掉一截，看起来像「滚到底了但底部显示不全」。
+ * Pitfall: .list is a column flex container, so its children default to flex-shrink: 1. Once the
+ * content outgrows the container they get squeezed; overflow tables/code blocks have min-height: 0,
+ * so a slice is clipped away — it looks like "scrolled to the bottom but the bottom is cut off".
  */
 .list > *,
 .msg > * {
@@ -424,15 +424,15 @@ button.primary.save:hover:not(:disabled) {
   gap: 6px;
 }
 
-/* 回答一侧（正文、错误、思考占位、折叠块）整体右移 --answer-inset，
-   只有按钮行不缩进 —— 于是图标左缘与正文左缘对齐，按钮盒子仍完整可见。 */
+/* The answer side (body, errors, thinking placeholder, collapsibles) shifts right by --answer-inset;
+   only the action row is exempt — so icon left edges align with the body while the button box stays whole. */
 .msg.assistant > .answer > *:not(.answer-actions),
 .turn > .round,
 .turn > .thinking {
   padding-left: var(--answer-inset);
 }
 
-/* 折叠块本身是带底色的卡片，用内边距缩进比外边距更自然（底色跟着缩） */
+/* The collapsible is a tinted card, so padding indents it more naturally than margin (the tint shrinks along) */
 .turn > .round {
   padding-left: calc(var(--answer-inset) + 10px);
 }
@@ -441,7 +441,7 @@ button.primary.save:hover:not(:disabled) {
   align-items: flex-end;
 }
 
-/* 发出后的用户气泡里，引用部分保持行内特殊样式 */
+/* In the sent user bubble the quoted part keeps its inline styling */
 .bubble-q {
   padding: 0 4px;
   margin: 0 1px;
@@ -457,7 +457,7 @@ button.primary.save:hover:not(:disabled) {
 
 .bubble {
   max-width: 88%;
-  /* 灰色底、无边框；圆角半径取单行时高度的一半（7+18+7=32 → 16），多行自然变成圆角矩形 */
+  /* Gray fill, no border; radius = 16px = half the single-line height (7+18+7), so multi-line is a rounded rect */
   background: var(--bubble);
   color: var(--bubble-fg);
   border: 0;
@@ -472,7 +472,7 @@ button.primary.save:hover:not(:disabled) {
   width: 100%;
 }
 
-/* ---------- 工具调用步骤 ---------- */
+/* ---------- tool call steps ---------- */
 
 .step {
   display: flex;
@@ -535,7 +535,7 @@ button.primary.save:hover:not(:disabled) {
   accent-color: var(--send);
 }
 
-/* 流式正文：最后约 5 行做竖直渐隐，新字从透明里浮出来；结束后 --fade-h 归零 */
+/* Streaming answer: the last ~5 lines fade out so new text emerges from transparency; --fade-h resets to 0 after */
 @property --fade-h {
   syntax: '<length>';
   inherits: false;
@@ -551,7 +551,7 @@ button.primary.save:hover:not(:disabled) {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade-h)), transparent 100%);
 }
 
-/* 清爽模式下正文出现前的占位：出现淡入、正文到达后淡出并塌陷 */
+/* Placeholder before answer text in clean mode: fades in, fades out and collapses once the text lands */
 .thinking {
   color: var(--muted);
   font-size: 13px;
@@ -570,17 +570,17 @@ button.primary.save:hover:not(:disabled) {
   from { opacity: 0; transform: translateY(-2px); }
   to { opacity: 1; transform: none; }
 }
-/* 回答底部的两个小方按钮（复制 / 重新生成） */
+/* The two small square buttons under an answer (copy / regenerate) */
 .answer-actions {
   display: flex;
   align-items: center;
   gap: 0;
-  /* 贴住正文：不留上间距；不用负边距（按钮 36 比图标大一圈，
-     负边距会把 hover 底色顶出容器被裁掉），让它自己往里缩进 */
+  /* Hugs the answer: no top margin, and no negative margin either (the 36px button is bigger than the
+     icon, so a negative margin would push its hover fill outside the container and get clipped) */
   margin: 0;
 }
 
-/* 详细模式下统计信息跟在按钮右侧：和按钮同一行，靠 gap 拉开一点距离 */
+/* Verbose-mode stats follow the buttons on the same line; a small margin keeps them apart */
 .answer-actions .meta.foot {
   margin: 0 0 0 8px;
   font-size: 11px;
@@ -598,7 +598,7 @@ button.primary.save:hover:not(:disabled) {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  /* 更淡：45% 前景色，浅色下约 #8f8f8f、深色下约 #6a6d70 */
+  /* Fainter: 45% of the foreground color, about #8f8f8f in light and #6a6d70 in dark */
   color: color-mix(in srgb, var(--fg) 45%, transparent);
   cursor: pointer;
 }
@@ -625,7 +625,7 @@ button.primary.save:hover:not(:disabled) {
   word-break: break-word;
 }
 
-/* 读历史/删会话失败：留在列表顶部，不替换当前对话 */
+/* History load / delete failure: pinned to the top of the list, never replaces the current conversation */
 .load-error {
   display: flex;
   align-items: flex-start;
@@ -650,7 +650,7 @@ button.primary.save:hover:not(:disabled) {
   color: var(--bad);
 }
 
-/* ---------- Markdown 正文 ---------- */
+/* ---------- Markdown body ---------- */
 
 .md {
   word-break: break-word;
@@ -757,25 +757,25 @@ button.primary.save:hover:not(:disabled) {
   background: color-mix(in srgb, var(--fg) 5%, transparent);
 }
 
-/* LaTeX 块级公式允许横向滚动，别撑破面板 */
+/* Let display LaTeX scroll horizontally instead of blowing out the panel */
 .md .katex-display {
   overflow-x: auto;
   overflow-y: hidden;
   padding: 2px 0;
 }
 
-/* ---------- 输入区 ---------- */
+/* ---------- composer ---------- */
 
 .composer {
   flex: 0 0 auto;
-  /* 列表的底边要正好落在输入框的顶边：抵掉 .app 的 8px gap，并且不要再留上内边距 */
+  /* The list must end exactly at the composer's top edge: cancel the .app 8px gap, add no top padding */
   margin-top: -8px;
   padding: 0 0 12px;
   background: var(--bg);
 }
 
-/* 圆角半径恒定（= 单行盒子半高）：单行时正好是胶囊，长高后同一半径看起来就是圆角矩形。
-   形状过渡只来自高度变化，半径不参与动画。 */
+/* The radius is constant (= half the single-line height): a pill while single-line, and the same radius
+   reads as a rounded rectangle once it grows. Only the height animates; the radius never does. */
 .box {
   position: relative;
   display: flex;
@@ -792,8 +792,8 @@ button.primary.save:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
 }
 
-/* 输入框本体是 contenteditable：引用 chip 与文字同一行内流动，
-   一个 chip 相当于一个字符（方向键整块跨过，退格一次删掉） */
+/* The input itself is contenteditable: quote chips flow inline with the text, and one chip counts as
+   a single character (arrow keys step over it whole, one Backspace deletes it) */
 .editor {
   flex: 1 1 auto;
   min-width: 0;
@@ -804,7 +804,7 @@ button.primary.save:hover:not(:disabled) {
   background: transparent;
   border: 0;
   outline: none;
-  /* 右侧给圆形按钮让位 */
+  /* Leave room on the right for the round send button */
   padding: 6px 38px 6px 0;
   overflow-y: hidden;
   white-space: pre-wrap;
@@ -817,8 +817,8 @@ button.primary.save:hover:not(:disabled) {
   pointer-events: none;
 }
 
-/* 输入框首行的网页选区提示：引用块样式（左侧竖线 + 淡底），
-   永远只占一行，长选区由 CSS 省略号截断，不把输入框撑高。 */
+/* Page selection hint on the composer's first line: quote-block styling (left rule + faint fill).
+   Always one line — a long selection is ellipsized by CSS and never stretches the composer. */
 .sel-hint {
   display: flex;
   align-items: center;
@@ -847,9 +847,9 @@ button.primary.save:hover:not(:disabled) {
   text-overflow: ellipsis;
 }
 
-/* 行内引用：整体不可编辑，看作一个字符 */
-/* 行内元素（不是 inline-block）：padding 只画背景、不撑高行盒，基线与正文对齐。
-   换行时背景在每行重复绘制，看起来仍是一整块。 */
+/* Inline quote: a single non-editable unit, counted as one character */
+/* Inline element (not inline-block): padding only paints the background and does not grow the line box,
+   so the baseline matches the body text. On wrap the background repeats per line and still reads whole. */
 .q-chip {
   display: inline;
   padding: 1px 4px;
@@ -867,8 +867,8 @@ button.primary.save:hover:not(:disabled) {
   opacity: 0.75;
 }
 
-/* 圆形发送/停止按钮：圆心落在圆角弧心上（胶囊=右端弧心，圆角矩形=右下角弧心）。
-   offset = 半径 24px − 按钮半径 15px − 外框边框 1px = 8px；盒子长高时它不动。 */
+/* Round send/stop button: its center sits on the corner arc's center (pill = right end, rect = bottom right).
+   offset = 24px radius − 15px button radius − 1px border = 8px; it stays put as the box grows. */
 .send {
   position: absolute;
   right: 8px;
@@ -903,7 +903,7 @@ button.primary.save:hover:not(:disabled) {
   background: var(--fg);
 }
 
-/* ---------- 对话历史 ---------- */
+/* ---------- conversation history ---------- */
 
 .convs {
   flex: 0 0 auto;
@@ -934,7 +934,7 @@ button.primary.save:hover:not(:disabled) {
   color: var(--fg);
 }
 
-/* hover 与选中（.on）同尺寸：给整行上色，而不是只给内部按钮上色 */
+/* Hover paints the same extent as selected (.on): color the whole row, not just the inner button */
 .conv:hover:not(.on) {
   background: color-mix(in srgb, var(--fg) 6%, transparent);
 }
@@ -961,7 +961,7 @@ button.primary.save:hover:not(:disabled) {
   opacity: 1;
 }
 
-/* 键盘 Tab 到整行时，行内删除按钮必须变可见；否则焦点落在一个 0 透明度的按钮上 */
+/* Tabbing to the row must reveal its delete button, or focus lands on a fully transparent button */
 .conv:focus-within .conv-del,
 .conv-del:focus-visible {
   opacity: 1;
@@ -988,7 +988,7 @@ button.primary.save:hover:not(:disabled) {
   color: var(--muted);
 }
 
-/* ---------- 设置面板 ---------- */
+/* ---------- settings panel ---------- */
 
 .settings {
   flex: 0 0 auto;
@@ -996,7 +996,7 @@ button.primary.save:hover:not(:disabled) {
   overflow-y: auto;
 }
 
-/* 「打开后端配置页」：整行可点，左侧竖线暗示这是另一个页面 */
+/* "Open the backend settings page": the whole row is clickable, and the left rule hints it leaves this page */
 .console-link {
   display: flex;
   flex-direction: column;
@@ -1048,8 +1048,8 @@ button.primary.save:hover:not(:disabled) {
   outline: none;
 }
 
-/* 原生 select 在 Windows 上不认背景/圆角，会显示成白底黑框；
-   关掉 appearance 后自己画一个 V 形箭头，才能跟上面的输入框一致。 */
+/* On Windows a native select ignores background/radius and renders white with a black frame; turning off
+   appearance and drawing the chevron ourselves is the only way to match the inputs above. */
 .field select {
   padding-right: 26px;
   appearance: none;
@@ -1080,9 +1080,9 @@ button.primary.save:hover:not(:disabled) {
   line-height: 1.5;
 }
 
-/* 选中回答文字后浮出的「引用」按钮
-   注意：用 button.quote-btn 提高特异性，否则全局 `button:hover:not(:disabled)`
-   （0,2,1）会盖过 `.quote-btn:hover`（0,2,0），把强调色背景换成半透明灰。 */
+/* The "quote" button that pops up once answer text is selected.
+   Note: button.quote-btn raises specificity; otherwise the global `button:hover:not(:disabled)`
+   (0,2,1) would beat `.quote-btn:hover` (0,2,0) and swap the accent fill for translucent gray. */
 button.quote-btn {
   position: fixed;
   transform: translate(-50%, -100%);
@@ -1115,7 +1115,7 @@ button.quote-btn:active {
   flex: 0 0 auto;
 }
 
-/* 展开三角：展开后转 90° 朝下 */
+/* Disclosure triangle: rotates 90° to point down when open */
 .icon.chevron {
   transition: transform 0.14s ease;
 }
@@ -1124,14 +1124,14 @@ button.quote-btn:active {
   transform: rotate(90deg);
 }
 
-/* 「引用」按钮只有一个引号，收窄一点保持胶囊形状 */
+/* The quote button holds a single quote mark, so narrow it slightly to keep the pill shape */
 button.quote-btn .icon {
   width: 15px;
   height: 15px;
 }
 
 
-/* ---------- 设置里的操作按钮：形状统一 + 留空隙 ---------- */
+/* ---------- settings action buttons: one shape, even spacing ---------- */
 
 .actions {
   display: flex;
@@ -1139,7 +1139,7 @@ button.quote-btn .icon {
   gap: 10px;
 }
 
-/* 三个按钮同高、同内边距、同圆角，只靠填充色区分主次 */
+/* All three buttons share height, padding and radius; only the fill separates primary from secondary */
 .actions button {
   min-height: 30px;
   padding: 0 14px;
@@ -1153,7 +1153,7 @@ button.quote-btn .icon {
   color: var(--fg);
 }
 
-/* 正文里的加粗与标题用纯黑（深色主题走 --md-strong） */
+/* Bold text and headings in the body go pure black (--md-strong handles dark theme) */
 .answer .md strong,
 .answer .md b,
 .answer .md h1,
@@ -1164,7 +1164,7 @@ button.quote-btn .icon {
 .answer .md h6 {
   color: var(--md-strong);
 }
-/* ---------- 一轮问答：思考 + 工具调用折叠块 ---------- */
+/* ---------- one turn: thinking + tool-call collapsible ---------- */
 
 .turn {
   display: flex;
@@ -1192,7 +1192,7 @@ button.quote-btn .icon {
   display: none;
 }
 
-/* 自己画一个小三角，展开时转 90° */
+/* Draw the little triangle ourselves; it rotates 90° when open */
 .round > summary::before {
   content: '';
   display: inline-block;
@@ -1227,8 +1227,8 @@ button.quote-btn .icon {
   padding: 2px 0;
 }
 
-/* ---------- 对话视图里的时间 ---------- */
-/* 间隔超过 3 小时：在提问上方插一行淡色时间（居中） */
+/* ---------- timestamps in the conversation view ---------- */
+/* Gap over 3 hours: insert a faint, centered time row above the question */
 .time-sep {
   align-self: center;
   margin: 6px 0 2px;
@@ -1237,30 +1237,30 @@ button.quote-btn .icon {
   user-select: none;
 }
 
-/* 其余提问：悬停时在气泡左侧淡入时间 */
+/* Other questions: fade the time in on the bubble's left edge on hover */
 .msg.user {
   position: relative;
 }
 
-/* 包住气泡，好让时间以「气泡」而不是「整行」为定位基准 */
+/* Wraps the bubble so the time is positioned against the bubble, not against the whole row */
 .bubble-wrap {
   position: relative;
   display: flex;
   justify-content: flex-end;
-  /* 收缩到气泡实际宽度，时间才能贴着气泡左缘（否则会飘到这一行预留宽度的左边） */
+  /* Shrink to the bubble's real width, or the time drifts to the left edge of the row's reserved width */
   width: fit-content;
   max-width: 88%;
   margin-left: auto;
 }
 
-/* 宽度上限移到外层：否则 88% 是相对 wrap 算的，wrap 永远比气泡宽一截 */
+/* The max width moved to the outer element: otherwise 88% resolves against the wrap, which stays wider */
 .bubble-wrap > .bubble {
   max-width: 100%;
 }
 
 .msg-time {
   position: absolute;
-  /* 贴住气泡左缘，竖直居中 */
+  /* Hugs the bubble's left edge, vertically centered */
   right: 100%;
   top: 50%;
   transform: translateY(-50%);
@@ -1279,7 +1279,7 @@ button.quote-btn .icon {
   opacity: 1;
 }
 
-/* 跟随系统「减少动态效果」：淡入、滚动与高亮都不要动画 */
+/* Honor prefers-reduced-motion: no animation for fades, scrolling or highlights */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -1291,7 +1291,7 @@ button.quote-btn .icon {
   }
 }
 
-/* 轻提示：复制失败等一次性反馈，不占布局、不打断当前对话 */
+/* Toast: one-shot feedback (failed copy, …); takes no layout space and never interrupts the conversation */
 .toast {
   position: fixed;
   left: 50%;

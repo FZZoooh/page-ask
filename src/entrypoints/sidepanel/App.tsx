@@ -50,7 +50,7 @@ import {
   serializeEditor,
 } from './editorDom';
 
-/** 输入框最大高度（超过就内部滚动），必须与 style.css 的 .editor max-height 一致 */
+/** Editor max height (beyond this it scrolls internally); must match .editor max-height in style.css */
 const MAX_BOX_H = 156;
 
 type PageState =
@@ -71,7 +71,7 @@ const SUGGESTION_KEYS: MessageKey[] = [
   'empty.suggestion.example',
 ];
 
-/** 后端能给出错误码时优先用本地文案，否则退回原始 message */
+/** Prefer local copy when the backend supplies an error code, else fall back to the raw message */
 function serverErrorText(
   code: string | undefined,
   params: Record<string, string | number> | undefined,
@@ -84,7 +84,7 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** 用户气泡里的 <q>…</q> 片段渲染成行内引用（其余按原样文字） */
+/** Render <q>…</q> fragments in user bubbles as inline quotes; everything else stays plain text */
 function renderUserText(content: string) {
   return content.split(/(<q>[\s\S]*?<\/q>)/g).map((part, i) =>
     part.startsWith('<q>') && part.endsWith('</q>') ? (
@@ -103,40 +103,40 @@ export default function App() {
 
   const [settings, setSettings] = useState<Settings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  /** 标题刚由后端生成时置真，跑一次从左往右淡入；加载历史对话不会触发 */
+  /** Set when the backend just generated the title: runs the left-to-right fade once, not on history loads */
   const [titlePulse, setTitlePulse] = useState(false);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
-  /** 读历史/切会话失败时挂在列表顶部的提示；不替换当前消息 */
+  /** Banner above the list when loading history / switching conversations fails; never replaces messages */
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
-  /** 输入框首行展示的网页选区（只做提示；发送时后端另有一份 selection 上下文） */
+  /** Page selection shown on the editor's first line (hint only; send carries its own selection context) */
   const [selectionHint, setSelectionHint] = useState('');
-  /** 选中回答文字时浮出的「引用」小按钮（视口坐标 + 选中的原文） */
+  /** Floating "Quote" button when answer text is selected (viewport coords + the selected source text) */
   const [quoteMenu, setQuoteMenu] = useState<{ left: number; top: number; text: string } | null>(null);
 
   const seq = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
-  /** 同步的「正在发送」闸门：busy 是 state，连点两下会在重渲染前都通过 */
+  /** Synchronous "sending" gate: busy is state, so a double click passes twice before the re-render */
   const sendingRef = useRef(false);
-  /** 每次 send 递增；晚到的 finally 不能清掉新一轮的 busy */
+  /** Bumped on every send; a late finally must not clear the next run's busy state */
   const runSeqRef = useRef(0);
-  /** 读 PDF 需要后端地址，但 load() 要稳定，所以走 ref 不进食依赖 */
+  /** PDF reads need the backend URL, but load() must stay stable, so keep it in a ref, not a dep */
   const backendRef = useRef<string>(DEFAULT_SETTINGS.backendUrl);
   const listRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
-  /** 编辑器内最后一次光标位置：去别处选文字会顶掉文档选区，插入引用时要能回到原位 */
+  /** Last caret inside the editor: selecting elsewhere replaces the document selection; restore this */
   const savedRange = useRef<Range | null>(null);
   const stickToBottom = useRef(true);
-  /** 异步回调里要判断“用户是否已经先发了消息”，读 ref 才能拿到最新值 */
+  /** Async callbacks must ask "did the user already send?", and only a ref holds the latest value */
   const messagesRef = useRef<Message[]>([]);
-  /** 会话加载序号：切页、连点历史时只认最后一次请求的结果 */
+  /** Conversation load sequence: on tab switches or rapid history clicks only the latest request wins */
   const loadSeqRef = useRef(0);
 
   const fillEditor = useCallback((text: string) => {
@@ -158,10 +158,10 @@ export default function App() {
   const page = pageState.kind === 'ready' ? pageState.page : null;
   const pageUrl = page?.url ?? null;
   const configured = isConfigured(settings);
-  /** 显示详细信息：关掉后只留正文，页面卡片/思考折叠块/统计都隐藏 */
+  /** Verbose mode: when off only answer text remains; page card, thinking block and stats all hide */
   const verbose = settings?.verbose !== false;
 
-  /* ---------------- 会话列表 ---------------- */
+  /* ---------------- Conversation list ---------------- */
 
   const refreshConversations = useCallback(
     async (url: string, s: Settings, commit = true) => {
@@ -177,15 +177,15 @@ export default function App() {
     [],
   );
 
-  /* ---------------- 页面读取 ---------------- */
+  /* ---------------- Page loading ---------------- */
 
   const load = useCallback(async () => {
     const mine = ++seq.current;
     setPageState({ kind: 'loading' });
     const result = await readActiveTab({ backendUrl: backendRef.current });
-    if (mine !== seq.current) return; // 有更新的一次读取，丢弃这次结果
+    if (mine !== seq.current) return; // a newer read started; drop this result
     if (result.ok) {
-      // 用去掉 #hash 的 URL 当会话键：同一篇文章的锚点不该分成两个对话
+      // Key conversations by URL without #hash: anchors of one article must not become two conversations
       setPageState({ kind: 'ready', page: { ...result.page, url: normalizeUrl(result.page.url) } });
     } else {
       setPageState({ kind: 'failed', failure: result });
@@ -209,11 +209,11 @@ export default function App() {
     };
   }, [load]);
 
-  /* ---------------- 网页选区提示 ---------------- */
+  /* ---------------- Page selection hint ---------------- */
 
-  // 页面选区没有可订阅的事件（内容脚本不在页面常驻），只能轻量轮询纯文本；
-  // 用户多半是「在页面上选完字、再点回面板」，所以重新获得焦点时也立刻补一次。
-  // PDF 跳过：内嵌查看器读不到 DOM，注入只会每秒失败一遍。
+  // There is no selection event to subscribe to (no persistent content script), so poll plain text lightly;
+  // users mostly select on the page then click back into the panel, so refresh once on focus as well.
+  // Skip PDFs: the embedded viewer exposes no DOM, so injection would just fail every second.
   useEffect(() => {
     if (pageState.kind !== 'ready' || pageState.page.kind === 'pdf' || !configured) {
       setSelectionHint('');
@@ -251,15 +251,15 @@ export default function App() {
     });
   }, []);
 
-  // 语言切换后同步 <html lang>，屏幕阅读器与拼写检查都看它
+  // Sync <html lang> on locale change: screen readers and spell check both rely on it
   useEffect(() => {
     document.documentElement.lang = getLocale();
   }, [settings]);
 
-  /* ---------------- 换页 → 换会话 ---------------- */
+  /* ---------------- Tab change → conversation change ---------------- */
 
   useEffect(() => {
-    // 页面切走时（哪怕新页面不可读）也要先中止旧 run，避免它继续把事件写进新页面
+    // Abort the old run on any tab switch, even to an unreadable page, so it can't write into the new one
     if (abortRef.current || sendingRef.current) {
       runSeqRef.current += 1;
       abortRef.current?.abort();
@@ -270,8 +270,8 @@ export default function App() {
 
     if (!pageUrl || !settings) return;
 
-    // 换页/换后端后，上一页的回答已经不属于当前画面。服务端会把已生成的部分按 aborted 落库，
-    // 但新页面绝不接收旧 run 的事件。
+    // After a tab/backend change the previous page's answer no longer belongs here. The server persists
+    // whatever was generated, flagged aborted, but the new page must never receive the old run's events.
     const mine = ++loadSeqRef.current;
     let cancelled = false;
     setConversationId(null);
@@ -285,14 +285,14 @@ export default function App() {
       if (cancelled || mine !== loadSeqRef.current) return;
       setConversations(list);
       if (!latest) return;
-      // 自动续上这一页最近的一次对话
+      // Auto-resume this page's most recent conversation
       try {
         const conv = await getConversation(settings, latest.id);
         if (cancelled || mine !== loadSeqRef.current) return;
-        // 两次网络往返期间用户可能已经发了新问题，不能再整体覆盖消息列表
+        // The user may have sent during those two round-trips; never overwrite the message list wholesale
         if (sendingRef.current || messagesRef.current.length > 0) return;
         let stored = conv.messages;
-        // 上次进程中途退出会留下“最后一条 user 没有回答”，把问题取回输入框并从历史里删掉
+        // A crash leaves a final user message unanswered: move it to the editor and drop it from history
         if (!editorHasDraft()) {
           const recovered = await recoverPendingQuestion(settings, conv.id).catch(() => null);
           if (cancelled || mine !== loadSeqRef.current) return;
@@ -314,16 +314,16 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-    // verbose 不进依赖：改显示偏好不该重载会话；只有换页或换后端才重新归属
+    // verbose is not a dep: toggling display must not reload the conversation; only tab/backend changes re-home
   }, [pageUrl, settings?.backendUrl, refreshConversations, fillEditor, editorHasDraft, page?.kind]);
 
-  /* ---------------- 滚动 ---------------- */
+  /* ---------------- Scrolling ---------------- */
 
   useEffect(() => {
     const el = listRef.current;
     if (!el || !stickToBottom.current) return;
-    // 直接写 scrollTop 在「内容随后又变高」时会差一截（表格/KaTeX/代码块重排），
-    // 用底部锚点 + 下一帧再校一次，保证真的贴到底。
+    // Setting scrollTop alone falls short when content grows afterwards (tables/KaTeX/code reflow), so
+    // pin to the bottom anchor and correct again on the next frame to actually reach the bottom.
     el.scrollTop = el.scrollHeight;
     const raf = requestAnimationFrame(() => {
       if (stickToBottom.current) bottomRef.current?.scrollIntoView({ block: 'end' });
@@ -331,7 +331,7 @@ export default function App() {
     return () => cancelAnimationFrame(raf);
   }, [messages]);
 
-  // 内容自己变高（图片加载、表格/公式重排）而用户还在底部时，跟着贴底
+  // Content grew on its own (images, table/math reflow) while the user is at the bottom: keep following it
   useEffect(() => {
     const el = listRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
@@ -355,17 +355,17 @@ export default function App() {
     const el = listRef.current;
     if (!el) return;
     stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-    // 滚动时选区位置已经变了，直接收起引用按钮
+    // Scrolling moves the selection rect, so just dismiss the quote button
     setQuoteMenu(null);
   };
 
-  /* ---------------- 选中回答 → 引用 ---------------- */
+  /* ---------------- Answer selection → quote ---------------- */
 
   useEffect(() => {
     const hide = () => setQuoteMenu(null);
 
     const onUp = (e: MouseEvent) => {
-      // 点在「引用」按钮自己身上时不要清掉，否则 click 之前菜单就没了
+      // Don't clear when the click lands on the quote button itself, or the menu dies before click fires
       const target = e.target as HTMLElement | null;
       if (target?.closest?.('.quote-btn')) return;
 
@@ -378,7 +378,7 @@ export default function App() {
       const range = sel.getRangeAt(0);
       const node = range.commonAncestorContainer;
       const el = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
-      // 只对「助手回答」里的文字生效（用户自己的气泡、步骤条不弹）
+      // Only for text inside an assistant answer (never user bubbles or step rows)
       if (!el?.closest('.answer')) {
         hide();
         return;
@@ -411,7 +411,7 @@ export default function App() {
 
   const serialize = useCallback(() => serializeEditor(editorRef.current), []);
 
-  /** 粘贴纯文本时用；换行由 Shift+Enter 的原生命令处理 */
+  /** Used for plain-text paste; line breaks are left to Shift+Enter's native command */
   const insertTextAtCaret = useCallback((text: string) => {
     const el = editorRef.current;
     if (!el) return;
@@ -419,7 +419,7 @@ export default function App() {
     setInput(serializeEditor(el));
   }, []);
 
-  /** 在光标处插入一个引用 chip：contenteditable=false，编辑时相当于一个字符 */
+  /** Insert a quote chip at the caret: contenteditable=false, so editing treats it as one character */
   const insertQuoteChip = (text: string) => {
     const el = editorRef.current;
     if (!el) return;
@@ -430,7 +430,7 @@ export default function App() {
       const cur = sel.getRangeAt(0);
       if (el.contains(cur.commonAncestorContainer)) range = cur;
     }
-    // 选区落在别处（选回答文字）时，回到上次在编辑器里的光标
+    // When the selection is elsewhere (answer text), go back to the last caret inside the editor
     const saved = savedRange.current;
     if (!range && saved && el.contains(saved.startContainer)) range = saved.cloneRange();
     if (!range) {
@@ -449,8 +449,8 @@ export default function App() {
 
     range.insertNode(chip);
 
-    // 光标落到 chip 之后。Chromium 能直接停在行内元素后面，不需要零宽占位符
-    // （零宽字符会多出一个方向键停靠点，导航时会「卡一下」）。
+    // Put the caret after the chip. Chromium can stop right after an inline element, no zero-width
+    // placeholder needed (it adds an extra arrow-key stop, so navigation seems to stick for a beat).
     const after = document.createRange();
     after.setStartAfter(chip);
     after.collapse(true);
@@ -461,7 +461,7 @@ export default function App() {
     setInput(serialize());
   };
 
-  /** 把选中的回答文字插成光标处的引用 chip */
+  /** Insert the selected answer text as a quote chip at the caret */
   const applyQuote = () => {
     if (!quoteMenu) return;
     const text = quoteMenu.text.trim();
@@ -471,7 +471,7 @@ export default function App() {
     requestAnimationFrame(() => insertQuoteChip(text));
   };
 
-  /* ---------------- 发送 ---------------- */
+  /* ---------------- Sending ---------------- */
 
   const canSend = configured && !busy && input.trim().length > 0;
 
@@ -490,8 +490,8 @@ export default function App() {
       savedRange.current = null;
       stickToBottom.current = true;
 
-      // 一次提问可能有多个 assistant 段（工具调用会被切成几段），
-      // targetId 指向「当前正在接收文字的那个气泡」；工具开始后置空，下一段文字再新建。
+      // One question can produce several assistant segments (tool calls split them), so targetId
+      // points at the bubble currently receiving text; it resets when a tool starts and recreates later.
       let targetId: string | null = crypto.randomUUID();
       const firstAsstId = targetId;
       setMessages((prev) => [
@@ -504,8 +504,8 @@ export default function App() {
       abortRef.current = controller;
       setBusy(true);
 
-      // 每来一个 token 就 setState 会让 Markdown/KaTeX 反复重排，
-      // 这里攒 50ms 再一次性刷进状态。
+      // setState per token makes Markdown/KaTeX reflow over and over, so buffer for 50ms and
+      // flush into state in one go.
       let contentBuf = '';
       let reasoningBuf = '';
       let timer: ReturnType<typeof setTimeout> | null = null;
@@ -526,7 +526,7 @@ export default function App() {
         if (timer) return;
         timer = setTimeout(flush, 50);
       };
-      /** 工具跑完再出文字时，开一个新的 assistant 气泡 */
+      /** Text after a tool finishes opens a new assistant bubble */
       const ensureTarget = () => {
         if (targetId) return;
         const id = crypto.randomUUID();
@@ -535,15 +535,15 @@ export default function App() {
       };
 
       let convId = conversationId;
-      /** 服务端用 done 结束一轮；没等到 done 就断流，不能当成功 */
+      /** The server ends a turn with done; a stream that closes without done is not a success */
       let sawDone = false;
-      /** 服务端已经发过 error：收尾时别再把它覆盖成笼统的“连接中断” */
+      /** The server already sent error: don't overwrite it with a generic "connection lost" at cleanup */
       let sawError = false;
 
-      // 先截一张当前可见画面：模型调用 screenshot 工具时才有得用，不调用就不发上游
-      // 截屏与选区读取都放在 try 里：任一失败也要走 finally 释放发送闸门
+      // Snapshot the visible area first: the screenshot tool needs it, and it never goes upstream otherwise.
+      // Both screenshot and selection reads sit in try, so a failure still reaches finally and frees the gate.
       try {
-        // 截屏与选区互不依赖，并行取，少一次串行等待
+        // Screenshot and selection are independent: fetch in parallel to save a serial round-trip
         const [shot, sel] = await Promise.all([captureScreenshot(page.url), readSelection()]);
         const selected = sel?.text || page.selection || '';
 
@@ -565,7 +565,7 @@ export default function App() {
           regenerate,
           signal: controller.signal,
         })) {
-          // 切页会 abort 并将 runSeq 递增；这里再兜一层，旧 run 的事件绝不写进新页面
+          // A tab switch aborts and bumps runSeq; this extra guard keeps old-run events out of the new page
           if (runSeqRef.current !== runId) break;
           if (ev.type === 'meta') {
             convId = ev.conversationId;
@@ -575,7 +575,7 @@ export default function App() {
             contentBuf += ev.delta;
             schedule();
           } else if (ev.type === 'replace') {
-            // 最终 output 与流式 delta 不一致：以最终文本为准整段替换，避免落库与界面分叉
+            // Final output differs from streamed deltas: replace with final text so DB and UI don't diverge
             ensureTarget();
             contentBuf = ev.text;
             schedule();
@@ -611,7 +611,7 @@ export default function App() {
                         toolState: 'done',
                         toolOk: ev.ok !== false,
                         toolChars: ev.chars,
-                        // 服务端的 label/detail 更准（比如「可见区域 638 字」）
+                        // The server's label/detail are more accurate (e.g. "638 chars in the viewport")
                         toolLabel: ev.label || m.toolLabel,
                         toolDetail: ev.detail || m.toolDetail,
                       }
@@ -622,7 +622,7 @@ export default function App() {
           } else if (ev.type === 'done') {
             sawDone = true;
             flush();
-            // 回答已经结束：立刻放开输入框，不必等服务端为自动标题多挂 20 秒连接
+            // Answer done: release the editor now instead of holding the connection ~20s for auto-title
             if (runSeqRef.current === runId) {
               sendingRef.current = false;
               setBusy(false);
@@ -659,25 +659,25 @@ export default function App() {
         }
         if (runSeqRef.current === runId && !sawDone && !sawError) {
           if (controller.signal.aborted) {
-            // 响应头还没到就被停止：streamChat 会静默返回，这里擦掉空气泡
+            // Stopped before headers arrived: streamChat returns silently, so wipe the empty bubble here
             setMessages((prev) =>
               prev
                 .filter((m) => m.id !== targetId || m.content || m.reasoning)
                 .map((m) => (m.streaming ? { ...m, streaming: false } : m)),
             );
           } else {
-            // 服务端没发 done 就关流：回答可能只写了一半，按错误收尾
+            // Stream closed without done: the answer may be half-written, so finish as an error
             throw new Error(t('error.streamCut'));
           }
         }
       } catch (err) {
         if (runSeqRef.current !== runId) return;
         flush();
-        // done 之后只剩自动标题/连接收尾；这时断流不影响已经完整收到的回答
+        // After done only auto-title/connection teardown remain; a cut there doesn't affect the full answer
         if (sawDone || sawError) return;
         const stopped = controller.signal.aborted;
         setMessages((prev) => {
-          // 还没产出任何文字就被停掉时，别留一个空气泡
+          // Stopped before any text was produced: don't leave an empty bubble behind
           const cleaned = prev.filter((m) => m.role !== 'tool' || m.toolState === 'done');
           const hasTarget = cleaned.some((m) => m.id === targetId);
           if (!hasTarget) {
@@ -697,7 +697,7 @@ export default function App() {
         });
       } finally {
         if (timer) clearTimeout(timer);
-        // 新一轮已经开始时，晚到的收尾不能把它的 busy/闸门清掉
+        // When a new run already started, a late cleanup must not clear its busy flag/gate
         if (runSeqRef.current === runId) {
           abortRef.current = null;
           sendingRef.current = false;
@@ -721,9 +721,9 @@ export default function App() {
   const stop = () => abortRef.current?.abort();
 
   /**
-   * 复制回答的 Markdown 原文；成功后按钮图标短暂变成对勾。
-   * 一轮里可能有多段正文（思考/工具调用把它切开），按钮只挂在最后一段上，
-   * 复制时按顺序把整轮所有正文拼起来。
+   * Copy the answer's raw Markdown; on success the icon briefly turns into a check.
+   * One turn can have several answer segments (reasoning/tool calls split them) and the button
+   * hangs on the last one only, so copy concatenates every segment in order.
    */
   const copyRound = useCallback((r: Round, anchorId: string) => {
     const text = r.answers
@@ -739,14 +739,14 @@ export default function App() {
       .catch(() => showToast(t('answer.copyFailed')));
   }, [showToast]);
 
-  /** 重新生成某一轮：本地删掉这一轮的回答，再带 regenerate 重跑同一个问题 */
+  /** Regenerate a turn: drop its answers locally, then rerun the same question with regenerate */
   const regenerateRound = useCallback(
     (r: Round) => {
-      // 先把 send 的所有前置条件查一遍，避免 UI 已截断、请求却没发出去
+      // Check every send precondition first, or the UI truncates while no request goes out
       if (busy || sendingRef.current || !settings || !isConfigured(settings) || !page) return;
       const question = r.user?.content ?? '';
       if (!question) return;
-      // 只保留这条 user 之前的消息
+      // Keep only the messages up to and including this user message
       const cutAt = r.user ? messages.findIndex((m) => m.id === r.user!.id) : messages.length;
       if (cutAt >= 0) setMessages((prev) => prev.slice(0, cutAt + 1));
       void send(question, { regenerate: true });
@@ -756,7 +756,7 @@ export default function App() {
 
   const newConversation = () => {
     if (busy) return;
-    loadSeqRef.current += 1; // 作废还在路上的历史加载，避免它把空会话又填满
+    loadSeqRef.current += 1; // invalidate in-flight history loads so they can't refill the empty conversation
     setConversationId(null);
     setMessages([]);
     setHistoryOpen(false);
@@ -794,7 +794,7 @@ export default function App() {
       stickToBottom.current = true;
     } catch (err) {
       if (mine !== loadSeqRef.current) return;
-      // 失败时保留当前对话，只在顶部挂一条提示；不能把消息列表替换成错误气泡
+      // On failure keep the conversation and only show a banner; never replace the list with an error bubble
       setLoadError(t('error.historyLoad', { message: errText(err) }));
     }
   };
@@ -811,18 +811,18 @@ export default function App() {
       }
       setLoadError(null);
     } catch (err) {
-      // 删除失败同样不动当前对话
+      // A failed delete likewise leaves the current conversation alone
       setLoadError(t('error.historyDelete', { message: errText(err) }));
     }
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    // isComposing: 中文输入法选词时按 Enter 不能当发送
+    // isComposing: Enter while an IME is composing candidates must not send
     if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
       e.preventDefault();
       if (e.shiftKey) {
-        // 用浏览器原生命令插换行：它会自己维护行尾占位 <br>，
-        // 首次按就能看到空行，方向键也不会被零宽字符卡住。
+        // Use the native command to insert a line break: it maintains the trailing placeholder <br>,
+        // so the first press already shows a blank line and arrow keys don't stick on zero-width chars.
         document.execCommand('insertLineBreak');
         setInput(serialize());
         return;
@@ -831,14 +831,14 @@ export default function App() {
     }
   };
 
-  /** 只收纯文本粘贴，避免把外部 HTML 带进编辑器 */
+  /** Accept plain-text paste only, so external HTML never enters the editor */
   const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
     const text = e.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
     insertTextAtCaret(text);
   };
 
-  /* ---------------- 杂项 ---------------- */
+  /* ---------------- Miscellaneous ---------------- */
 
   const handleCopy = async () => {
     if (!page) return;
@@ -847,8 +847,8 @@ export default function App() {
     setTimeout(() => setCopied(false), 1500);
   };
 
-  // 记住编辑器里的光标位置：用户会先点进输入框，再去上面选一段回答文字，
-  // 那次选择会顶掉文档选区，所以插入引用时要靠这个快照回到原位。
+  // Remember the caret inside the editor: the user clicks into the editor, then selects answer text
+  // above, and that selection replaces the document selection, so the snapshot restores the spot.
   useEffect(() => {
     const onSel = () => {
       const el = editorRef.current;
@@ -860,9 +860,9 @@ export default function App() {
     document.addEventListener('selectionchange', onSel);
     return () => document.removeEventListener('selectionchange', onSel);
   }, []);
-  // 输入框自增高。圆角半径固定（= 单行盒子半高），所以形状变化只来自高度；
-  // 高度用 JS 逐帧补间（CSS transition 在这里不可靠：量自然高度要先把 height 设成 auto，
-  // 而 auto 不是可插值值，浏览器会直接放弃过渡，看起来就是跳变）。
+  // Editor auto-grow. The corner radius is fixed (= half a single-line box), so only height changes shape;
+  // animate height frame by frame in JS (CSS transitions are unreliable here: measuring natural height
+  // needs height:auto first, and auto isn't interpolable, so browsers drop the transition and it jumps).
   useLayoutEffect(() => {
     const el = editorRef.current;
     if (!el) return;
@@ -891,19 +891,19 @@ export default function App() {
     return () => cancelAnimationFrame(raf);
   }, [input, pageState.kind]);
 
-  // 顶部左侧显示的对话标题：来自会话列表（自动起标题后 `title` 事件会就地更新它）
+  // Conversation title at top left, from the conversation list (the `title` event updates it in place)
   const currentTitle = useMemo(
     () => conversations.find((c) => c.id === conversationId)?.title ?? '',
     [conversations, conversationId],
   );
 
-  // 按轮次分组：每轮的思考 + 工具调用收进一个折叠块
+  // Group by turn: each turn's reasoning + tool calls collapse into one block
   const rounds = useMemo(() => buildRounds(messages), [messages]);
 
   return (
     <div className="app">
       <header className="hd">
-        {/* 顶部左侧：当前对话标题（首轮回答后由自动起标题写入，没生成前留空） */}
+        {/* Top left: current conversation title (auto-title writes it after the first answer; blank until then) */}
         <div className={`hd-title${titlePulse ? " in" : ""}`} title={currentTitle} onAnimationEnd={() => setTitlePulse(false)}>
           {currentTitle}
         </div>
@@ -961,7 +961,7 @@ export default function App() {
         />
       )}
 
-      {/* 页面卡片：默认只留一行，避免挤占对话空间；清爽模式下整块不渲染 */}
+      {/* Page card: one line by default so it doesn't crowd the conversation; not rendered in clean mode */}
       {pageState.kind === 'ready' && verbose && (
         <PageCard
           page={pageState.page}
@@ -980,7 +980,7 @@ export default function App() {
         </section>
       )}
 
-      {/* 对话区 */}
+      {/* Conversation area */}
       <div className="list" ref={listRef} onScroll={onScroll}>
         {loadError && (
           <div className="load-error" role="alert">
@@ -1022,12 +1022,12 @@ export default function App() {
         )}
 
         {rounds.map((r, roundIndex) => {
-          // 正文一开始输出就切回静态摘要（并收起），不必等整轮结束
+          // As soon as answer text starts, return to the static summary (and collapse) without waiting for the turn
           const active = r.running && !r.answered;
-          // 只有最后一轮能「重新生成」：后端是把最后一条 user 之后的内容砍掉重跑
+          // Only the last turn can regenerate: the backend truncates after the last user message and reruns
           const isLastRound = roundIndex === rounds.length - 1;
-          // 与上一轮的结束时刻隔了 3 小时以上 → 在这条提问上方插一行时间；
-          // 否则时间只在鼠标悬停时从气泡左侧淡入（不重复显示）
+          // More than 3h since the previous turn ended → insert a time row above this question;
+          // otherwise time only fades in at the bubble's left edge on hover (never shown twice).
           const userAt = r.user?.createdAt ?? null;
           const prevEnd = roundIndex > 0 ? roundEndAt(rounds[roundIndex - 1]!) : null;
           const showSep = userAt != null && (prevEnd == null || userAt - prevEnd > TIME_SEP_GAP_MS);
@@ -1037,7 +1037,7 @@ export default function App() {
               <>
                 {showSep && <div className="time-sep">{fmtTime(userAt)}</div>}
                 <div className="msg user">
-                  {/* 时间挂在气泡外层，跟着气泡左缘走（气泡宽度不同也不会飘到行首） */}
+                  {/* Time outside the bubble follows its left edge (no drift when bubble widths differ) */}
                   <div className="bubble-wrap">
                     {!showSep && userAt != null && <span className="msg-time">{fmtClock(userAt)}</span>}
                     <div className="bubble">{renderUserText(r.user.content)}</div>
@@ -1046,7 +1046,7 @@ export default function App() {
               </>
             )}
 
-            {/* 一轮里的「思考 + 工具调用」收进一个折叠块：流式时展开，答完自动收起 */}
+            {/* A turn's reasoning + tool calls collapse into one block: open while streaming, collapses on answer */}
             {verbose && (r.reasoning || r.steps.length > 0) && (
               <RoundPanel
                 key={r.key}
@@ -1083,11 +1083,11 @@ export default function App() {
               </RoundPanel>
             )}
 
-            {/* 清爽模式的占位：整轮只有一个，多轮工具调用也不会重复 */}
+            {/* Clean-mode placeholder: one per turn, so multiple tool calls never duplicate it */}
             {!verbose && r.running && <ThinkingFade show={active} />}
 
             {r.answers.map((m, ai) => {
-              // 一轮里可能被思考/工具调用切成多段正文：操作按钮只挂在最后一段上
+              // Reasoning/tool calls can split a turn into several answers; actions hang on the last segment only
               const isLastAnswer = ai === r.answers.length - 1;
               return (
               <div key={m.id} className="msg assistant">
@@ -1110,7 +1110,7 @@ export default function App() {
                       >
                         {copiedId === m.id ? <IconCheck /> : <IconCopy />}
                       </button>
-                      {/* 只有最后一轮能重生成：后端是把最后一条 user 之后的内容砍掉重跑 */}
+                      {/* Only the last turn can regenerate: backend truncates after the last user message */}
                       {isLastRound && (
                         <button
                           type="button"
@@ -1123,7 +1123,7 @@ export default function App() {
                           <IconReload />
                         </button>
                       )}
-                      {/* 详细模式：统计信息跟在按钮右边，同一行 */}
+                      {/* Verbose mode: stats follow the buttons on the right, same row */}
                       {verbose && (m.ms != null || m.tokensOut != null) && (
                         <span className="meta foot">
                           {m.ms != null && <span>{(m.ms / 1000).toFixed(1)}s</span>}
@@ -1141,18 +1141,18 @@ export default function App() {
           </div>
           );
         })}
-        {/* 滚动锚点：贴底时用它兜住「实际比预估更高」的情况（表格、KaTeX 重排） */}
+        {/* Scroll anchor: catches "taller than estimated" cases when pinned (table/KaTeX reflow) */}
         <div ref={bottomRef} className="list-end" />
       </div>
 
-      {/* 选中回答文字时浮出的「引用」按钮 */}
+      {/* Floating "Quote" button when answer text is selected */}
       {quoteMenu && (
         <button
           className="quote-btn"
           style={{ left: quoteMenu.left, top: quoteMenu.top }}
           title={t('quote.action.title')}
           aria-label={t('quote.action')}
-          // 用 mousedown 拦一下，保住选区，click 才拿得到
+          // preventDefault on mousedown keeps the selection alive so click still sees it
           onMouseDown={(e) => e.preventDefault()}
           onClick={applyQuote}
         >

@@ -1,9 +1,9 @@
 /**
- * 后端侧文案入口：默认 `zh-CN`，按 `?lang=` / `Accept-Language` 选字典。
+ * Backend-side message entry: `zh-CN` by default, dictionary chosen by `?lang=` / `Accept-Language`.
  *
- * 现有 `zh-CN` 与伪本地化 `en-XA`（只用于检查布局，不是真实语言）；接口按多语言设计：
- * 拿不到匹配语言时回退到默认，绝不抛错。
- * 前端扩展有自己的 `src/lib/i18n.ts`；这里只服务后端直出的内容（配置页、错误体）。
+ * Currently `zh-CN` plus the pseudo-localization `en-XA` (layout checks only, not a real language);
+ * multi-locale by design: an unmatched locale falls back to the default and never throws. The
+ * extension has its own `src/lib/i18n.ts`; this serves only backend-emitted content (settings page, errors).
  */
 import zhCN, { locale as zhCNLocale } from './zh-CN.mjs';
 import enUS, { locale as enUSLocale } from './en-US.mjs';
@@ -29,7 +29,7 @@ function normalizeTag(tag) {
 function lookup(tag) {
   if (!tag) return undefined;
   if (DICTS.has(tag)) return tag;
-  // 先做大小写归一，再接受同语种的宽泛匹配（zh、zh-Hans → zh-CN；en、en-GB → en-US）
+  // normalize case first, then accept a broad same-language match (zh, zh-Hans → zh-CN; en, en-GB → en-US)
   const normalized = normalizeTag(tag);
   if (DICTS.has(normalized)) return normalized;
   const base = String(tag).toLowerCase().split('-')[0];
@@ -39,7 +39,7 @@ function lookup(tag) {
   return undefined;
 }
 
-/** 解析 `Accept-Language`；按 q 值排序后取第一个有字典的语言。 */
+/** parse `Accept-Language`; sort by q value and take the first language that has a dictionary */
 export function negotiateLocale({ acceptLanguage = '', queryLang = '' } = {}) {
   const fromQuery = lookup(queryLang);
   if (fromQuery) return fromQuery;
@@ -62,12 +62,12 @@ export function negotiateLocale({ acceptLanguage = '', queryLang = '' } = {}) {
   return DEFAULT_LOCALE;
 }
 
-/** 取整份字典（配置页会把它原样嵌进页面给客户端脚本用）。 */
+/** the whole dictionary (the settings page embeds it verbatim into the page for the client script) */
 export function dictionary(locale = DEFAULT_LOCALE) {
   return DICTS.get(locale) ?? zhCN;
 }
 
-/** 替换 `{name}` 占位符；没有传入的值保持原样，避免显示成 undefined。 */
+/** replace `{name}` placeholders; a value not passed in stays as-is, so nothing renders as undefined */
 export function format(template, vars) {
   const text = String(template ?? '');
   if (!vars) return text;

@@ -1,56 +1,91 @@
 /**
- * 配置的唯一真源：`~/.config/pageask/settings.json`（Windows 上即 `C:\Users\<你>\.config\pageask\settings.json`）。
- * 目录不存在会自动创建（含 `.config` 这一层）。
+ * Single source of truth for config: `~/.config/pageask/settings.json` — on Windows
+ * `C:\Users\<you>\.config\pageask\settings.json`. The dir is auto-created (incl. `.config`).
  *
- * 早期配置全在环境变量里（DEEPSEEK_API_KEY / PAGEASK_MODEL / PAGEASK_BASE_URL），
- * 现在一律走文件 + 后端配置页（`/settings`），**不再读取这些环境变量**：
- * 只留 `PAGEASK_DATA_DIR`、`PAGEASK_PORT`、`PAGEASK_EXTENSION_ID` 决定「服务自己怎么起来」。
+ * **Everything is in this file and nothing is read from the environment**: model settings
+ * (baseUrl / model / apiKey / state) plus service settings (port / token / extensionId / dataDir).
+ * Config used to live in env vars, then split between env vars and this file; the split meant
+ * "I changed it but nothing happened" and made the tray and the backend disagree about the port,
+ * so the file is now the only source. Startup arguments cannot override it.
  *
- * 老位置（`<数据目录>/settings.json`）在启动时会被自动搬到新位置，搬成功后删掉旧文件。
+ * The old location (`<data dir>/settings.json`) is auto-migrated at startup; the old file is deleted after.
  */
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 
-/** 数据库、截图、日志还在数据目录里（和数据一起备份/清理更方便） */
-export const dataDir = resolve(process.env.PAGEASK_DATA_DIR ?? join(import.meta.dirname, 'data'));
+/** repo root: relative `dataDir` values and the default data dir hang off it, not off the cwd */
+const REPO_ROOT = resolve(import.meta.dirname, '..');
+/**
+ * Resolve `dataDir`: empty means `<repo>/server/data` (db, screenshots and logs stay together,
+ * easy to back up or wipe), `~` expands to the home dir, and relative paths resolve against the
+ * repo root so starting the backend from another cwd is safe.
+ */
+function resolveDataDir(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return join(import.meta.dirname, 'data');
+  const expanded = raw === '~' || raw.startsWith(`~${sep}`) ? join(homedir(), raw.slice(1)) : raw;
+  return resolve(REPO_ROOT, expanded);
+}
 
-/** 配置单独放在家目录的 XDG 风格路径下 */
+/** config lives separately, under an XDG-style path in the home directory */
 export const configDir = join(homedir(), '.config', 'pageask');
 export const settingsFile = join(configDir, 'settings.json');
-/** 旧位置：只在迁移时被读一次 */
+
+/** raw parse with no side effects: `dataDir` is needed before the file is normalized/created */
+function readRawSettings() {
+  try {
+    return JSON.parse(readFileSync(settingsFile, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+export const dataDir = resolveDataDir(readRawSettings()?.dataDir);
+/** old location: read once, only during migration */
 const legacySettingsFile = join(dataDir, 'settings.json');
 
 export const DEFAULTS = {
   baseUrl: 'https://api.deepseek.com',
   model: 'deepseek-flash',
   apiKey: '',
-  // 会话状态：
-  //   auto    —— 有锚点就试有状态（previous_response_id），上游不认则自动退回无状态
-  //   on      —— 强制有状态
-  //   off     —— 强制无状态（每轮重发完整历史，DeepSeek 这类实现只支持这个）
+  // conversation state:
+  //   auto    —— with an anchor, try stateful (previous_response_id); fall back if upstream says no
+  //   on      —— force stateful
+  //   off     —— force stateless (resend full history each turn; DeepSeek-like impls only do this)
   state: 'auto',
+  // service settings: bound at startup, so changing them needs a backend restart
+  port: 8787,
+  token: '',
+  extensionId: 'mmlkafokjmojbmebfofjaakibnmoikkm',
+  /** empty = `<repo>/server/data` */
+  dataDir: '',
 };
 
-/** 会话状态三档的合法值 */
+/** legal values for the three conversation-state modes */
 export const STATE_MODES = ['auto', 'on', 'off'];
 
-/** 文件里可能缺字段/带空白，统一收敛成可用形状 */
+/** the file may miss fields or carry whitespace; normalize it into a usable shape */
 function normalize(raw) {
   const baseUrl = String(raw?.baseUrl ?? DEFAULTS.baseUrl).trim().replace(/\/+$/, '') || DEFAULTS.baseUrl;
   const model = String(raw?.model ?? DEFAULTS.model).trim() || DEFAULTS.model;
   const apiKey = String(raw?.apiKey ?? '').trim();
   const rawState = String(raw?.state ?? DEFAULTS.state).trim().toLowerCase();
   const state = STATE_MODES.includes(rawState) ? rawState : DEFAULTS.state;
-  return { baseUrl, model, apiKey, state };
+  const port = Number(raw?.port ?? DEFAULTS.port);
+  const validPort = Number.isInteger(port) && port >= 1 && port <= 65535 ? port : DEFAULTS.port;
+  const token = String(raw?.token ?? '').trim();
+  const extensionId = String(raw?.extensionId ?? DEFAULTS.extensionId).trim() || DEFAULTS.extensionId;
+  const dataDirRaw = String(raw?.dataDir ?? DEFAULTS.dataDir).trim();
+  return { baseUrl, model, apiKey, state, port: validPort, token, extensionId, dataDir: dataDirRaw };
 }
 
 /**
- * 每次调用都重新读一遍文件：配置页保存后，下一个请求立刻生效，不需要重启后端。
- * 文件很小（几百字节），读失败的场景（还没保存过）由调用方兜底。
+ * Re-read the file on every call so a save on the settings page applies to the next request
+ * with no restart. The file is tiny (hundreds of bytes); callers cover "never saved yet".
  *
- * 刻意**不读任何环境变量**：Key / 地址 / 模型的唯一来源就是这个文件，
- * 免得「改了文件却没生效、其实是环境变量抢先」这类难查的问题。
+ * Deliberately **reads no environment variables**: the file is the sole source of everything,
+ * so "changed the file but nothing happened — an env var won" can't happen.
  */
 export function readSettings() {
   migrateLegacySettings();
@@ -60,11 +95,11 @@ export function readSettings() {
     text = readFileSync(settingsFile, 'utf8');
   } catch (err) {
     if (err?.code !== 'ENOENT') {
-      // 读不到（权限/占用）不是「没有配置」：绝不能拿默认值把它盖掉
+      // a read failure (permissions/busy) is not "no config": never paper over it with defaults
       console.error(`[pageask] failed to read config file; using defaults for this run: ${err?.message ?? err}`);
       return normalize({});
     }
-    // 还没有文件：先写一份默认的，用户才知道该改哪儿
+    // no file yet: write a default one first, so the user knows where to edit
     const initial = normalize({});
     try {
       writeSettings(initial);
@@ -76,16 +111,37 @@ export function readSettings() {
   }
 
   try {
-    return normalize(JSON.parse(text));
+    const raw = JSON.parse(text);
+    const settings = normalize(raw);
+    upgradeShape(raw, settings);
+    return settings;
   } catch (err) {
-    // 解析失败时先备份原文件再当默认值用：里面可能有用户的 Key，
-    // 直接覆盖等于让 Key 凭空消失（这正是旧实现的问题）。
+    // on a parse failure, back up the file before falling back to defaults: it may hold
+    // the user's key, and overwriting it would make the key vanish (the old bug).
     quarantineBroken(err);
     return normalize({});
   }
 }
 
-/** 把损坏的配置改名保留，绝不直接覆盖 */
+/**
+ * Older files only hold the model fields; write the service fields back once so they are
+ * visible and editable instead of staying invisible defaults. Runs at most once per process.
+ */
+let shapeChecked = false;
+function upgradeShape(raw, settings) {
+  if (shapeChecked) return;
+  shapeChecked = true;
+  const missing = Object.keys(DEFAULTS).filter((key) => !(key in (raw ?? {})));
+  if (!missing.length) return;
+  try {
+    writeSettings(settings);
+    console.log(`[pageask] config file gained new fields: ${missing.join(', ')}`);
+  } catch (err) {
+    console.error(`[pageask] could not add new fields to the config file: ${err?.message ?? err}`);
+  }
+}
+
+/** rename a corrupt config out of the way and keep it; never overwrite it */
 function quarantineBroken(err) {
   const target = `${settingsFile}.broken-${Date.now()}-${process.pid}`;
   try {
@@ -96,7 +152,7 @@ function quarantineBroken(err) {
   }
 }
 
-/** 合并式保存：patch 里没有的字段保持原样，`apiKey: ''` 表示「不动」，`clearApiKey: true` 才是清空 */
+/** merged save: fields missing from patch stay put, `apiKey: ''` means "leave it", `clearApiKey: true` clears */
 export function writeSettings(patch) {
   const current = readExisting();
   const next = normalize({
@@ -108,8 +164,12 @@ export function writeSettings(patch) {
         ? current.apiKey
         : patch.apiKey,
     state: patch.state ?? current.state,
+    port: patch.port ?? current.port,
+    token: patch.token ?? current.token,
+    extensionId: patch.extensionId ?? current.extensionId,
+    dataDir: patch.dataDir ?? current.dataDir,
   });
-  // 目录 0700、文件 0600：Key 明文躺在磁盘上，至少别让同机其他用户随手读到
+  // dir 0700, file 0600: the key sits in plaintext on disk — at least keep other users on the box out
   mkdirSync(configDir, { recursive: true, mode: 0o700 });
   const tmp = `${settingsFile}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
@@ -117,7 +177,7 @@ export function writeSettings(patch) {
   try {
     chmodSync(settingsFile, 0o600);
   } catch {
-    /* Windows 上 chmod 能力有限，失败不影响功能 */
+    /* chmod is limited on Windows; failure doesn't affect functionality */
   }
   return next;
 }
@@ -139,12 +199,12 @@ function readExisting() {
 }
 
 /**
- * 把老位置的 `settings.json` 搬到 `~/.config/pageask/`。
- * 先写新文件、成功后再删旧的：中途失败也不会让 Key 凭空消失。
+ * Move the legacy `settings.json` to `~/.config/pageask/`. Write the new file first,
+ * delete the old one only after that succeeds, so a mid-way failure never loses the key.
  */
 function migrateLegacySettings() {
   if (legacySettingsFile === settingsFile || !existsSync(legacySettingsFile)) return;
-  if (existsSync(settingsFile)) return; // 新位置已经有了，以它为准，不覆盖
+  if (existsSync(settingsFile)) return; // new location already exists; it wins, don't overwrite
   try {
     const raw = JSON.parse(readFileSync(legacySettingsFile, 'utf8'));
     const next = normalize(raw);
@@ -155,7 +215,7 @@ function migrateLegacySettings() {
     try {
       chmodSync(settingsFile, 0o600);
     } catch {
-      /* Windows 上 chmod 能力有限 */
+      /* chmod is limited on Windows */
     }
     unlinkSync(legacySettingsFile);
     console.log(`[pageask] migrated config: ${legacySettingsFile} -> ${settingsFile}`);
@@ -164,7 +224,7 @@ function migrateLegacySettings() {
   }
 }
 
-/** `sk-554…a1b2`：给页面显示用，永不把完整 Key 发回浏览器 */
+/** `sk-554…a1b2`: for display only — the full key never goes back to the browser */
 export function maskKey(key) {
   const k = String(key ?? '');
   if (!k) return '';
@@ -172,7 +232,7 @@ export function maskKey(key) {
   return `${k.slice(0, 6)}…${k.slice(-4)}`;
 }
 
-/** 给配置页的视图（不含明文 Key） */
+/** the view the settings page gets (no plaintext key) */
 export function publicSettings(s) {
   const cur = s ?? readSettings();
   return {

@@ -39,7 +39,7 @@ export const messages = {
   'webui.networkFailed': 'Could not reach the backend: {message}',
   'webui.healthUnavailable': 'Unavailable',
   'webui.healthTokenRequired':
-    'Access token (PAGEASK_TOKEN) required; status information is unavailable',
+    'Access token required (the token in settings.json); status information is unavailable',
   'webui.metaFile': 'Config file: ',
   'webui.metaProvider': 'Provider: ',
   'webui.metaModel': 'Model: ',

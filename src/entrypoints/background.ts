@@ -1,21 +1,21 @@
 import { t } from '@/lib/i18n';
 
 export default defineBackground(() => {
-  // 点工具栏图标 = 直接开侧栏。
+  // Clicking the toolbar icon opens the side panel directly.
   const enableActionToOpen = () => {
     browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err: unknown) => {
       console.warn('[pageask] setPanelBehavior failed', err);
     });
   };
 
-  // 右键菜单：在页面任意位置右键都能开侧栏。
-  // 菜单点击算用户手势，sidePanel.open 才被允许。
+  // Context menu: right-click anywhere on a page to open the side panel.
+  // A menu click counts as a user gesture, which is what makes sidePanel.open allowed.
   //
-  // 用 'all' 而不是 ['page','selection']：Edge 的内置 PDF 查看器是
-  // chrome-extension://mhjfb... 的嵌入 frame，只声明 page/selection 时
-  // 菜单项不会出现在 PDF 上；'all' 才行（WeTab 这类扩展也是这么做的）。
+  // Use 'all', not ['page','selection']: Edge's built-in PDF viewer is an embedded frame at
+  // chrome-extension://mhjfb...; with only page/selection declared the item never shows on
+  // PDFs. 'all' fixes that (extensions like WeTab do the same).
   const ensureMenu = () => {
-    // 先 removeAll 再 create：扩展重载后重复 id 不会留下未捕获的 rejection
+    // removeAll, then create: on an extension reload a duplicate id would otherwise leave an uncaught rejection
     void browser.contextMenus
       .removeAll()
       .then(() =>
@@ -38,15 +38,15 @@ export default defineBackground(() => {
 
   browser.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId !== 'ask-page') return;
-    // ⚠️ 这里不能先 await：sidePanel.open 必须紧贴事件同步调用，
-    // 中间插一个 await（哪怕是 getLastFocused）手势就没了。
-    // PDF 查看器里 contextMenus 给的 tab.id 是 -1、也没有可用 windowId，
-    // 所以直接用常量 WINDOW_ID_CURRENT（-2），不需要任何异步调用就能拿到窗口。
+    // ⚠️ Do not await first: sidePanel.open must be called synchronously inside the event —
+    // insert one await (even getLastFocused) and the gesture is gone.
+    // In the PDF viewer contextMenus reports tab.id = -1 and no usable windowId, so pass the
+    // constant WINDOW_ID_CURRENT (-2); no async call is needed to resolve the window.
     const remember = (msg: string) => {
       void browser.storage.local.set({ lastPanelOpen: msg }).catch(() => {});
     };
     const where = `tabId=${tab?.id} windowId=${tab?.windowId} url=${tab?.url ?? info.pageUrl ?? '?'}`;
-    // 同步决定参数后只调用一次：catch 里再重试已经跨了 microtask，手势通常已失效。
+    // Pick target synchronously, call once: retrying in catch crosses a microtask and the gesture is usually gone.
     const target =
       typeof tab?.id === 'number' && tab.id > 0
         ? { tabId: tab.id }

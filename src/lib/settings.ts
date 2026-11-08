@@ -1,14 +1,14 @@
-/** 扩展自己的设置：现在只关心「后端地址」和显示偏好；模型与 Key 都在后端的 settings.json 里。 */
+/** Extension settings: backend URL and display prefs only; model + key live in the backend's settings.json. */
 import type { LocalePreference } from './i18n';
 
 export interface Settings {
-  /** 本地后端地址，例如 http://127.0.0.1:8787 */
+  /** Local backend address, e.g. http://127.0.0.1:8787 */
   backendUrl: string;
-  /** 显示详细信息：页面卡片、思考/工具折叠块、回答末尾的统计。关掉就是清爽模式 */
+  /** Show detail: page card, reasoning/tool folds, stats under the answer. Off = clean mode */
   verbose: boolean;
-  /** 后端设了 PAGEASK_TOKEN 时，浏览器端要带同一个令牌；后端没设就留空 */
+  /** Set when the backend's settings.json has a token: send the same token; leave blank when it has none */
   token: string;
-  /** 界面语言；auto 跟随浏览器，其余强制指定 */
+  /** UI language; auto follows the browser, anything else is forced */
   locale: LocalePreference;
 }
 
@@ -20,9 +20,9 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 const KEY = 'pageask.settings.v2';
-const LEGACY_KEY = 'pageask.settings.v1'; // P1 的 {baseUrl, model, apiKey}，只用来迁移
+const LEGACY_KEY = 'pageask.settings.v1'; // P1's {baseUrl, model, apiKey}; read for migration only
 
-/** 只认已知字段：老版本存下的 model 之类残渣不往状态里带 */
+/** Known fields only: leftovers such as the old model key never reach state */
 function pick(raw: Partial<Settings> | undefined): Settings {
   return {
     backendUrl: raw?.backendUrl?.trim() || DEFAULT_SETTINGS.backendUrl,
@@ -37,7 +37,7 @@ export async function loadSettings(): Promise<Settings> {
   const current = stored[KEY] as Partial<Settings> | undefined;
   if (current) return pick(current);
 
-  // 从 P1 的配置迁移：地址保留，模型和 Key 都交给后端
+  // Migrate from P1: keep the URL, hand model and key to the backend
   const legacy = stored[LEGACY_KEY] as { baseUrl?: string } | undefined;
   if (legacy) {
     const migrated: Settings = { ...DEFAULT_SETTINGS, backendUrl: legacy.baseUrl?.trim() || DEFAULT_SETTINGS.backendUrl };
@@ -66,7 +66,7 @@ export function baseUrl(s: Settings): string {
   const raw = s.backendUrl.trim();
   try {
     const u = new URL(raw);
-    // 后端地址只取 origin + pathname：`?a=1` 拼上 `/chat` 会变成 `?a=1/chat`，打到根路径
+    // Keep origin + pathname only: `?a=1` plus `/chat` would read as `?a=1/chat` and hit the root path
     u.search = '';
     u.hash = '';
     return u.toString().replace(/\/+$/, '');
@@ -75,7 +75,7 @@ export function baseUrl(s: Settings): string {
   }
 }
 
-/** 去掉 #hash 与纯追踪参数：同一篇文章的锚点/utm 不该算成两个会话 */
+/** Drop #hash and pure tracking params: an anchor or utm on the same article is not a second conversation */
 const TRACKING_PARAMS = new Set([
   'utm_source',
   'utm_medium',

@@ -1,12 +1,12 @@
 /**
- * 面向用户的错误码。
+ * User-facing error codes.
  *
- * 约定：HTTP 错误体与 SSE 的 `error` 事件都带 `code`（以及可选的 `params`），
- * 前端用 `t('error.' + code)` 渲染本地文案；`error` / `message` 字段只是给
- * curl、日志和「未知 code」兜底的中文，不保证会展示给用户。
+ * Contract: HTTP error bodies and the SSE `error` event both carry `code` (+ optional `params`);
+ * the front end renders localized text with `t('error.' + code)`, while `error` / `message`
+ * are only a Chinese fallback for curl, logs and unknown codes — not guaranteed to reach the user.
  *
- * 文案在 `server/i18n/zh-CN.mjs` 的 `error.*` 里；加新 code 时三处一起改：
- * 本文件、`src/lib/i18n.ts` 的 `error.*`、以及 `docs/` 或提交说明里的契约描述。
+ * Text is under `error.*` in `server/i18n/zh-CN.mjs`; when adding a code, change three
+ * places together: this file, `error.*` in `src/lib/i18n.ts`, and the contract in `docs/`/commit.
  */
 import { has, t } from './i18n/index.mjs';
 
@@ -20,12 +20,12 @@ const UPSTREAM_CODES = {
   504: 'upstream.timeout',
 };
 
-/** 把上游 HTTP 状态映射成稳定 code；未知状态统一 `upstream.status`（带 status 参数）。 */
+/** map an upstream HTTP status to a stable code; unknown ones become `upstream.status` (+ status param) */
 export function upstreamErrorCode(status) {
   return UPSTREAM_CODES[status] ?? 'upstream.status';
 }
 
-/** PdfError 的旧下划线 code → 面向用户的点分 code。 */
+/** PdfError's legacy underscore codes → the user-facing dotted codes */
 export function normalizePdfCode(code) {
   return (
     {
@@ -40,8 +40,8 @@ export function normalizePdfCode(code) {
 }
 
 /**
- * 组装错误体：`error` 是给人看的 fallback，`code`/`params` 才是协议。
- * params 里不要放整句或敏感的本地路径。
+ * Build the error body: `error` is a human-readable fallback, `code`/`params` are the protocol.
+ * Never put whole sentences or sensitive local paths in params.
  */
 export function errorPayload(code, params = undefined, message = undefined) {
   const key = `error.${code}`;

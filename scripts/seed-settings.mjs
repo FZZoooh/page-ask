@@ -1,13 +1,15 @@
-// 通过 CDP 把扩展设置写进 storage.local。
+// Write extension settings into storage.local over CDP.
 //
-// 只写「后端地址」这类扩展偏好：API Key 属于后端，真源是
-// ~/.config/pageask/settings.json，绝不能落到浏览器 storage 里。
+// Only extension preferences such as the backend URL belong here: the API key is the backend's,
+// its source of truth is ~/.config/pageask/settings.json, and it must never reach browser storage.
 //
-// 用法: node scripts/seed-settings.mjs [debugPort]
-const port = process.argv[2] ?? '9358';
+// Usage: node scripts/seed-settings.mjs [debugPort]
+import { readSettings } from '../server/settings.mjs';
 
+const port = process.argv[2] ?? '9358';
+// The backend port comes from settings.json, so the seeded extension points at the real backend
 const settings = {
-  backendUrl: process.env.PAGEASK_BACKEND_URL ?? 'http://127.0.0.1:8787',
+  backendUrl: `http://127.0.0.1:${readSettings().port}`,
   verbose: true,
 };
 
@@ -40,7 +42,7 @@ await new Promise((resolve, reject) => {
   ws.onerror = reject;
 });
 
-// 顺手清掉旧版脚本写进去的 v1（里面可能带明文 Key）
+// Also drop the v1 key written by older scripts (it may still hold a plaintext key)
 const expr = `(async () => {
   await chrome.storage.local.remove('pageask.settings.v1');
   await chrome.storage.local.set({ 'pageask.settings.v2': ${JSON.stringify(settings)} });

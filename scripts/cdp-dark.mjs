@@ -1,6 +1,6 @@
-// 把匹配目标切到指定配色偏好，执行一段 JS，可选地截图（都发生在同一个 CDP 会话里，
-// 因为 Emulation.setEmulatedMedia 的作用域就是会话，会话一断就被清掉）。
-// 用法: node scripts/cdp-dark.mjs <端口> <URL 子串> <表达式> [截图路径] [light|dark]
+// Switch the matching target to a given color-scheme preference, evaluate JS, optionally screenshot (all in
+// one CDP session, because Emulation.setEmulatedMedia is session-scoped and is cleared when the session drops).
+// Usage: node scripts/cdp-dark.mjs <port> <URL substring> <expression> [screenshot path] [light|dark]
 const [port = '9222', match = '', expr = '1+1', shotPath = '', scheme = 'dark'] = process.argv.slice(2);
 
 const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();

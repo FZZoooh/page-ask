@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   verify:
-    # 产品只面向 Windows，回归脚本也依赖 USERPROFILE，所以直接在 Windows 上跑
+    # The product targets Windows only and the regression scripts depend on USERPROFILE, so run on Windows directly
     runs-on: windows-latest
     timeout-minutes: 20
     steps:

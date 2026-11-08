@@ -2,7 +2,7 @@ import Defuddle from 'defuddle';
 import { t } from '@/lib/i18n';
 import { looksLikePdfUrl, PdfReadError, readPdfFromTab } from '@/lib/pdf';
 
-/** 从目标标签页原样带回来的东西 */
+/** Whatever comes back from the target tab, untouched */
 export interface RawPage {
   url: string;
   title: string;
@@ -11,7 +11,7 @@ export interface RawPage {
   viewport: ViewportSnapshot;
 }
 
-/** 当前可见区域（用户此刻屏幕上看到的那一屏） */
+/** What is on screen right now (the screenful the user is looking at) */
 export interface ViewportSnapshot {
   scrollY: number;
   height: number;
@@ -19,7 +19,7 @@ export interface ViewportSnapshot {
   text: string;
 }
 
-/** 解析后的正文 */
+/** Parsed page text */
 export interface ExtractedPage {
   url: string;
   title: string;
@@ -29,9 +29,9 @@ export interface ExtractedPage {
   selection: string;
   viewport: ViewportSnapshot;
   tookMs: number;
-  /** pdf = 正文来自 PDF 文本层（此时没有 DOM、没有滚动位置） */
+  /** pdf = text came from the PDF text layer (no DOM, no scroll position then) */
   kind?: 'web' | 'pdf';
-  /** PDF 的页数 */
+  /** PDF page count */
   pages?: number;
 }
 
@@ -46,10 +46,10 @@ export interface ReadFailure {
 export type ReadResult = { ok: true; page: ExtractedPage } | ({ ok: false } & ReadFailure);
 
 /**
- * 在目标标签页中执行。
+ * Runs inside the target tab.
  *
- * ⚠️ 这个函数会被 `scripting.executeScript({ func })` 序列化后注入页面，
- * 因此必须完全自包含：不 import、不引用模块作用域里的任何变量。
+ * ⚠️ `scripting.executeScript({ func })` serializes this function and injects it into the page,
+ * so it must be fully self-contained: no imports, no references to anything in module scope.
  */
 export function grabPage() {
   const DROP = 'script,style,noscript,iframe,svg,canvas,video,audio,object,embed';
@@ -60,10 +60,10 @@ export function grabPage() {
   try {
     selection = (window.getSelection()?.toString() ?? '').slice(0, 20000);
   } catch {
-    /* 某些页面禁用 selection，忽略 */
+    /* some pages block selection; ignore */
   }
 
-  // 当前可见区域的文字：只取「直接装有文字」的块，避免父子重复
+  // Text in the visible area: only blocks that directly hold text, so parents do not repeat children
   let visible = '';
   try {
     const vh = window.innerHeight || 0;
@@ -90,7 +90,7 @@ export function grabPage() {
     }
     visible = out.join('\n').slice(0, 20000);
   } catch {
-    /* 拿不到就算了，read_page 还能读全文 */
+    /* if that fails, never mind: read_page can still read the full text */
   }
 
   return {
@@ -112,7 +112,7 @@ function htmlToText(html: string): string {
   return (doc.body?.textContent ?? '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-/** 纯函数：给定原始 HTML，产出可喂给模型的 Markdown。 */
+/** Pure function: raw HTML in, Markdown the model can be fed out. */
 export function extract(raw: RawPage): ExtractedPage {
   const started = performance.now();
   const doc = new DOMParser().parseFromString(raw.html, 'text/html');
@@ -173,8 +173,8 @@ function isRestrictedUrl(url?: string): boolean {
 
 function classify(message: string, url?: string): ReadFailureReason {
   if (isRestrictedUrl(url)) return 'restricted';
-  // 内部页面（新建标签页、edge:// 各处、扩展商店）有时拿不到 tab.url，
-  // 只能靠浏览器自己的报错文案判断。
+  // Internal pages (new tab, edge:// pages, extension stores) sometimes have no tab.url,
+  // so the browser's own error wording is the only signal.
   if (/extensions gallery|cannot be scripted|cannot access (a )?(chrome|edge):|cannot access a chrome/i.test(message)) {
     return 'restricted';
   }
@@ -189,7 +189,7 @@ function errMsg(err: unknown): string {
   return String(err);
 }
 
-/** 读取「当前窗口的当前标签页」，提取正文。 */
+/** Read the current tab of the current window and extract its text. */
 export async function readActiveTab(opts: { backendUrl?: string } = {}): Promise<ReadResult> {
   let tabs: Array<{ id?: number; url?: string; title?: string }>;
   try {
@@ -212,8 +212,8 @@ export async function readActiveTab(opts: { backendUrl?: string } = {}): Promise
     };
   }
 
-  // PDF 走另一条路：浏览器内嵌查看器读不到 DOM，只能取字节交给后端解析。
-  // 有些站点（如 arxiv 的 /pdf/2401.12345）URL 没有 .pdf，此时用标签页标题兜底。
+  // PDFs take another path: the built-in viewer exposes no DOM, so the bytes go to the backend.
+  // Some sites (e.g. arxiv's /pdf/2401.12345) have no .pdf in the URL, so fall back to the tab title.
   const pdfByTitle = /\.pdf\s*$/i.test((tab.title ?? '').trim());
   if ((looksLikePdfUrl(tab.url) || pdfByTitle) && tab.url) {
     return readPdfTab(tab.url, tab.title, opts.backendUrl);
@@ -243,22 +243,22 @@ export async function readActiveTab(opts: { backendUrl?: string } = {}): Promise
 }
 
 /**
- * 「用户此刻选中的文字」+ 它所在的那一段。
- * 面板是在页面加载/切标签时读正文的，用户通常是「先选中、再提问」，
- * 所以发消息前再取一次，比用缓存里的 selection 准。
+ * "The text the user has selected right now" + the paragraph it sits in.
+ * The panel reads page text on load and on tab switch, but users usually select first and
+ * then ask, so re-reading just before send beats the cached selection.
  *
- * 只发选中几个字时，模型常常判断不了语气/指代（「它」「这种做法」指的是什么），
- * 所以顺带把它所在的块级容器（p/li/td/…）一起带上，并用 start/end 标出选中位置。
- * PDF 页注入不进去，返回 null。
+ * Given only a few selected characters the model often cannot tell tone or what a pronoun means
+ * ("it", "this approach"), so we also send the block container (p/li/td/…) it sits in and mark
+ * the selection with start/end. PDF tabs cannot be injected into; returns null.
  */
 export interface SelectionInfo {
-  /** 选中的原文（空白已规范化） */
+  /** The selected text as-is (whitespace normalized) */
   text: string;
-  /** 选区所在块级容器的文字，过长时截成选中处前后的窗口 */
+  /** Text of the block container around the selection; long blocks are cut to a window around it */
   context: string;
-  /** 选中部分在 context 里的起点 */
+  /** Where the selection starts inside context */
   start: number;
-  /** 选中部分在 context 里的终点（不含） */
+  /** Where the selection ends inside context (exclusive) */
   end: number;
 }
 
@@ -282,14 +282,14 @@ export async function readSelection(): Promise<SelectionInfo | null> {
           node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
         if (!el) return { text, context: text, start: 0, end: text.length };
 
-        // 最贴近选区的块级容器：没有就直接用所在元素
+        // Closest block container to the selection; fall back to the element itself
         const block =
           el.closest('p,li,td,th,dd,dt,blockquote,pre,h1,h2,h3,h4,h5,h6,figcaption') ?? el;
         const full = norm(block.textContent ?? '');
 
         const at = full.indexOf(text);
         if (at < 0) {
-          // 跨块选区，或原文里空白被规范化过，退化成「只有选区」
+          // Selection spans several blocks, or whitespace was normalized: degrade to "selection only"
           return { text, context: text, start: 0, end: text.length };
         }
 
@@ -317,10 +317,10 @@ export async function readSelection(): Promise<SelectionInfo | null> {
 }
 
 /**
- * 只读当前选区的纯文本，供输入框首行的选区提示使用。
+ * Read only the selected text, for the selection hint on the composer's first line.
  *
- * 和 readSelection() 分开：那边要顺带读整段容器的 textContent 给模型判断指代，
- * 这里会被面板每秒轮询一次，不能顺手把一大段容器文字也序列化一遍。
+ * Separate from readSelection(): that one also reads the whole container's textContent so the model
+ * can resolve references; this one is polled once a second and must not serialize a screenful too.
  */
 export async function readSelectionText(): Promise<string> {
   try {
@@ -341,7 +341,7 @@ export async function readSelectionText(): Promise<string> {
   }
 }
 
-/** PDF 标签页：取字节 → 后端抽文本 → 当成一页 markdown */async function readPdfTab(url: string, title: string | undefined, backendUrl?: string): Promise<ReadResult> {
+/** PDF tab: fetch bytes → backend extracts text → one page of markdown */async function readPdfTab(url: string, title: string | undefined, backendUrl?: string): Promise<ReadResult> {
   const started = performance.now();
   if (!backendUrl) {
     return { ok: false, reason: 'unknown', message: t('page.failure.pdfNeedBackend'), url };
@@ -355,7 +355,7 @@ export async function readSelectionText(): Promise<string> {
     } catch {
       site = '';
     }
-    // 浏览器给 PDF 标签页的 title 常常是被剥掉扩展名的 URL，这里优先用文件名
+    // The browser titles a PDF tab with the URL minus its extension, so prefer the file name
     let fileName = '';
     try {
       const last = new URL(url).pathname.split('/').filter(Boolean).pop();
@@ -384,17 +384,17 @@ export async function readSelectionText(): Promise<string> {
   }
 }
 
-/** 粗略 token 估算：中文约 1 字 ≈ 1 token，纯英文 ≈ 4 字符 / token，混合取 0.6 */
+/** Rough token estimate: Chinese ≈ 1 token/char, plain English ≈ 4 chars/token, mixed ≈ 0.6 */
 export function estimateTokens(chars: number): number {
   return Math.round(chars * 0.6);
 }
 
 /**
- * 截当前活动标签页的可见区域，缩到 maxWidth 以内并转成 JPEG data URL。
- * 失败（无权限、浏览器内部页面、canvas 不可用）返回 null，不影响主流程。
+ * Grab the visible area of the active tab, scale it under maxWidth and turn it into a JPEG data URL.
+ * Failures (no permission, browser-internal page, canvas unavailable) return null; the flow goes on.
  *
- * expectedUrl：发起提问时那一页的 URL。captureVisibleTab 只能截“聚焦窗口的活动标签”，
- * 发送瞬间切页/切窗口会截到别的页面，所以先核对 URL，不一致就放弃这张图。
+ * expectedUrl: the URL of the page the question came from. captureVisibleTab only captures the
+ * active tab of the focused window, so switching tab/window at send time grabs a different page.
  */
 export async function captureScreenshot(
   expectedUrl?: string,
@@ -408,7 +408,7 @@ export async function captureScreenshot(
     const raw = await browser.tabs.captureVisibleTab(tab?.windowId, { format: 'jpeg', quality: 80 });
     if (!raw) return null;
 
-    // 截图是异步的：拍完再看一眼当前活动页，期间切了标签就丢掉这张，别把 A 页发给 B 页的提问
+    // captureVisibleTab is async: re-check the active tab so page A's shot never goes out with page B's question
     const [after] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
     if (tab?.id != null && after?.id !== tab.id) return null;
     if (expectedUrl && stripHash(after?.url) !== stripHash(expectedUrl)) return null;

@@ -6,20 +6,20 @@ export interface Message {
   role: 'user' | 'assistant' | 'tool';
   content: string;
   reasoning?: string;
-  /** 正在流式接收 */
+  /** Currently streaming in */
   streaming?: boolean;
-  /** 服务端标记：本轮被中止或上游截断（回答可能不完整） */
+  /** Server flag: this turn was aborted or the upstream truncated (the answer may be incomplete) */
   aborted?: boolean;
   error?: string;
   ms?: number;
-  /** 本轮「思考 + 工具调用」阶段耗时（毫秒），只有最终那段回答带 */
+  /** Think + tool phase duration (ms) for this turn; only the final answer segment carries it */
   processMs?: number;
-  /** 入库时间，用来给没有 processMs 的老数据估算阶段耗时 */
+  /** Persist time, used to estimate the phase duration for old rows without processMs */
   createdAt?: number;
   tokensIn?: number | null;
   tokensOut?: number | null;
   usage?: Usage;
-  /** role === 'tool'：一次工具调用的过程 */
+  /** role === 'tool': one tool invocation's progress */
   toolName?: string;
   toolLabel?: string;
   toolDetail?: string;
@@ -29,29 +29,29 @@ export interface Message {
   toolChars?: number;
 }
 
-/** 渲染用：一轮问答 = 用户消息 + 该轮的思考与工具调用 + 最终回答 */
+/** Render model: one turn = user message + its reasoning and tool calls + final answer */
 export interface Round {
   key: string;
   user: Message | null;
   reasoning: string;
   steps: Message[];
   answers: Message[];
-  /** 这一轮还在进行（流式或工具在跑） */
+  /** This turn is still running (streaming or a tool is in flight) */
   running: boolean;
-  /** 正文已经开始输出：此时折叠块不再显示「正在思考」，也不必再展开 */
+  /** Answer text has started: the collapsed block stops saying "thinking" and need not expand again */
   answered: boolean;
-  /** 「思考 + 工具调用」阶段耗时（毫秒）：回答开口前用了多久 */
+  /** Think + tool phase duration (ms): how long it took before the answer began */
   processMs: number | null;
-  /** 阶段结束时刻（最后一条非回答消息的 createdAt），老数据靠它估算 */
+  /** Phase end time (createdAt of the last non-answer message); old rows rely on it for estimates */
   phaseEndAt: number | null;
 }
 
-/** 毫秒 → 「3.4」（秒，保留一位小数）；没有数据时给「0.0」 */
+/** Milliseconds → "3.4" (seconds, one decimal); falls back to "0.0" when there is no data */
 export function seconds(ms: number | null | undefined): string {
   return ((ms ?? 0) / 1000).toFixed(1);
 }
 
-/** 把扁平的消息流按「用户消息」切成轮次；思考与工具调用归到轮内 */
+/** Split the flat message stream into turns at each user message; reasoning and tool calls stay in-turn */
 export function buildRounds(list: Message[]): Round[] {
   const rounds: Round[] = [];
   const last = () => rounds[rounds.length - 1];
@@ -72,7 +72,7 @@ export function buildRounds(list: Message[]): Round[] {
       continue;
     }
 
-    // 没有用户消息打头（例如从半轮恢复）时，补一个只有回答的轮
+    // No user message leads (e.g. recovering mid-turn): synthesize a turn that holds only the answer
     if (!rounds.length) {
       rounds.push({
         key: `lead:${m.id}`,
@@ -95,17 +95,17 @@ export function buildRounds(list: Message[]): Round[] {
       continue;
     }
 
-    // assistant：只有 tool_calls、没有正文的段跳过（没内容可显示）
+    // assistant: skip segments with only tool_calls and no content — nothing to render
     if (!m.content && !m.reasoning && !m.error && !m.streaming) {
       if (m.createdAt != null) r.phaseEndAt = m.createdAt;
       continue;
     }
     if (m.reasoning) r.reasoning += m.reasoning;
     if (m.streaming) r.running = true;
-    // 一旦正文或错误出现，本轮就算「已经开口」，折叠块立刻恢复静态摘要
+    // Once content or an error appears the turn has "spoken"; the collapsed block returns to a static summary
     if (m.content || m.error) {
       r.answered = true;
-      // 阶段耗时优先用后端给的精确值；老数据用「整轮耗时 − 回答自己那段耗时」倒推
+      // Prefer the backend's exact phaseMs; old rows derive it as whole-turn ms minus the answer segment's span
       if (r.processMs == null) {
         const ownSpan = m.createdAt != null && r.phaseEndAt != null ? Math.max(0, m.createdAt - r.phaseEndAt) : null;
         r.processMs =
@@ -117,7 +117,7 @@ export function buildRounds(list: Message[]): Round[] {
               : null);
       }
     } else if (m.createdAt != null) {
-      // 只有 reasoning、还没开口的那一段：它的入库时刻就是阶段结束点
+      // A reasoning-only segment before the answer: its persist time is the phase end
       r.phaseEndAt = m.createdAt;
     }
     if (m.content || m.error || m.streaming) r.answers.push(m);
@@ -126,7 +126,7 @@ export function buildRounds(list: Message[]): Round[] {
   return rounds;
 }
 
-/** 只有时刻（`16:04`）。悬停提示只想知道「几点」，不需要日期。 */
+/** Clock time only (`16:04`). A hover tooltip only wants the hour, not the date. */
 export function fmtClock(ts: number): string {
   const d = new Date(ts);
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -134,20 +134,20 @@ export function fmtClock(ts: number): string {
 }
 
 /**
- * 列表与对话里的时间：今天只给时刻，其余都给「日 + 时刻」——
- * `16:04` / `昨天 16:04` / `周三 16:04` / `11/4 16:04` / `2025/11/2 16:04`。
- * 判断一律按**本地日历日**算差值（不是 24h 间隔），
- * 这样「1 月 2 日看 12 月 30 日」仍然算 3 天前 → 显示「周二 16:04」而不是「12/30」。
+ * Times in the list and conversation: today shows the clock only, everything else "day + clock" —
+ * `16:04` / `Yesterday 16:04` / `Wednesday 16:04` / `11/4 16:04` / `2025/11/2 16:04`.
+ * Always diff by **local calendar day** (not a 24h span), so "on Jan 2 looking at Dec 30" is still
+ * 3 days ago → "Tuesday 16:04" rather than "12/30".
  */
 export function fmtTime(ts: number): string {
   const d = new Date(ts);
   const now = new Date();
   const hm = fmtClock(ts);
   const midnight = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  // 夏令时下一天可能是 23/25 小时，用 round 收成整数天
+  // A DST day can be 23/25 hours long, so round to whole days
   const dayDiff = Math.round((midnight(now) - midnight(d)) / 86_400_000);
 
-  if (dayDiff <= 0) return hm; // 今天（时钟偏差导致的“未来”也按今天）
+  if (dayDiff <= 0) return hm; // today (a clock-skew "future" still counts as today)
   if (dayDiff === 1) return `${t('history.yesterday')} ${hm}`;
   if (dayDiff < 7) return `${t(`weekday.${d.getDay()}` as MessageKey)} ${hm}`;
 
@@ -155,10 +155,10 @@ export function fmtTime(ts: number): string {
   return `${d.getFullYear() === now.getFullYear() ? md : `${d.getFullYear()}/${md}`} ${hm}`;
 }
 
-/** 对话视图里：相邻两次提问间隔超过这个值就在中间插一行时间 */
+/** Conversation view: insert a time separator when consecutive questions are further apart than this */
 export const TIME_SEP_GAP_MS = 3 * 60 * 60 * 1000;
 
-/** 一轮结束的时刻：最后一条回答的入库时间 → 阶段结束时刻 → 用户消息时刻 */
+/** End of a turn: last answer's persist time → phase end → user message time */
 export function roundEndAt(r: Round): number | null {
   const last = r.answers[r.answers.length - 1];
   return last?.createdAt ?? r.phaseEndAt ?? r.user?.createdAt ?? null;
@@ -171,14 +171,14 @@ const TOOL_LABEL_KEYS: Record<string, MessageKey> = {
   screenshot: 'tool.screenshot',
 };
 
-/** PDF 页面上，read_page 实际读的是 PDF 文本层，标签也得跟着变 */
+/** On a PDF page read_page actually reads the PDF text layer, so its label has to change too */
 export function toolLabel(name: string, pdf = false): string {
   if (name === 'read_page' && pdf) return t('tool.read_pdf');
   const key = TOOL_LABEL_KEYS[name];
   return key ? t(key) : name || t('tool.unknown');
 }
 
-/** 工具参数的一句话摘要，给步骤条用 */
+/** One-line summary of tool args for the step rows */
 export function toolDetail(name: string, args: Record<string, unknown> | null): string {
   if (!args) return '';
   if (name === 'read_page') {
@@ -208,7 +208,7 @@ export function toMessage(m: StoredMessage, pdf = false): Message | null {
       toolChars: m.content.length,
     };
   }
-  // 只带 tool_calls、没有正文的 assistant 段在 UI 里没有内容可显示
+  // An assistant segment with only tool_calls and no content has nothing to show in the UI
   if (m.role === 'assistant' && !m.content.trim() && !m.reasoning.trim()) return null;
   return {
     id: m.id,

@@ -6,7 +6,7 @@
   "engines": {
     "node": ">=22.13"
   },
-  "description": "Edge 侧栏：就当前标签页内容向 AI 提问",
+  "description": "Edge side panel: ask AI about the page you are on",
   "scripts": {
     "dev": "wxt",
     "dev:edge": "wxt -b edge",

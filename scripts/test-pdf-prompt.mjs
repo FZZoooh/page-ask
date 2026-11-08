@@ -1,13 +1,15 @@
-// 验证「PDF 特殊性」是否写进了提示词与工具层：
-// 用一份模拟的长 PDF 页面（kind=pdf）跑一轮，观察模型会不会去调 scope="viewport"。
-// 用法：node scripts/test-pdf-prompt.mjs [问题] [--selection=xxx]
-const BASE = process.env.PAGEASK_BACKEND ?? 'http://127.0.0.1:8787';
+// Check that the "PDF is special" guidance really landed in the prompt and the tool layer: run one
+// turn against a simulated long PDF page (kind=pdf) and watch whether the model calls scope="viewport".
+// Run: node scripts/test-pdf-prompt.mjs [question] [--selection=xxx]
+import { readSettings } from '../server/settings.mjs';
+
+const BASE = `http://127.0.0.1:${readSettings().port}`;
 
 const argv = process.argv.slice(2);
 const question = argv.find((a) => !a.startsWith('--')) ?? '解释选中的词';
 const selection = argv.find((a) => a.startsWith('--selection='))?.slice('--selection='.length) ?? '';
 
-// 造一段 15 页量级的正文
+// Build a body on the order of 15 pages
 const para =
   'This paper surveys the use of Generative AI tools, such as ChatGPT and Claude, in computer science ' +
   'education, focusing on key aspects of accuracy, authenticity, and assessment. ';

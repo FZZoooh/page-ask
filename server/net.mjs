@@ -1,13 +1,13 @@
 /**
- * 出站抓取的边界：只允许公网 http(s)，并给读取加大小上限。
+ * Outbound fetch boundary: public http(s) only, plus a size cap on reads.
  *
- * 这里刻意不做 DNS 解析：解析结果和 fetch 实际连接之间仍有 TOCTOU，
- * 而这一层主要是挡住「模型被网页内容诱导去读 localhost / 内网 / 云元数据」
- * 这类直给地址；真正连不接受信任目标的是 baseUrl（用户自己配的，放行）。
+ * Deliberately no DNS resolution: TOCTOU remains between the lookup and fetch's actual
+ * connection; this layer mainly blocks the direct-address case — a model lured by page content
+ * into reading localhost / LAN / cloud metadata. baseUrl (user-set) is exempt.
  */
 import { isIP } from 'node:net';
 
-/** 明显属于本机/内网/保留地址的主机名 */
+/** hostnames that clearly belong to this machine / LAN / reserved ranges */
 export function isPrivateHost(hostname) {
   let host = String(hostname ?? '').trim().toLowerCase();
   if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
@@ -26,13 +26,13 @@ function isPrivateIPv4(ip) {
   const p = ip.split('.').map(Number);
   if (p.length !== 4 || p.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true;
   if (p[0] === 0 || p[0] === 10 || p[0] === 127) return true;
-  if (p[0] === 169 && p[1] === 254) return true; // link-local / 云元数据
+  if (p[0] === 169 && p[1] === 254) return true; // link-local / cloud metadata
   if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true;
   if (p[0] === 192 && p[1] === 168) return true;
   if (p[0] === 192 && p[1] === 0 && (p[2] === 0 || p[2] === 2)) return true;
   if (p[0] === 198 && (p[1] === 18 || p[1] === 19)) return true;
   if (p[0] === 100 && p[1] >= 64 && p[1] <= 127) return true; // CGNAT
-  if (p[0] >= 224) return true; // 组播/保留
+  if (p[0] >= 224) return true; // multicast / reserved
   return false;
 }
 
@@ -46,7 +46,7 @@ function isPrivateIPv6(ip) {
   return false;
 }
 
-/** 校验一个「用户/模型给的」URL；不合法就抛错（调用方决定怎么呈现） */
+/** validate a user-/model-supplied URL; throw if invalid (the caller decides how to present it) */
 export function assertPublicHttpUrl(raw) {
   let url;
   try {
@@ -60,7 +60,7 @@ export function assertPublicHttpUrl(raw) {
   return url;
 }
 
-/** 按上限读取响应体；超限就取消流并抛错，避免先 arrayBuffer 再检查 */
+/** read the body up to a cap; cancel the stream and throw past it — never arrayBuffer first, check later */
 export async function readBodyCapped(res, maxBytes) {
   const declared = Number(res.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > maxBytes) {

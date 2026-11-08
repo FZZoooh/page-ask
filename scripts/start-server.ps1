@@ -1,8 +1,9 @@
-﻿# 启动 PageAsk 本地后端（Windows）
+# Start the PageAsk local backend (Windows)
 #
-# 配置（Key / 上游地址 / 默认模型）存在 server/data/settings.json，由后端配置页维护：
+# Config (key / upstream URL / model / port / token / dataDir) lives in ~/.config/pageask/settings.json,
+# managed by the settings page:
 #   http://127.0.0.1:8787/settings
-# 这里不读任何 API Key 环境变量——配置只有一个来源，就是那个 JSON 文件。
+# No environment variable or argument is read here — config has exactly one source, that JSON file.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 

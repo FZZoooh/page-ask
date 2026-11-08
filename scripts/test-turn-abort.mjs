@@ -1,12 +1,12 @@
-// 端到端验证两件事（不碰真实配置与数据库）：
-//   1. 工具执行中途中止：assistant 的每个 function_call 都补上了 output，
-//      回放时不会出现悬空 call；
-//   2. 正文流到一半中止：已经流给用户的正文仍然落库，并标记 aborted。
+// End-to-end check of two things (never touching real config or the database):
+//   1. Abort while a tool runs: every function_call on the assistant gets an output,
+//      so replay never sees a dangling call;
+//   2. Abort mid-content-stream: text already streamed to the user is still persisted, flagged aborted.
 //
-// 做法：临时 HOME + 临时数据目录，起一个假上游；真后端以子进程之外的
-// 方式在同进程 import（PAGEASK_PORT 用 18787），再用 fetch 打 /chat。
+// Approach: temporary HOME + temporary data dir, start a fake upstream; the real backend is
+// imported in-process rather than as a child process (it listens on a free port), then /chat is hit with fetch.
 //
-// 跑法：node scripts/test-turn-abort.mjs
+// Run: node scripts/test-turn-abort.mjs
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createServer as createProbe } from 'node:net';
@@ -18,14 +18,12 @@ const home = mkdtempSync(join(tmpdir(), 'pageask-home-'));
 const dataDir = mkdtempSync(join(tmpdir(), 'pageask-data-'));
 process.env.HOME = home;
 process.env.USERPROFILE = home;
-process.env.PAGEASK_DATA_DIR = dataDir;
 
-// 让系统给一个空闲端口，避免固定端口被占
+// Ask the OS for a free port so a fixed one cannot already be taken
 const probe = createProbe();
 await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
 const backendPort = probe.address().port;
 await new Promise((resolve) => probe.close(resolve));
-process.env.PAGEASK_PORT = String(backendPort);
 
 let fakePort = 0;
 const sse = (event, data) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -59,7 +57,7 @@ const upstream = createServer((req, res) => {
       }
       if (userText.includes('SLOW')) {
         res.write(sse('response.output_text.delta', { delta: '第一段' }));
-        // 不再发 completed，等客户端中止
+        // Never send completed; wait for the client to abort
         setTimeout(() => {
           if (!res.destroyed) res.end();
         }, 5000);
@@ -79,7 +77,7 @@ const upstream = createServer((req, res) => {
     }
 
     if (req.url === '/v1/tools/search') {
-      // 故意慢：让客户端在工具执行期间点“停止”
+      // Deliberately slow, so the client can hit "stop" while the tool runs
       setTimeout(() => {
         if (res.destroyed) return;
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -102,10 +100,14 @@ writeFileSync(
     model: 'fake-model',
     apiKey: 'sk-test',
     state: 'off',
+    port: backendPort,
+    token: '',
+    extensionId: 'mmlkafokjmojbmebfofjaakibnmoikkm',
+    dataDir,
   }),
 );
 
-// 动态 import：settings.mjs / db.mjs 在模块加载时读取上面的环境变量
+// Dynamic import: settings.mjs / db.mjs read the settings file above at module load time
 const { getConversation } = await import('../server/db.mjs');
 await import('../server/index.mjs');
 
@@ -115,12 +117,12 @@ for (let i = 0; i < 50; i += 1) {
     const r = await fetch(`${base}/health`);
     if (r.ok) break;
   } catch {
-    // 还没起来
+    // not up yet
   }
   await new Promise((r) => setTimeout(r, 100));
 }
 
-/** 发一轮对话，读到 stopAfter 事件后中止；返回收到的事件与 conversationId */
+/** Send one chat turn, abort once stopAfter matches; returns the events received and the conversationId */
 async function chat(text, stopAfter, conversationId = null) {
   const controller = new AbortController();
   const res = await fetch(`${base}/chat`, {
@@ -180,7 +182,7 @@ function check(name, fn) {
   }
 }
 
-// 1) 工具执行中途中止
+// 1) Abort while the tool is executing
 const toolRun = await chat('TOOL', (event, data) => event === 'tool' && data.phase === 'start');
 let toolConv = null;
 for (let i = 0; i < 30; i += 1) {
@@ -204,7 +206,7 @@ check('工具轮次：未执行的 call 有“已中止”占位 output', () => 
   assert.match(second.content, /中止|没有执行/);
 });
 
-// 2) 正文流到一半中止
+// 2) Abort midway through the content stream
 const slowRun = await chat('SLOW', (event) => event === 'content');
 await new Promise((r) => setTimeout(r, 400));
 const slowConv = getConversation(slowRun.conversationId);
@@ -215,7 +217,7 @@ check('正文中止：已生成内容落库并标记 aborted', () => {
   assert.equal(assistant.aborted, true);
 });
 
-// 3) 中止过的会话还能继续问（回放不 400）
+// 3) An aborted conversation can still be continued (replay does not 400)
 const follow = await chat('OK', (event) => event === 'done', slowRun.conversationId);
 check('中止后继续对话不报错', () => {
   const errors = follow.events.filter((e) => e.event === 'error');
