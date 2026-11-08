@@ -37,6 +37,8 @@
 
 ### P1-1 配置 token 后 PDF 功能整体 401
 
+**状态：已修复（2026-11-08，见第 11 节）。** 以下为修复前证据。
+
 **证据**
 
 - `src/lib/pdf.ts:56-64`（`readLocalPdf`）与 `src/lib/pdf.ts:98-105`（`readPdfFromTab`）向 `${backendUrl}/pdf` 发 POST 时只设置了 `Content-Type`，没有 `Authorization`。
@@ -686,4 +688,11 @@ AGENTS 写的 `RESULT_CAP = 8000` 只是“正文截断到 8000”，最终工�
 - `scripts/test-ssrf.mjs`：覆盖上述地址形式、私网 DNS、混合 DNS、重定向到回环/私网 DNS、相对重定向、重定向上限。
 - 验证：`pnpm verify` 通过（8 个后端回归；43 个 `.mjs` 语法检查）。
 - 残留：DNS 解析与连接之间仍有理论上存在的 rebinding TOCTOU，已在 `server/net.mjs` 头部注释说明；彻底消除需要把解析结果固定到连接层。
+
+### P1-1 PDF 鉴权
+
+- `readActiveTab` 现在接收 `token`，`App.tsx` 用 ref 保存后端 URL 与 token；设置加载完成后再读取当前页，避免首次以空 token 读取 PDF。
+- `readPdfFromTab` / `readLocalPdf` 的两个 `/pdf` 请求都带 `Authorization: Bearer <token>`；未配置 token 时不发该头。
+- `scripts/test-pdf-auth.mjs`：临时后端配置 token，断言无 token/错误 token 为 401（`auth.bad_token`），正确 token 能解析 `test/marker.pdf` 并返回正文。
+- 验证：`pnpm verify` 通过（9 个后端回归；44 个 `.mjs` 语法检查）。
 

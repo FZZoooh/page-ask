@@ -25,6 +25,12 @@ export class PdfReadError extends Error {
 
 const MAX_BYTES = 64 * 1024 * 1024;
 
+/** The backend token is optional, but when configured every endpoint (including /pdf) requires it */
+function tokenHeader(token?: string): Record<string, string> {
+  const value = token?.trim();
+  return value ? { Authorization: `Bearer ${value}` } : {};
+}
+
 /** Does the link look like a PDF? */
 export function looksLikePdfUrl(url?: string): boolean {
   if (!url) return false;
@@ -53,13 +59,13 @@ function toBase64(bytes: Uint8Array): string {
  * Local file:// PDF: extension fetch does not support file:// (even with "Allow access to file URLs" on),
  * so pass the path to the backend and let it read the disk.
  */
-async function readLocalPdf(fileUrl: string, backendUrl: string): Promise<PdfExtract> {
+async function readLocalPdf(fileUrl: string, backendUrl: string, token?: string): Promise<PdfExtract> {
   const endpoint = `${backendUrl.replace(/\/+$/, '')}/pdf`;
   let parsed: Response;
   try {
     parsed = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...tokenHeader(token) },
       body: JSON.stringify({ fileUrl }),
     });
   } catch (err) {
@@ -72,8 +78,8 @@ async function readLocalPdf(fileUrl: string, backendUrl: string): Promise<PdfExt
 }
 
 /** Fetch the current tab's PDF bytes and have the backend extract the text */
-export async function readPdfFromTab(url: string, backendUrl: string): Promise<PdfExtract> {
-  if (url.startsWith('file://')) return readLocalPdf(url, backendUrl);
+export async function readPdfFromTab(url: string, backendUrl: string, token?: string): Promise<PdfExtract> {
+  if (url.startsWith('file://')) return readLocalPdf(url, backendUrl, token);
 
   let res: Response;
   try {
@@ -100,7 +106,7 @@ export async function readPdfFromTab(url: string, backendUrl: string): Promise<P
   try {
     parsed = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...tokenHeader(token) },
       body: JSON.stringify({ base64: toBase64(buf) }),
     });
   } catch (err) {

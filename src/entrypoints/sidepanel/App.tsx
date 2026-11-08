@@ -127,8 +127,9 @@ export default function App() {
   const sendingRef = useRef(false);
   /** Bumped on every send; a late finally must not clear the next run's busy state */
   const runSeqRef = useRef(0);
-  /** PDF reads need the backend URL, but load() must stay stable, so keep it in a ref, not a dep */
+  /** PDF reads need the backend URL + token, but load() must stay stable, so keep them in refs */
   const backendRef = useRef<string>(DEFAULT_SETTINGS.backendUrl);
+  const tokenRef = useRef<string>('');
   const listRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
@@ -154,6 +155,7 @@ export default function App() {
 
   useEffect(() => {
     if (settings?.backendUrl) backendRef.current = settings.backendUrl;
+    tokenRef.current = settings?.token ?? '';
   }, [settings]);
 
   const page = pageState.kind === 'ready' ? pageState.page : null;
@@ -183,7 +185,7 @@ export default function App() {
   const load = useCallback(async () => {
     const mine = ++seq.current;
     setPageState({ kind: 'loading' });
-    const result = await readActiveTab({ backendUrl: backendRef.current });
+    const result = await readActiveTab({ backendUrl: backendRef.current, token: tokenRef.current });
     if (mine !== seq.current) return; // a newer read started; drop this result
     if (result.ok) {
       // Key conversations by URL without #hash: anchors of one article must not become two conversations
@@ -195,6 +197,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // Wait for stored settings: a PDF needs the backend token, and loading once with an empty token
+    // would show a 401 until the next tab event. Re-running on token changes also picks up a new token.
+    if (!settings) return;
     void load();
     const onActivated = () => void load();
     const onUpdated = (_id: number, info: { status?: string; url?: string }, tab: { active?: boolean }) => {
@@ -208,7 +213,7 @@ export default function App() {
       browser.tabs.onActivated.removeListener(onActivated);
       browser.tabs.onUpdated.removeListener(onUpdated);
     };
-  }, [load]);
+  }, [load, settings?.backendUrl, settings?.token]);
 
   /* ---------------- Page selection hint ---------------- */
 

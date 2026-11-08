@@ -19,7 +19,7 @@
     "check:i18n": "node scripts/check-i18n.mjs",
     "ext:key": "node scripts/ext-key.mjs",
     "ext:id": "node scripts/ext-id.mjs",
-    "test:server": "node scripts/test-extension-id.mjs && node scripts/test-turn-integrity.mjs && node scripts/test-turn-abort.mjs && node scripts/test-empty-stream.mjs && node scripts/test-incomplete-and-bad-body.mjs && node scripts/test-lifecycle-recover.mjs && node scripts/test-settings-webui.mjs && node scripts/test-ssrf.mjs",
+    "test:server": "node scripts/test-extension-id.mjs && node scripts/test-turn-integrity.mjs && node scripts/test-turn-abort.mjs && node scripts/test-empty-stream.mjs && node scripts/test-incomplete-and-bad-body.mjs && node scripts/test-lifecycle-recover.mjs && node scripts/test-settings-webui.mjs && node scripts/test-ssrf.mjs && node scripts/test-pdf-auth.mjs",
     "verify": "pnpm check:i18n && pnpm compile && pnpm test:server && pnpm build",
     "server": "node server/index.mjs",
     "server:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-server.ps1",

@@ -190,7 +190,7 @@ function errMsg(err: unknown): string {
 }
 
 /** Read the current tab of the current window and extract its text. */
-export async function readActiveTab(opts: { backendUrl?: string } = {}): Promise<ReadResult> {
+export async function readActiveTab(opts: { backendUrl?: string; token?: string } = {}): Promise<ReadResult> {
   let tabs: Array<{ id?: number; url?: string; title?: string }>;
   try {
     tabs = await browser.tabs.query({ active: true, currentWindow: true });
@@ -216,7 +216,7 @@ export async function readActiveTab(opts: { backendUrl?: string } = {}): Promise
   // Some sites (e.g. arxiv's /pdf/2401.12345) have no .pdf in the URL, so fall back to the tab title.
   const pdfByTitle = /\.pdf\s*$/i.test((tab.title ?? '').trim());
   if ((looksLikePdfUrl(tab.url) || pdfByTitle) && tab.url) {
-    return readPdfTab(tab.url, tab.title, opts.backendUrl);
+    return readPdfTab(tab.url, tab.title, opts.backendUrl, opts.token);
   }
 
   try {
@@ -341,14 +341,20 @@ export async function readSelectionText(): Promise<string> {
   }
 }
 
-/** PDF tab: fetch bytes → backend extracts text → one page of markdown */async function readPdfTab(url: string, title: string | undefined, backendUrl?: string): Promise<ReadResult> {
+/** PDF tab: fetch bytes → backend extracts text → one page of markdown */
+async function readPdfTab(
+  url: string,
+  title: string | undefined,
+  backendUrl?: string,
+  token?: string,
+): Promise<ReadResult> {
   const started = performance.now();
   if (!backendUrl) {
     return { ok: false, reason: 'unknown', message: t('page.failure.pdfNeedBackend'), url };
   }
 
   try {
-    const out = await readPdfFromTab(url, backendUrl);
+    const out = await readPdfFromTab(url, backendUrl, token);
     let site = '';
     try {
       site = new URL(url).hostname;
