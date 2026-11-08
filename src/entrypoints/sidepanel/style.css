@@ -1006,17 +1006,40 @@ button.primary.save:hover:not(:disabled) {
   font-weight: 600;
 }
 
-.field input {
+.field input,
+.field select {
   font: inherit;
   color: var(--fg);
-  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  background-color: color-mix(in srgb, var(--fg) 4%, transparent);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 6px 9px;
   outline: none;
 }
 
-.field input:focus {
+/* 原生 select 在 Windows 上不认背景/圆角，会显示成白底黑框；
+   关掉 appearance 后自己画一个 V 形箭头，才能跟上面的输入框一致。 */
+.field select {
+  padding-right: 26px;
+  appearance: none;
+  cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) calc(50% + 1px),
+    calc(100% - 10px) calc(50% + 1px);
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+}
+
+.field select option {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.field input:focus,
+.field select:focus {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
 }
 
