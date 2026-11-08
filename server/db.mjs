@@ -285,20 +285,21 @@ export function truncateAfterLastUser(conversationId) {
     .get(conversationId);
   if (!last) return null;
 
-  const doomed = db
-    .prepare(
-      'SELECT image_path FROM messages WHERE conversation_id = ? AND rowid > ? AND image_path IS NOT NULL',
-    )
-    .all(conversationId, last.rowid);
-
-  // Delete only rows that already existed before the call: new rows another side panel inserts between
-  // the two queries (higher rowid, past boundary) must survive, or simultaneous regenerations wipe each other.
-  const boundary = db
-    .prepare('SELECT COALESCE(MAX(rowid), 0) AS maxRowid FROM messages WHERE conversation_id = ?')
-    .get(conversationId).maxRowid;
-
+  let doomed = [];
+  // Read the boundary and delete inside one IMMEDIATE transaction. The previous version read the
+  // boundary before BEGIN, so a concurrent writer could insert rows that the DELETE then removed.
+  // The backend is single-process and /chat is serialized per conversation, so this is mostly a
+  // correctness guarantee for future multi-process use rather than a live race.
   db.exec('BEGIN IMMEDIATE');
   try {
+    doomed = db
+      .prepare(
+        'SELECT image_path FROM messages WHERE conversation_id = ? AND rowid > ? AND image_path IS NOT NULL',
+      )
+      .all(conversationId, last.rowid);
+    const boundary = db
+      .prepare('SELECT COALESCE(MAX(rowid), 0) AS maxRowid FROM messages WHERE conversation_id = ?')
+      .get(conversationId).maxRowid;
     db.prepare('DELETE FROM messages WHERE conversation_id = ? AND rowid > ? AND rowid <= ?').run(
       conversationId,
       last.rowid,
@@ -526,10 +527,14 @@ function shotToDataUrl(name) {
   } catch {
     url = null;
   }
-  shotCache.set(name, url);
-  if (shotCache.size > SHOT_CACHE_MAX) {
-    const oldest = shotCache.keys().next().value;
-    if (oldest !== undefined) shotCache.delete(oldest);
+  // Do not cache a miss: a screenshot restored from backup (or a file created a moment later)
+  // must become visible without restarting the backend.
+  if (url) {
+    shotCache.set(name, url);
+    if (shotCache.size > SHOT_CACHE_MAX) {
+      const oldest = shotCache.keys().next().value;
+      if (oldest !== undefined) shotCache.delete(oldest);
+    }
   }
   return url;
 }
@@ -577,26 +582,17 @@ export function closeDb() {
   }
 }
 
-/** How many turns a conversation has, its last user text and latest assistant body (for auto-titling) */
+/** How many user/assistant turns a conversation has (auto-title only needs the pair count) */
 export function statsFor(conversationId) {
-  // Only the counts and the last bodies: don't pull every message body of the conversation into memory
   const count = (role) =>
     db
       .prepare(
         "SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role = ? AND TRIM(content) <> ''",
       )
       .get(conversationId, role).n;
-  const last = (role) =>
-    db
-      .prepare(
-        "SELECT content FROM messages WHERE conversation_id = ? AND role = ? AND TRIM(content) <> '' ORDER BY created_at DESC, rowid DESC LIMIT 1",
-      )
-      .get(conversationId, role)?.content ?? '';
   return {
     users: count('user'),
     answers: count('assistant'),
-    lastUser: last('user'),
-    lastAnswer: last('assistant'),
   };
 }
 

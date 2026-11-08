@@ -45,6 +45,7 @@ import {
 } from './messages';
 import {
   clearEmptyEditorResidue,
+  decodeQuote,
   editorHasDraft as hasDraftIn,
   fillEditor as fillDomEditor,
   insertTextAtCaret as insertTextInto,
@@ -92,7 +93,7 @@ function renderUserText(content: string) {
   return content.split(/(<q>[\s\S]*?<\/q>)/g).map((part, i) =>
     part.startsWith('<q>') && part.endsWith('</q>') ? (
       <span className="bubble-q" key={i}>
-        {part.slice(3, -4)}
+        {decodeQuote(part.slice(3, -4))}
       </span>
     ) : (
       <span key={i}>{part}</span>
@@ -279,7 +280,18 @@ export default function App() {
       setBusy(false);
     }
 
-    if (!pageUrl || !settings) return;
+    if (!pageUrl || !settings) {
+      // An unreadable page must not keep showing the previous page's answer.
+      loadSeqRef.current += 1;
+      setConversationId(null);
+      setMessages([]);
+      setHistoryOpen(false);
+      setLoadError(null);
+      setHistoryHasMore(false);
+      setHistoryBefore(null);
+      setLoadingEarlier(false);
+      return;
+    }
 
     // After a tab/backend change the previous page's answer no longer belongs here. The server persists
     // whatever was generated, flagged aborted, but the new page must never receive the old run's events.
@@ -584,7 +596,16 @@ export default function App() {
           locale: getLocale(),
           signal: controller.signal,
         })) {
-          // A tab switch aborts and bumps runSeq; this extra guard keeps old-run events out of the new page
+          // A tab switch aborts and bumps runSeq; this extra guard keeps old-run events out of the new page.
+          // Title is conversation-scoped and can arrive after the answer is done (auto-title), so it must
+          // still update the history list even if the user has already started the next run.
+          if (ev.type === 'title') {
+            setConversations((prev) =>
+              prev.map((c) => (c.id === ev.conversationId ? { ...c, title: ev.title } : c)),
+            );
+            setTitlePulse(true);
+            continue;
+          }
           if (runSeqRef.current !== runId) break;
           if (ev.type === 'meta') {
             convId = ev.conversationId;
@@ -661,11 +682,6 @@ export default function App() {
                 };
               }),
             );
-          } else if (ev.type === 'title') {
-            setConversations((prev) =>
-              prev.map((c) => (c.id === ev.conversationId ? { ...c, title: ev.title } : c)),
-            );
-            setTitlePulse(true);
           } else if (ev.type === 'error') {
             sawError = true;
             flush();
@@ -878,14 +894,17 @@ export default function App() {
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     // isComposing: Enter while an IME is composing candidates must not send
     if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-      e.preventDefault();
       if (e.shiftKey) {
+        e.preventDefault();
         // Use the native command to insert a line break: it maintains the trailing placeholder <br>,
         // so the first press already shows a blank line and arrow keys don't stick on zero-width chars.
         document.execCommand('insertLineBreak');
         setInput(serialize());
         return;
       }
+      // While a run is streaming, plain Enter is a normal newline; only an idle editor sends.
+      if (busy) return;
+      e.preventDefault();
       if (canSend) void send();
     }
   };
@@ -915,9 +934,13 @@ export default function App() {
 
   const handleCopy = async () => {
     if (!page) return;
-    await navigator.clipboard.writeText(page.markdown);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    try {
+      await navigator.clipboard.writeText(page.markdown);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      showToast(t('answer.copyFailed'));
+    }
   };
 
   // Remember the caret inside the editor: the user clicks into the editor, then selects answer text
@@ -1180,7 +1203,7 @@ export default function App() {
                 <div className="answer" aria-live={m.streaming ? undefined : 'polite'}>
                   {m.content ? (
                     <div className={`md-wrap${m.streaming ? ' streaming' : ''}`}>
-                      <MarkdownView text={m.content} streaming={m.streaming} />
+                      <MarkdownView text={m.content} streaming={m.streaming} baseUrl={page?.url} />
                     </div>
                   ) : null}
                   {m.error && <p className="err">{m.error}</p>}

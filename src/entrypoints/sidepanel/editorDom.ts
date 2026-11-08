@@ -1,5 +1,15 @@
 /** Pure DOM helpers for contenteditable: no React state, so they stay testable and reusable */
 
+/** Escape quote text so a pasted `</q>` cannot terminate the serialized quote early */
+export function encodeQuote(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Inverse of encodeQuote; decode &amp; last so "&amp;lt;" round-trips literally */
+export function decodeQuote(text: string): string {
+  return text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}
+
 /** Serialize contenteditable content to message text: quote chips become <q>…</q>, everything else stays literal */
 export function serializeEditor(el: HTMLElement | null): string {
   if (!el) return '';
@@ -13,7 +23,7 @@ export function serializeEditor(el: HTMLElement | null): string {
     const e = node as HTMLElement;
     const q = e.dataset?.quote;
     if (q != null) {
-      out.s += `<q>${q}</q>`;
+      out.s += `<q>${encodeQuote(q)}</q>`;
       return;
     }
     if (e.tagName === 'BR') {
@@ -73,7 +83,7 @@ export function fillEditor(el: HTMLElement, text: string): void {
       el.appendChild(document.createTextNode(part));
       continue;
     }
-    const quote = m[1] ?? '';
+    const quote = decodeQuote(m[1] ?? '');
     const chip = document.createElement('span');
     chip.className = 'q-chip';
     chip.contentEditable = 'false';

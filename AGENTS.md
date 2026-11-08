@@ -21,7 +21,7 @@ PageAsk: a Chromium side-panel extension (Microsoft Edge and Google Chrome, 116+
 | `pnpm ext:key` | One-time: write `extension-key.json` (public, committed) + `~/.config/pageask/extension-key.pem`; **changes the extension ID** |
 | `pnpm ext:id` | Print the extension ID derived from `extension-key.json` |
 | `pnpm compile` | `tsc --noEmit` + `scripts/check-syntax.mjs` (syntax check for backend/script `.mjs`, plus UTF-8 BOM + PowerShell parser check for `.ps1`/`.psd1`), **must pass after every change** |
-| `pnpm test:server` | Runs the 23 fixed backend regression scripts (temp dirs + fake upstream, never touches real config) |
+| `pnpm test:server` | Runs the 25 fixed backend regression scripts (temp dirs + fake upstream, never touches real config) |
 | `pnpm verify` | `check:i18n` + `compile` + `test:server` + `build`; run this before committing |
 | `pnpm server` | Start the backend in the foreground (`node server/index.mjs`) |
 | `pnpm server:win` | Start the backend through the PowerShell script |
@@ -106,7 +106,7 @@ PLAN.md                           archived early planning (unmaintained, not an 
 
 ## 7. Verification
 
-Run `pnpm verify` before committing (localization guard + types + syntax/BOM check of `.mjs` and PowerShell files + 23 backend regressions + build); CI runs the same command. There are still no front-end unit tests, so UI is covered by type checking + manual testing:
+Run `pnpm verify` before committing (localization guard + types + syntax/BOM check of `.mjs` and PowerShell files + 25 backend regressions + build); CI runs the same command. There are still no front-end unit tests, so UI is covered by type checking + manual testing:
 
 1. `pnpm verify` passes; for front-end-only changes, at least `pnpm compile` + `pnpm build`.
 2. Backend changes: start the service with `pnpm server`, then `curl http://127.0.0.1:8787/health`; when needed use `node scripts/test-chat.mjs "question"` to watch SSE events (it reads port/token from settings.json). Manual probes that touch the real config/DB (`test-chat`, `test-cache`, `test-shot`, `test-pdf-prompt`, `test-selection-context`) refuse to run unless `PAGEASK_ALLOW_REAL=1`; the fixed regressions use a temporary `USERPROFILE` + a `settings.json` in it (see `scripts/temp-config.mjs`) and a fake upstream.

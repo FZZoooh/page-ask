@@ -690,6 +690,43 @@ button.primary.save:hover:not(:disabled) {
   overflow-wrap: anywhere;
 }
 
+/* Fatal render fallback (ErrorBoundary): keep it usable with only the theme variables. */
+.fatal {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 24px 16px;
+  padding: 16px;
+  border: 1px solid var(--error-line);
+  border-radius: var(--radius);
+  background: var(--error-bg);
+  color: var(--fg);
+}
+
+.fatal h1 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.fatal p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.fatal-reload {
+  align-self: flex-start;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .md > *:first-child {
   margin-top: 0;
 }
@@ -952,6 +989,9 @@ button.primary.save:hover:not(:disabled) {
   align-items: center;
   gap: 2px;
   border-radius: 8px;
+  /* Cheap virtualization: off-screen history rows skip layout/paint but keep their approximate size. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 60px;
 }
 
 .conv-main {
@@ -1212,6 +1252,9 @@ button.quote-btn .icon {
   border-radius: 10px;
   background: var(--round-bg);
   padding: 6px 10px;
+  /* Long chats: let Chromium skip layout/paint for rounds outside the viewport. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 200px;
 }
 
 .round > summary {

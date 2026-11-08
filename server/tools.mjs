@@ -114,6 +114,7 @@ export async function runTool(name, args, ctx) {
         text: `Unknown tool "${name}". Supported tools: read_page, web_search, fetch_url, screenshot.`,
         label: name,
         detail: 'Unknown tool',
+        failed: true,
       };
   }
 }
@@ -131,7 +132,8 @@ function screenshot(_args, { page }) {
   }
 
   return {
-    text: 'Viewport screenshot attached. Answer directly based on the visual content without unnecessary preamble.',
+    // The caption is ours, but it travels with page pixels; keep every tool result in the same envelope.
+    text: untrusted('source="screenshot"', 'Viewport screenshot attached. Answer directly based on the visual content without unnecessary preamble.'),
     label: 'Screenshot',
     detail: `${page.screenshotWidth ?? '?'}x${page.screenshotHeight ?? '?'} px`,
     imageData: page.screenshot,

@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { createContext, memo, useContext, useMemo } from 'react';
 import Markdown, { type Components } from 'react-markdown';
 import rehypeKatex from 'rehype-katex';
 import remarkBreaks from 'remark-breaks';
@@ -9,15 +9,17 @@ import { splitStreamingMarkdown } from '@/lib/markdown-stream.mjs';
 const remarkPlugins = [remarkGfm, remarkMath, remarkBreaks];
 const rehypePlugins = [[rehypeKatex, { throwOnError: false, strict: false, output: 'html' }]] as const;
 
+const BaseUrlContext = createContext<string | undefined>(undefined);
+
 /**
  * Allow only protocols that are safe to open; `javascript:` / `data:` / `blob:` fall back to plain text.
- * Relative links resolve against https and keep only http(s), so they can't send the side panel anywhere odd.
+ * Relative links resolve against the page being read, so they open the real target rather than a fake host.
  */
-function safeHref(href: string | undefined): string | null {
+function safeHref(href: string | undefined, baseUrl: string | undefined): string | null {
   if (!href) return null;
   if (href.startsWith('#')) return href;
   try {
-    const url = new URL(href, 'https://pageask.invalid');
+    const url = new URL(href, baseUrl ?? 'https://pageask.invalid');
     return ['http:', 'https:', 'mailto:'].includes(url.protocol) ? url.href : null;
   } catch {
     return null;
@@ -27,7 +29,8 @@ function safeHref(href: string | undefined): string | null {
 const components: Components = {
   // Open every link in a new tab: clicking one in the side panel must not replace the page being read
   a: ({ href, children }) => {
-    const safe = safeHref(href);
+    const baseUrl = useContext(BaseUrlContext);
+    const safe = safeHref(href, baseUrl);
     if (!safe) return <span>{children}</span>;
     return (
       <a href={safe} target="_blank" rel="noreferrer noopener">
@@ -71,9 +74,12 @@ const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
 export const MarkdownView = memo(function MarkdownView({
   text,
   streaming = false,
+  baseUrl,
 }: {
   text: string;
   streaming?: boolean;
+  /** URL of the page being read; relative links in the answer resolve against it */
+  baseUrl?: string;
 }) {
   const split = useMemo(
     () => (streaming ? splitStreamingMarkdown(text) : { blocks: [text], tail: '' }),
@@ -82,20 +88,24 @@ export const MarkdownView = memo(function MarkdownView({
 
   if (!streaming) {
     return (
-      <div className="md">
-        <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins as never} components={components}>
-          {text}
-        </Markdown>
-      </div>
+      <BaseUrlContext.Provider value={baseUrl}>
+        <div className="md">
+          <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins as never} components={components}>
+            {text}
+          </Markdown>
+        </div>
+      </BaseUrlContext.Provider>
     );
   }
 
   return (
-    <div className="md">
-      {split.blocks.map((block, index) => (
-        <MarkdownBlock key={index} text={block} />
-      ))}
-      {split.tail ? <span className="md-tail">{split.tail}</span> : null}
-    </div>
+    <BaseUrlContext.Provider value={baseUrl}>
+      <div className="md">
+        {split.blocks.map((block, index) => (
+          <MarkdownBlock key={index} text={block} />
+        ))}
+        {split.tail ? <span className="md-tail">{split.tail}</span> : null}
+      </div>
+    </BaseUrlContext.Provider>
   );
 });

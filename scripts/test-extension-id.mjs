@@ -47,6 +47,14 @@ const badKeyFile = join(tmp, 'bad-key.json');
 writeFileSync(badKeyFile, JSON.stringify({ key: '!!!' }), 'utf8');
 check('junk key is reported invalid, not hashed', resolveExtensionId(badKeyFile).source === 'invalid');
 
+let rejectedShort = false;
+try {
+  extensionIdFromKey('abc');
+} catch {
+  rejectedShort = true;
+}
+check('non-canonical base64 is rejected instead of silently decoded', rejectedShort);
+
 // The real file must agree with itself; a missing/invalid one would otherwise only fail at runtime.
 const real = resolveExtensionId();
 check(

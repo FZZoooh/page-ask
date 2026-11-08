@@ -9,6 +9,8 @@ import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import zhCN from '../server/i18n/zh-CN.mjs';
+import enXA from '../server/i18n/en-XA.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const temp = mkdtempSync(join(tmpdir(), 'pageask-webui-'));
@@ -145,7 +147,13 @@ try {
   check('en-XA 配置页 200', () => assert.equal(pseudo.status, 200));
   check('en-XA html lang', () => assert.match(pseudo.raw, /<html lang="en-XA">/));
   check('en-XA 使用伪文案', () => assert.ok(pseudo.raw.includes('[!!') && pseudo.raw.includes('PageAsk')));
-  check('en-XA 明显更长', () => assert.ok(pseudo.raw.length > page.raw.length));
+  check('en-XA 每个 key 都加长', () => {
+    // Whole-page length can pass while one long dictionary value stayed untranslated.
+    for (const [key, value] of Object.entries(zhCN)) {
+      assert.ok(Object.hasOwn(enXA, key), `en-XA 缺少 ${key}`);
+      assert.ok(enXA[key].length > value.length, `${key} 未伪本地化`);
+    }
+  });
 
   // 1c. The config path is a button that asks the backend to open the file (a file:// link cannot
   //     work from an http page). Opening it is a settings write: same origin or the token, like save.

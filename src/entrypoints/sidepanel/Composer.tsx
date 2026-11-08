@@ -60,7 +60,7 @@ export function Composer({
           contentEditable={configured && pageReady}
           role="textbox"
           aria-multiline="true"
-          aria-label={placeholder}
+          aria-label={t('composer.inputAria')}
           suppressContentEditableWarning
           data-placeholder={placeholder}
           onInput={onInput}

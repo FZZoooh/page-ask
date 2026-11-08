@@ -42,10 +42,6 @@ export default defineBackground(() => {
     // insert one await (even getLastFocused) and the gesture is gone.
     // In the PDF viewer contextMenus reports tab.id = -1 and no usable windowId, so pass the
     // constant WINDOW_ID_CURRENT (-2); no async call is needed to resolve the window.
-    const remember = (msg: string) => {
-      void browser.storage.local.set({ lastPanelOpen: msg }).catch(() => {});
-    };
-    const where = `tabId=${tab?.id} windowId=${tab?.windowId} url=${tab?.url ?? info.pageUrl ?? '?'}`;
     // Pick target synchronously, call once: retrying in catch crosses a microtask and the gesture is usually gone.
     const target =
       typeof tab?.id === 'number' && tab.id > 0
@@ -53,7 +49,6 @@ export default defineBackground(() => {
         : { windowId: browser.windows.WINDOW_ID_CURRENT };
     browser.sidePanel
       .open(target)
-      .then(() => remember(`ok ${JSON.stringify(target)}（${where}）`))
-      .catch((err: unknown) => remember(`fail ${JSON.stringify(target)}：${String(err)}（${where}）`));
+      .catch((err: unknown) => console.warn('[pageask] sidePanel.open failed', target, err));
   });
 });

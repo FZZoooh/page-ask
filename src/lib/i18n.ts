@@ -13,6 +13,9 @@ export const zhCN = {
   'header.history': '历史',
   'header.history.title': '这一页的历史对话',
   'header.settings': '设置',
+  'app.renderError': '界面出错了',
+  'app.renderErrorHint': '扩展界面遇到未处理的错误，可以重新加载侧边栏继续。',
+  'app.reload': '重新加载',
   'header.settings.title': '设置后端地址与模型',
   'header.reload': '重读',
 
@@ -26,7 +29,7 @@ export const zhCN = {
   'history.hint': '该站点的对话记录',
   'history.empty': '还没有记录',
   'history.untitled': '无标题',
-  'history.count': ' 共 {count} 轮',
+  'history.count': '共 {count} 轮',
   'history.titleWithCount': '历史 {count}',
   'history.delete': '删除这段对话',
   'history.deleteConfirm': '删除这段对话？操作不可撤销',
@@ -68,7 +71,7 @@ export const zhCN = {
   'page.failure.noTab': '未找到当前标签页',
   'page.failure.noContent': '页面没有内容',
   'page.failure.blockedRaw':
-    'Blocked by the browser: internal pages and the extension gallery cannot be scripted.',
+    '浏览器禁止扩展读取内部页面和扩展商店，请换一个普通网页试试',
 
   // PDF
   'page.failure.pdfNeedBackend': '请启动后端程序并重试',
@@ -109,7 +112,7 @@ export const zhCN = {
   'round.thinkOnly': '思考了 {secs} 秒',
 
   // 回答
-  'answer.usage': ' 输入 {in} tokens  输出 {out} tokens',
+  'answer.usage': ' 累计输入 {in} tokens  输出 {out} tokens',
   'answer.stopped': '已停止生成',
   'answer.stoppedEmpty': '已停止',
 
@@ -119,6 +122,7 @@ export const zhCN = {
   'composer.placeholder.ready': '给 PageAsk 发送消息',
   'composer.send': '发送',
   'composer.stop': '停止',
+  'composer.inputAria': '消息输入框',
   // 输入框首行的网页选区提示（发送时会随请求带上）
   'composer.selection.aria': '网页选区：{text}',
 

@@ -35,12 +35,17 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
 
   const patch = (p: Partial<Settings>) => setDraft((d) => ({ ...d, ...p }));
 
-  const normalized = (): Settings => ({
-    backendUrl: draft.backendUrl.trim() || DEFAULT_SETTINGS.backendUrl,
-    verbose: draft.verbose,
-    token: draft.token.trim(),
-    locale: draft.locale,
-  });
+  const normalized = (): Settings => {
+    const raw = draft.backendUrl.trim() || DEFAULT_SETTINGS.backendUrl;
+    const parsed = parseBackendUrl(raw);
+    return {
+      // Persist the canonical form, so `localhost.` cannot be saved and then fail the exact-origin CORS check.
+      backendUrl: parsed ? parsed.href.replace(/\/+$/, '') : raw,
+      verbose: draft.verbose,
+      token: draft.token.trim(),
+      locale: draft.locale,
+    };
+  };
 
   /** Validate the draft URL; on failure it writes probe itself, so callers only need to return */
   const validated = (): URL | null => {

@@ -13,8 +13,9 @@
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   addMessage,
@@ -167,6 +168,13 @@ try {
   logError('orphan_shots', err, {});
 }
 
+server.on('error', (err) => {
+  // EADDRINUSE reaches here before 'listening'. Without this listener Node prints a raw stack and exits 1;
+  // run.json would survive and the next start would wrongly report an abnormal previous exit.
+  logError('listen_error', err, { port: PORT });
+  shutdown('listen_error', 1);
+});
+
 server.listen(PORT, HOST, () => {
   const s = readSettings();
   console.log(`[pageask] backend listening on http://${HOST}:${PORT}  model=${s.model}  db=${dbFile}`);
@@ -245,7 +253,7 @@ async function handle(req, res) {
     if (req.method === 'POST') {
       let body;
       try {
-        body = await readJson(req, res, 64 * 1024);
+        body = await readJson(req, 64 * 1024);
       } catch {
         return sendJson(res, 400, errorPayload('request.bad_body'));
       }
@@ -297,7 +305,7 @@ async function handle(req, res) {
   if (req.method === 'POST' && url.pathname === '/api/settings/test') {
     let body = {};
     try {
-      body = (await readJson(req, res, 16 * 1024)) ?? {};
+      body = (await readJson(req, 16 * 1024)) ?? {};
     } catch {
       return sendJson(res, 400, errorPayload('request.bad_body'));
     }
@@ -447,7 +455,7 @@ async function handle(req, res) {
 async function handlePdf(req, res) {
   let body;
   try {
-    body = await readJson(req, res, 64 * 1024 * 1024);
+    body = await readJson(req, 64 * 1024 * 1024);
   } catch {
     return sendJson(res, 400, errorPayload('request.bad_body'));
   }
@@ -496,22 +504,48 @@ async function handlePdf(req, res) {
 }
 
 /** read a local file:// PDF (the extension's fetch can't do file:, so the backend reads the disk) */
+const LOCAL_PDF_ROOTS = [homedir(), tmpdir()].map((p) => resolve(p));
+
 function readLocalPdf(fileUrl) {
   let path;
   try {
     path = fileURLToPath(fileUrl);
   } catch {
-    throw new PdfError('pdf_bad_file_url', `Not a valid local file URL: ${fileUrl}`);
+    throw new PdfError('pdf_bad_file_url', 'Not a valid local file URL');
+  }
+  // A same-origin page can call /pdf with fileUrl too, so treat the path as untrusted input:
+  // no UNC/device paths, only a real .pdf under the user profile or the OS temp directory.
+  if (/^[\\/]{2}/.test(path)) {
+    throw new PdfError('pdf_bad_file_url', 'UNC and device paths are not allowed');
+  }
+  const resolved = resolve(path);
+  const insideRoots = (candidate) =>
+    LOCAL_PDF_ROOTS.some((root) => candidate === root || candidate.startsWith(`${root}${sep}`));
+  if (!insideRoots(resolved)) {
+    throw new PdfError('pdf_bad_file_url', 'Local PDFs must be under the user profile or the temp directory');
+  }
+  let real;
+  try {
+    real = realpathSync(resolved);
+  } catch (err) {
+    throw new PdfError('pdf_not_found', `Cannot read this local file (${err?.code ?? 'error'})`);
+  }
+  // realpath catches symlinks that point outside the allowed roots
+  if (!insideRoots(real)) {
+    throw new PdfError('pdf_bad_file_url', 'Local PDF resolves outside the allowed directories');
+  }
+  if (!/\.pdf$/i.test(real)) {
+    throw new PdfError('pdf_bad_file_url', 'Only .pdf files can be read from disk');
   }
   let stat;
   try {
-    stat = statSync(path);
+    stat = statSync(real);
   } catch (err) {
-    throw new PdfError('pdf_not_found', `Cannot read this local file (${err?.code ?? 'error'}): ${path}`);
+    throw new PdfError('pdf_not_found', `Cannot read this local file (${err?.code ?? 'error'})`);
   }
-  if (!stat.isFile()) throw new PdfError('pdf_not_file', `Not a file: ${path}`);
+  if (!stat.isFile()) throw new PdfError('pdf_not_file', 'Not a file');
   if (stat.size > 64 * 1024 * 1024) throw new PdfError('pdf_too_big', 'PDF exceeds 64 MB');
-  return new Uint8Array(readFileSync(path));
+  return new Uint8Array(readFileSync(real));
 }
 
 /** download PDF bytes directly (public links only; no credentials, and never loopback/LAN) */
@@ -653,6 +687,7 @@ async function handleChat(req, res) {
     'X-Accel-Buffering': 'no',
   });
   let finished = false;
+  const started = Date.now();
   let phaseMs = null; // reasoning + tool-call phase of this turn; frozen when the first content segment appears
   const emit = (event, data) => {
     if (finished || res.writableEnded || res.destroyed) return;
@@ -694,7 +729,6 @@ async function handleChat(req, res) {
   const instructions = buildSystemPrompt(page, locale);
   const toolCtx = { page, apiKey: cfg.apiKey, baseUrl: cfg.baseUrl, signal: controller.signal };
 
-  const started = Date.now();
   activeChats.set(conv.id, (activeChats.get(conv.id) ?? 0) + 1);
   let released = false;
   // The turn is over once the answer is persisted; auto-title may still be waiting on the upstream, and
@@ -949,7 +983,7 @@ async function handleChat(req, res) {
           toolCallId: call.call_id,
           toolName: call.name,
           toolArgs: parseArgs(call.arguments),
-          toolFailed: false,
+          toolFailed: true,
           imagePath: null,
         });
         input.push({ type: 'function_call_output', call_id: call.call_id, output: note });
@@ -996,7 +1030,13 @@ async function handleChat(req, res) {
     }
     const seconds = Math.round(UPSTREAM_TIMEOUT / 1000);
     const timedOut = !isAbort && err?.name === 'TimeoutError';
-    const code = isAbort ? undefined : err instanceof UpstreamError ? err.code : timedOut ? 'upstream.timeout' : undefined;
+    const code = isAbort
+      ? undefined
+      : err instanceof UpstreamError
+        ? err.code
+        : timedOut
+          ? 'upstream.timeout'
+          : 'server.internal';
     const params = err instanceof UpstreamError ? err.params : timedOut ? { seconds } : undefined;
     const message = isAbort
       ? translate('chat.stopped', undefined, locale)
@@ -1004,7 +1044,7 @@ async function handleChat(req, res) {
         ? err.friendly()
         : timedOut
           ? translate('error.upstream.timeout', { seconds }, locale)
-          : String(err?.message ?? err);
+          : translate('error.server.internal', undefined, locale);
     if (isAbort) {
       logEvent('chat_abort', { conversationId: conv.id, steps });
       emit('done', { conversationId: conv.id, aborted: true, totals, steps });
@@ -1220,10 +1260,17 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
 }
 
 /** write a data-URL screenshot to data/shots/<content hash>.jpg and return the file name; null on failure */
+const MAX_SHOT_BYTES = 5 * 1024 * 1024;
+
 function saveShot(dataUrl) {
   const m = /^data:image\/(jpeg|png|webp);base64,(.+)$/i.exec(dataUrl ?? '');
   if (!m) return null;
   const buf = Buffer.from(m[2], 'base64');
+  // The extension produces ~100–300 KB JPEGs; a larger payload is a malformed or hostile request.
+  if (buf.length > MAX_SHOT_BYTES) {
+    logError('save_shot_too_large', new Error('screenshot exceeds the size cap'), { bytes: buf.length });
+    return null;
+  }
   // content-addressed: when the model calls screenshot repeatedly in one turn, one image maps to one file.
   // on delete the db first checks that no other row references it, so shared files aren't removed.
   const digest = createHash('sha256').update(buf).digest('hex').slice(0, 32);
@@ -1536,24 +1583,32 @@ function sendJson(res, status, data) {
   res.end(body);
 }
 
-async function readJson(req, res, maxBytes = MAX_BODY) {
+async function readJson(req, maxBytes = MAX_BODY) {
   return new Promise((resolve, reject) => {
     let size = 0;
     let tooLarge = false;
+    let settled = false;
     const chunks = [];
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
     req.on('data', (c) => {
-      if (tooLarge) return;
+      if (settled || tooLarge) return;
       size += c.length;
       if (size > maxBytes) {
         // Don't destroy: the client would only see "fetch failed". Let the request end naturally,
         // the caller replies 400 normally, and the remaining bytes are simply discarded.
         tooLarge = true;
-        reject(new Error('body too large'));
+        fail(new Error('body too large'));
         return;
       }
       chunks.push(c);
     });
     req.on('end', () => {
+      if (settled) return;
+      settled = true;
       if (!chunks.length) return resolve(null);
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
@@ -1561,6 +1616,9 @@ async function readJson(req, res, maxBytes = MAX_BODY) {
         reject(err);
       }
     });
-    req.on('error', reject);
+    // A client disconnect must not leave the handler waiting forever. Node emits 'aborted' for an
+    // incomplete request and then 'error' (ECONNRESET) on some platforms; settle only once.
+    req.on('aborted', () => fail(new Error('request aborted')));
+    req.on('error', fail);
   });
 }

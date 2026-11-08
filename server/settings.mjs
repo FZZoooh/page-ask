@@ -80,6 +80,9 @@ function normalize(raw) {
   return { baseUrl, model, apiKey, state, port: validPort, token, dataDir: dataDirRaw };
 }
 
+/** last successfully parsed settings; a transient read error must not silently switch the process to defaults */
+let lastGoodSettings = null;
+
 /**
  * Re-read the file on every call so a save on the settings page applies to the next request
  * with no restart. The file is tiny (hundreds of bytes); callers cover "never saved yet".
@@ -96,7 +99,8 @@ export function readSettings() {
   } catch (err) {
     if (err?.code !== 'ENOENT') {
       // a read failure (permissions/busy) is not "no config": never paper over it with defaults
-      console.error(`[pageask] failed to read config file; using defaults for this run: ${err?.message ?? err}`);
+      console.error(`[pageask] failed to read config file${lastGoodSettings ? '; keeping the last known good values' : ''}: ${err?.message ?? err}`);
+      if (lastGoodSettings) return lastGoodSettings;
       return normalize({});
     }
     // no file yet: write a default one first, so the user knows where to edit
@@ -107,6 +111,7 @@ export function readSettings() {
     } catch (e) {
       console.error(`[pageask] failed to write config file: ${e?.message ?? e}`);
     }
+    lastGoodSettings = initial;
     return initial;
   }
 
@@ -115,11 +120,16 @@ export function readSettings() {
     const settings = normalize(raw);
     warnLegacyExtensionId(raw);
     upgradeShape(raw, settings);
+    lastGoodSettings = settings;
     return settings;
   } catch (err) {
     // on a parse failure, back up the file before falling back to defaults: it may hold
     // the user's key, and overwriting it would make the key vanish (the old bug).
     quarantineBroken(err);
+    if (lastGoodSettings) {
+      console.error('[pageask] config is temporarily unreadable; keeping the last known good values');
+      return lastGoodSettings;
+    }
     return normalize({});
   }
 }
@@ -200,14 +210,18 @@ function readExisting() {
   try {
     text = readFileSync(settingsFile, 'utf8');
   } catch (err) {
-    if (err?.code !== 'ENOENT') console.error(`[pageask] failed to read config file: ${err?.message ?? err}`);
-    return normalize({});
+    if (err?.code === 'ENOENT') return normalize({});
+    console.error(`[pageask] failed to read config file: ${err?.message ?? err}`);
+    // A save during a transient read failure must not rewrite the file from defaults and drop the key.
+    return lastGoodSettings ?? normalize({});
   }
   try {
-    return normalize(JSON.parse(text));
+    const settings = normalize(JSON.parse(text));
+    lastGoodSettings = settings;
+    return settings;
   } catch (err) {
     quarantineBroken(err);
-    return normalize({});
+    return lastGoodSettings ?? normalize({});
   }
 }
 
@@ -241,8 +255,9 @@ function migrateLegacySettings() {
 export function maskKey(key) {
   const k = String(key ?? '');
   if (!k) return '';
-  if (k.length <= 10) return `…${k.slice(-2)}`;
-  return `${k.slice(0, 6)}…${k.slice(-4)}`;
+  // Never reveal more than the last 4 characters: for 11–20 char keys the old prefix exposed 6 more.
+  if (k.length <= 8) return `…${k.slice(-2)}`;
+  return `…${k.slice(-4)}`;
 }
 
 /** the view the settings page gets (no plaintext key) */

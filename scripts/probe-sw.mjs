@@ -1,5 +1,10 @@
-// Attach to the extension's service worker over CDP to check API availability / menu creation / gesture limits.
-// Usage: node scripts/probe-sw.mjs [port]
+// Attach to the extension's service worker over CDP to check API availability / gesture limits.
+// This talks to a live browser, so require the real-run opt-in.
+// Usage: PAGEASK_ALLOW_REAL=1 node scripts/probe-sw.mjs [port]
+import { requireRealConfig } from './require-real-config.mjs';
+
+requireRealConfig();
+
 const port = process.argv[2] ?? '9222';
 const base = `http://127.0.0.1:${port}`;
 const list = await (await fetch(`${base}/json/list`)).json();
@@ -42,12 +47,6 @@ const ev = async (expression) => {
 
 console.log('typeof chrome.contextMenus =', await ev('typeof chrome.contextMenus'));
 console.log('typeof chrome.sidePanel   =', await ev('typeof chrome.sidePanel'));
-console.log(
-  'menu "ask-page" 已存在? ->',
-  await ev(
-    `new Promise((res) => { try { chrome.contextMenus.create({ id: 'ask-page', title: 'x', contexts: ['page'] }, () => res(chrome.runtime.lastError ? 'yes: ' + chrome.runtime.lastError.message : 'no (刚刚创建)'))); } catch (e) { res('sync throw: ' + e.message); } })`,
-  ),
-);
 console.log('commands.getAll ->', await ev(`new Promise((res) => chrome.commands.getAll((c) => res(JSON.stringify(c))))`));
 console.log(
   'sidePanel.open 无手势 ->',

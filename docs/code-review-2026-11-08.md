@@ -5,11 +5,11 @@
 - 审查范围：`src/`、`server/`、`scripts/`、`test/`、`wxt.config.ts`、`package.json`、CI 与文档
 - 审查方式：逐文件静态审查 + 类型检查 + 语法/i18n 守卫 + 7 个后端回归 + 生产构建
 - 约束：**审查阶段不修改任何产品代码**。报告中的行号与结论以 `b9533d3` 为基线。
-- 修复状态：P1-1、P1-2、P1-3、P2-1、P2-2、P2-3、P2-4、P2-5、P2-6、P2-7、P2-8、P2-9、P2-10、P2-11、P2-12、P2-13、P2-14、P2-15、P2-16、P2-17、P2-18、P2-19、P2-20、P2-21、P2-22、P2-23、P2-24、P2-25、P2-26、P2-27 已在 2026-11-08 的后续批次修复，见第 11 节；正文保留审查时的证据，便于对照。
+- 修复状态：P1-1、P1-2、P1-3、P2-1 ~ P2-27、P3-1 ~ P3-41 已在 2026-11-08 的后续批次修复或明确接受，见第 11 节；正文保留审查时的证据，便于对照。
 
 ## 0. 结论摘要
 
-**总评：6.5 / 10。** 这是一个明显高于个人项目平均水平的代码库：分层清楚，后端零依赖，安全边界（127.0.0.1、CORS 白名单、token、SSRF 预检、请求体上限）有真实设计，数据库事务、中止占位、异常退出恢复、截图持久化等易错点也处理得比较扎实。7 个后端回归、类型检查、i18n 守卫和生产构建全部通过。
+**总评：6.5 / 10。** 这是一个明显高于个人项目平均水平的代码库：分层清楚，后端零依赖，安全边界（127.0.0.1、CORS 白名单、token、SSRF 预检、请求体上限）有真实设计，数据库事务、中止占位、异常退出恢复、截图持久化等易错点也处理得比较扎实。审查时 7 个后端回归、类型检查、i18n 守卫和生产构建全部通过；修复后回归已增至 25 个。
 
 但本次仍发现 **3 个 P1**，都属于“配置正确时功能直接失效或数据静默丢失”的级别：
 
@@ -19,7 +19,7 @@
 
 此外还有一批 P2：默认配置下自动标题请求路径错误（静默 404）、`state=off` 仍让上游 `store=true`、流在缺少 `response.completed` 时被当成完整回答落库、同一对话并发 `/chat` 没有互斥、顶层 500 破坏错误码契约、有状态回退可能反复失败、英文界面仍被要求用中文回答、页面标题可向系统提示注入、后端中文文案逃过 i18n 守卫、PowerShell 托盘在配置 token 后健康探测失效等。
 
-**建议先修 P1，再按第 9 节的批次处理 P2；本轮不需要大重构。**
+**建议按第 9 节的批次推进；截至批次 11，P1/P2/P3 均已处理，剩余取舍见第 11 节末尾。**
 
 ## 1. 评分
 
@@ -630,6 +630,8 @@ AGENTS 写的 `RESULT_CAP = 8000` 只是“正文截断到 8000”，最终工�
 
 ## 6. P3：低风险问题清单
 
+> **状态（2026-11-08，批次 11）：** 下表 41 项均已处理或明确接受。除 P3-33（历史列表未做真正虚拟化，改用 `content-visibility` 折中）和 P3-11（不改 token 统计，改为标注“累计输入”）外，其余均已修复；实现与回归见第 11 节。
+
 | 位置 | 问题 | 建议 |
 | --- | --- | --- |
 | `server/index.mjs:301` | `body.model?.trim()` 对数字/对象会抛 TypeError；`/api/settings/test` 的 catch 把它变成 200 + “请求失败：...trim is not a function” | 用 `typeof body.model === 'string'` 判断 |
@@ -829,3 +831,14 @@ AGENTS 写的 `RESULT_CAP = 8000` 只是“正文截断到 8000”，最终工�
 - **文档**：AGENTS §5 改为“有 `tools` 时必须回放 reasoning；无 `tools` 的自动标题不带 reasoning；只回传明文正文，不带真实 summary / `encrypted_content`”。`server/db.mjs` 的注释同步说明 `rs_<rowid>` 是本地占位 id、`summary: []` 只是 OpenAI 兼容用的空字段。
 - **回归**：`scripts/test-turn-integrity.mjs` 增加 `historyItems()` 断言（reasoning 正文存在、位于 function_call 之前、无 `encrypted_content`、summary 为空）；新增 `scripts/test-reasoning-replay.mjs`，用 fake upstream 验证工具回合的第二次请求确实携带 reasoning，且 reasoning → function_call → function_call_output 顺序正确。
 - 验证：`pnpm verify` 通过（23 个后端回归；59 个 `.mjs` 与 6 个 PowerShell 文件语法/BOM 检查），构建仅既有 sidepanel 1.03MB chunk 警告。
+
+### P3-1 ~ P3-41 低风险项清理
+
+- **后端健壮性**：`server.on('error')` 在 listen 失败时走 `shutdown('listen_error', 1)`，EADDRINUSE 不再留下假异常标记；`readJson(req)` 去掉未用的 `res`，增加 `aborted/error` 监听；`started` 提前声明；未知错误统一 `server.internal`；未执行工具调用写 `toolFailed:true`；`saveShot` 加 5MB 上限。
+- **配置/数据**：`settings.mjs` 用 `lastGoodSettings` 保存最后一次成功读取，瞬时读失败或解析失败不再静默切回默认值；`maskKey` 最多保留末 4 位；`truncateAfterLastUser` 的 boundary 与 DELETE 放进同一个 `BEGIN IMMEDIATE`；截图缓存只缓存命中；`statsFor` 删除未使用的 last 字段。
+- **工具/上游**：未知工具返回 `failed:true`；截图说明也包进 `<untrusted_content>`；`withV1` 对 Azure `*.azure.com/openai/deployments/...` 不再拼 `/v1`；`extensionIdFromKey` 严格校验 canonical base64。
+- **本地 PDF**：`readLocalPdf` 拒绝 UNC/设备路径，只允许用户目录/Temp 下经 `realpath` 解析后的 `.pdf`，并保留 64MB 上限；错误信息不回显绝对路径。
+- **前端**：引文 `<q>` 用 `encodeQuote/decodeQuote` 转义；`handleCopy` 捕获剪贴板拒绝；忙碌时 Enter 允许换行；切到不可读页面清空旧消息；`title` 事件按 conversationId 更新，不再被新一轮 runSeq 丢弃；移除 `lastPanelOpen` 调试写入；相对链接按当前页面 URL 解析；Composer 用固定 `composer.inputAria`；历史计数不再叠加双空格；设置页保存规范化后的 URL（尾点 host 修正）；新增 `ErrorBoundary`；`.round/.conv` 用 `content-visibility` 做轻量虚拟化。
+- **脚本/测试**：`test-turn-integrity` 断言真实 rowid 连续；`test-lifecycle-recover` 增加 `PRAGMA integrity_check`；`test-settings-webui` 改为逐 key 校验 en-XA；新增 `test-upstream-url`；`test-extension-id` 增加非 canonical base64 拒绝用例；`probe-api` 改走 Responses API，`probe-sw` 加 `PAGEASK_ALLOW_REAL` 门禁并移除创建菜单的副作用。
+- **接受项**：P3-11 不改 `totals` 的累计口径，只在 UI 标注“累计输入”；P3-33 不做真正的列表虚拟化，改用 `content-visibility` 折中；两者都记录在此，避免后续误判为遗漏。
+- 验证：`pnpm verify` 通过（25 个后端回归；60 个 `.mjs` 与 6 个 PowerShell 文件语法/BOM 检查），构建仅既有 sidepanel 1.03MB chunk 警告。

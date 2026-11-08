@@ -22,7 +22,7 @@ export function HistoryPanel({ conversations, conversationId, busy, onOpen, onDe
           <button className="conv-main" onClick={() => onOpen(c.id)} disabled={busy}>
             <span className="conv-t">{c.title || c.lastUserText || t('history.untitled')}</span>
             <span className="conv-m">
-              {fmtTime(c.lastMessageAt ?? c.updatedAt)}  {t('history.count', { count: c.messageCount ?? 0 })}
+              {fmtTime(c.lastMessageAt ?? c.updatedAt)} {t('history.count', { count: c.messageCount ?? 0 })}
             </span>
           </button>
           <button

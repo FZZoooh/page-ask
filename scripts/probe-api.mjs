@@ -1,7 +1,11 @@
-// Probe the upstream stream shape: which delta fields exist, whether stream_options is accepted,
-// when usage arrives. Reads baseUrl / model / key from ~/.config/pageask/settings.json.
-// Usage: node scripts/probe-api.mjs
+// Probe the upstream Responses API stream shape: which delta events exist and when usage arrives.
+// Reads baseUrl / model / key from ~/.config/pageask/settings.json and talks to the real upstream.
+// Usage: PAGEASK_ALLOW_REAL=1 node scripts/probe-api.mjs
 import { readSettings } from '../server/settings.mjs';
+import { withV1 } from '../server/upstream.mjs';
+import { requireRealConfig } from './require-real-config.mjs';
+
+requireRealConfig();
 
 const cfg = readSettings();
 const key = cfg.apiKey;
@@ -12,12 +16,13 @@ if (!key) {
 
 const body = {
   model: cfg.model,
-  messages: [{ role: 'user', content: '用一句话解释什么是 SSE，并用 $E=mc^2$ 举例。' }],
   stream: true,
-  stream_options: { include_usage: true },
+  store: false,
+  instructions: 'Answer in one short sentence.',
+  input: [{ role: 'user', content: [{ type: 'input_text', text: '用一句话解释什么是 SSE。' }] }],
 };
 
-const res = await fetch(`${cfg.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+const res = await fetch(`${withV1(cfg.baseUrl)}/responses`, {
   method: 'POST',
   headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
   body: JSON.stringify(body),
@@ -32,31 +37,41 @@ if (!res.ok) {
 const reader = res.body.getReader();
 const dec = new TextDecoder();
 let buf = '';
-let lines = 0;
+let events = 0;
 const kinds = new Set();
-while (lines < 40) {
+while (events < 80) {
   const { done, value } = await reader.read();
   if (done) break;
-  buf += dec.decode(value, { stream: true });
+  buf += dec.decode(value, { stream: true }).replace(/\r\n/g, '\n');
   let idx;
-  while ((idx = buf.indexOf('\n')) >= 0) {
-    const line = buf.slice(0, idx).trim();
-    buf = buf.slice(idx + 1);
-    if (!line.startsWith('data:')) continue;
-    const data = line.slice(5).trim();
-    if (data === '[DONE]') {
-      console.log('[[DONE]]');
-      lines = 999;
-      break;
+  while ((idx = buf.indexOf('\n\n')) >= 0) {
+    const frame = buf.slice(0, idx);
+    buf = buf.slice(idx + 2);
+    let name = '';
+    let data = '';
+    for (const line of frame.split('\n')) {
+      if (line.startsWith('event:')) name = line.slice(6).trim();
+      else if (line.startsWith('data:')) data += line.slice(5).trim();
     }
-    const j = JSON.parse(data);
-    const d = j.choices?.[0]?.delta ?? {};
-    for (const k of Object.keys(d)) kinds.add(k);
-    if (j.usage) console.log('USAGE CHUNK:', JSON.stringify(j.usage));
-    if (d.reasoning_content) process.stdout.write(`[R]${d.reasoning_content}`);
-    else if (d.content) process.stdout.write(`[C]${d.content}`);
-    if (++lines >= 40) break;
+    if (!name && !data) continue;
+    kinds.add(name || '(data-only)');
+    let parsed = null;
+    try {
+      parsed = data ? JSON.parse(data) : null;
+    } catch {
+      console.log('non-JSON frame:', frame.slice(0, 200));
+      continue;
+    }
+    if (name === 'response.output_text.delta' && parsed?.delta) process.stdout.write(`[C]${parsed.delta}`);
+    else if (name === 'response.reasoning_text.delta' && parsed?.delta) process.stdout.write(`[R]${parsed.delta}`);
+    else if (name === 'response.completed') {
+      console.log('\nUSAGE:', JSON.stringify(parsed?.response?.usage ?? null));
+      console.log('OUTPUT TYPES:', (parsed?.response?.output ?? []).map((i) => i.type).join(', '));
+    } else if (name === 'response.failed' || name === 'error') {
+      console.log('\nFAILED:', data.slice(0, 500));
+    }
+    if (++events >= 80) break;
   }
 }
-console.log('\ndelta 出现过的字段:', [...kinds].join(', '));
+console.log('\nevents:', [...kinds].join(', '));
 await reader.cancel();

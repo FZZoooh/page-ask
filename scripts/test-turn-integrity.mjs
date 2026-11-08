@@ -4,11 +4,13 @@
 //
 // Run: node scripts/test-turn-integrity.mjs
 import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { join } from 'node:path';
 import { makeTestConfig } from './temp-config.mjs';
 
 // server/db.mjs resolves the data dir from settings.json at import time, and there are no env
 // vars anymore: makeTestConfig writes a throw-away home first, so it must run before the import.
-const { cleanup } = makeTestConfig({ port: 8787 });
+const { cleanup, dataDir } = makeTestConfig({ port: 8787 });
 
 const { addTurn, createConversation, getConversation, historyItems } = await import('../server/db.mjs');
 
@@ -69,6 +71,18 @@ try {
     assert.equal(convDb.messages[0].role, 'assistant');
     assert.equal(convDb.messages[1].role, 'tool');
     assert.equal(convDb.messages[2].role, 'tool');
+    // Role counts alone would pass even if a concurrent writer slipped a row into the middle.
+    const db = new DatabaseSync(join(dataDir, 'pageask.db'), { readOnly: true });
+    try {
+      const rows = db
+        .prepare('SELECT rowid, role FROM messages WHERE conversation_id = ? ORDER BY rowid')
+        .all(conv.id);
+      assert.deepEqual(rows.map((r) => r.role), ['assistant', 'tool', 'tool']);
+      assert.equal(rows[1].rowid, rows[0].rowid + 1);
+      assert.equal(rows[2].rowid, rows[1].rowid + 1);
+    } finally {
+      db.close();
+    }
   });
 
   // 2) Legacy data: the assistant has 2 calls but only 1 tool row was persisted.

@@ -11,6 +11,9 @@ export const enUS = {
   'header.history': 'History',
   'header.history.title': 'Chats on this page',
   'header.settings': 'Settings',
+  'app.renderError': 'Something went wrong',
+  'app.renderErrorHint': 'The side panel hit an unexpected error. Reload it to continue.',
+  'app.reload': 'Reload',
   'header.settings.title': 'Configure backend and model',
   'header.reload': 'Reload',
 
@@ -24,7 +27,7 @@ export const enUS = {
   'history.hint': 'Chats on this site',
   'history.empty': 'No chats yet',
   'history.untitled': 'Untitled',
-  'history.count': ' · {count} turns',
+  'history.count': '· {count} turns',
   'history.titleWithCount': 'History {count}',
   'history.delete': 'Delete this chat',
   'history.deleteConfirm': 'Delete this chat? This cannot be undone.',
@@ -105,7 +108,7 @@ export const enUS = {
   'round.thinkOnly': 'Thought for {secs}s',
 
   // Answer
-  'answer.usage': ' {in} input tokens · {out} output tokens',
+  'answer.usage': ' total {in} input tokens · {out} output tokens',
   'answer.stopped': 'Generation stopped',
   'answer.stoppedEmpty': 'Stopped',
 
@@ -115,6 +118,7 @@ export const enUS = {
   'composer.placeholder.ready': 'Message PageAsk',
   'composer.send': 'Send',
   'composer.stop': 'Stop',
+  'composer.inputAria': 'Message input',
   // Selection hint on the composer's first line (also sent with the request)
   'composer.selection.aria': 'Web page selection: {text}',
 

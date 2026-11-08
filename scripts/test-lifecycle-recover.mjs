@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, write
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -206,6 +207,14 @@ await stopServer(child);
 
 // After the WAL checkpoint the main DB should hold recent writes (a leftover -wal is allowed)
 check('退出后主库文件存在且已关闭', () => assert.equal(statSync(join(dataDir, 'pageask.db')).isFile(), true));
+check('关闭后的数据库通过 integrity_check', () => {
+  const db = new DatabaseSync(join(dataDir, 'pageask.db'), { readOnly: true });
+  try {
+    assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
+  } finally {
+    db.close();
+  }
+});
 
 console.log('全部通过');
 rmSync(temp, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });

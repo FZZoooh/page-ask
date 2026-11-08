@@ -23,8 +23,12 @@ const ID_ALPHABET = 'abcdefghijklmnop';
 export function extensionIdFromKey(base64Key) {
   const encoded = String(base64Key ?? '').trim();
   if (!encoded) throw new Error('extension key is empty');
+  // Buffer.from ignores junk silently (and accepts unpadded input), so reject anything that is not
+  // canonical base64 before decoding; otherwise a truncated key can still hash to a plausible-looking ID.
+  if (encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) {
+    throw new Error('extension key is not valid base64');
+  }
   const der = Buffer.from(encoded, 'base64');
-  // Buffer.from ignores junk silently; an empty DER would otherwise hash to a plausible-looking ID
   if (!der.length) throw new Error('extension key is not valid base64');
   const digest = createHash('sha256').update(der).digest();
   let id = '';
