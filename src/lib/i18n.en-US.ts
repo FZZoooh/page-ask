@@ -145,6 +145,7 @@ export const enUS = {
   'error.settings.invalid_state': 'Invalid session state (allowed: {modes})',
   'error.settings.missing_api_key':
     'No API key configured: open {settingsUrl} to add one (or choose "Configure…" from the tray menu)',
+  'error.settings.open_failed': 'Could not open the config file; open it by hand',
   'error.chat.empty_text': 'Question cannot be empty',
   'error.chat.missing_page': 'Missing page information',
   'error.upstream.bad_request': 'Upstream rejected the request (400)',

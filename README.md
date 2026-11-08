@@ -9,7 +9,7 @@ PageAsk 是一款面向 Chromium 内核浏览器（Microsoft Edge / Google Chrom
 ## 核心特性
 
 - **多格式内容提取**：自动提取普通网页正文；支持本地与在线 PDF 文档的文字解析。
-- **划词引用问答**：支持在回答中选中文本进行二次引用提问，保持多轮上下文连贯。
+- **划词引用问答**：支持在回答中选中文本进行二次引用提问。
 - **系统托盘集成**：支持 Windows 系统托盘后台静默运行、进程守护及开机自启。
 - **详细统计指标**：提供上下文 Token 计算、耗时监控及性能统计。
 
@@ -19,7 +19,7 @@ PageAsk 是一款面向 Chromium 内核浏览器（Microsoft Edge / Google Chrom
 
 - **Node.js**：`≥ 22.13`（后端依赖原生 `node:sqlite` 及现代 PDF 解析能力）
 - **包管理器**：`pnpm`
-- **浏览器**：Microsoft Edge 或 Google Chrome（需开启“开发人员模式”；侧栏 API 要求 116 及以上版本）
+- **浏览器**：Microsoft Edge 或 Google Chrome（>= 116）
 
 ---
 
@@ -37,14 +37,13 @@ pnpm build
 ### 2. 启动本地服务
 
 ```powershell
-pnpm server:win
-# 或直接启动常驻托盘（推荐）：
-# pnpm tray:bg
+pnpm tray:bg
+# 后台运行；与终端分离 
 ```
 
 > 服务默认监听 `127.0.0.1:8787`。首次启动会自动在 `%USERPROFILE%\.config\pageask\` 下生成配置文件，所有配置都在这一个文件里。
 >
-> 配置文件中的 `port`、`dataDir`、`token` 分别控制端口、数据目录与访问令牌（`dataDir` 留空表示 `server/data`）。改这几个字段需要重启后端，或等待托盘每 4 秒自动重读文件并重启。
+> 配置文件中的 `port`、`dataDir`、`token` 分别控制端口、数据目录与访问令牌（`dataDir` 留空则使用默认值 `server/data`）。改这几个字段需要重启后端，或等待托盘每 4 秒自动重读文件并重启。
 
 ### 3. 配置 LLM 服务
 
@@ -128,7 +127,7 @@ PageAsk is a side-panel AI assistant for Chromium-based browsers (Microsoft Edge
 ### Features
 
 - **Multi-format extraction**: pulls the main content out of ordinary web pages, and parses the text layer of both local and online PDF documents.
-- **Ask about a selection**: select text in an answer to quote it in a follow-up question while keeping the multi-turn context coherent.
+- **Ask about a selection**: select text in an answer to quote it in a follow-up question.
 - **System tray integration**: runs quietly in the Windows tray, with a process watchdog and start-at-login support.
 - **Detailed metrics**: context token counting, latency monitoring and performance statistics.
 
@@ -156,14 +155,13 @@ The build output goes to `.output/chrome-mv3`.
 #### 2. Start the local service
 
 ```powershell
-pnpm server:win
-# or start the resident tray (recommended):
-# pnpm tray:bg
+pnpm tray:bg
+# runs in background; detached from terminal.
 ```
 
 > The service listens on `127.0.0.1:8787` by default. The first start creates the config file under `%USERPROFILE%\.config\pageask\`, and that one file holds the entire configuration.
 >
-> Its `port`, `dataDir` and `token` fields control the port, data directory and access token (`dataDir` empty means `server/data`). Changing these fields requires restarting the backend, or waiting for the tray to re-read the file every 4 seconds and restart automatically.
+> Its `port`, `dataDir` and `token` fields control the port, data directory and access token (`dataDir` empty means default value `server/data`). Changing these fields requires restarting the backend, or waiting for the tray to re-read the file every 4 seconds and restart automatically.
 
 #### 3. Configure LLM service
 
@@ -219,9 +217,6 @@ A: Browser security policy prevents content-script injection into `edge://*` pag
 
 **Q: A local PDF (`file://`) won't parse?**  
 A: Because of the extension's own sandbox restrictions, local PDFs are read from disk and parsed by the backend service. Make sure the local backend is running.
-
-**Q: The panel goes blank or disappears after switching tabs?**  
-A: This is known behavior of the current Edge side panel. Click the PageAsk toolbar icon again to bring back the state of the active tab.
 
 ---
 

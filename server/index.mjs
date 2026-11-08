@@ -10,6 +10,7 @@
 // Every setting comes from settings.json: baseUrl / model / apiKey / state plus port, token and
 // dataDir. No environment variable and no startup argument may override it. The extension ID is
 // the one exception: it is derived from extension-key.json, which the build also consumes.
+import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -245,6 +246,21 @@ async function handle(req, res) {
       });
       logEvent('settings.saved', { baseUrl: saved.baseUrl, model: saved.model, state: saved.state, hasKey: Boolean(saved.apiKey) });
       return sendJson(res, 200, publicSettings(saved));
+    }
+  }
+
+  // POST /api/settings/open: open the config file in the OS default app. A page cannot link to
+  // file:// (Chromium refuses http → file navigation), so the click comes through here. The path is
+  // the server constant, never request input, so this endpoint can only ever open settings.json.
+  if (req.method === 'POST' && url.pathname === '/api/settings/open') {
+    if (!allowSettingsRequest(req)) return sendJson(res, 403, errorPayload('auth.forbidden'));
+    try {
+      openSettingsFile();
+      logEvent('settings.opened');
+      return sendJson(res, 200, { ok: true });
+    } catch (err) {
+      logError('settings.open', err);
+      return sendJson(res, 500, errorPayload('settings.open_failed'));
     }
   }
 
@@ -1352,6 +1368,37 @@ function allowSettingsRequest(req) {
 function checkToken(req) {
   const auth = req.headers.authorization ?? '';
   return auth === `Bearer ${TOKEN}`;
+}
+
+/**
+ * Open settings.json with the OS default app. `spawnSync`, not `spawn`: the failure has to be
+ * known before the 200 goes out, and the launcher itself exits right after handing off.
+ */
+function openSettingsFile() {
+  let cmd;
+  let args;
+  let verbatim = false;
+  if (process.platform === 'win32') {
+    // cmd parses this line itself, so the path is quoted here and passed through verbatim. `start`
+    // needs the explicit empty title, otherwise a quoted path is taken as the window title.
+    cmd = 'cmd.exe';
+    args = ['/d', '/s', '/c', `start "" "${settingsFile}"`];
+    verbatim = true;
+  } else if (process.platform === 'darwin') {
+    cmd = 'open';
+    args = [settingsFile];
+  } else {
+    cmd = 'xdg-open';
+    args = [settingsFile];
+  }
+  const result = spawnSync(cmd, args, {
+    stdio: 'ignore',
+    windowsHide: true,
+    windowsVerbatimArguments: verbatim,
+    timeout: 5000,
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`${cmd} exited with ${result.status}`);
 }
 
 function sendJson(res, status, data) {

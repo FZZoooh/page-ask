@@ -149,6 +149,7 @@ export const zhCN = {
   'error.settings.invalid_state': '会话状态不合法（可选：{modes}）',
   'error.settings.missing_api_key':
     '还没有配置 API Key：打开 {settingsUrl} 填一个（或在托盘菜单里点「配置…」）',
+  'error.settings.open_failed': '打不开配置文件，请手动打开它',
   'error.chat.empty_text': '问题不能为空',
   'error.chat.missing_page': '缺少页面信息',
   'error.upstream.bad_request': '请求被上游拒绝（400）',

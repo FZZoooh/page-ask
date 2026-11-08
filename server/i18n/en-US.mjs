@@ -41,6 +41,8 @@ export const messages = {
   'webui.healthTokenRequired':
     'Access token required (the token in settings.json); status information is unavailable',
   'webui.metaFile': 'Config file: ',
+  'webui.openFile': 'Open the config file',
+  'webui.openFailed': 'Could not open it: {message}',
   'webui.metaProvider': 'Provider: ',
   'webui.metaModel': 'Model: ',
   'webui.metaKey': 'API key: ',
@@ -68,6 +70,7 @@ export const messages = {
     'Base URL must start with http:// or https:// and must not contain query parameters or credentials',
   'error.settings.invalid_state': 'Invalid session state (allowed: {modes})',
   'error.settings.missing_api_key': 'No API key configured',
+  'error.settings.open_failed': 'Could not open the config file; open it by hand',
   'error.chat.empty_text': 'Question cannot be empty',
   'error.chat.missing_page': 'Missing page information',
   'error.upstream.bad_request': 'Upstream rejected the request (400)',

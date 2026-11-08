@@ -147,6 +147,19 @@ try {
   check('en-XA 使用伪文案', () => assert.ok(pseudo.raw.includes('[!!') && pseudo.raw.includes('PageAsk')));
   check('en-XA 明显更长', () => assert.ok(pseudo.raw.length > page.raw.length));
 
+  // 1c. The config path is a button that asks the backend to open the file (a file:// link cannot
+  //     work from an http page). Opening it is a settings write: same origin or the token, like save.
+  check('配置页有可点击的配置路径', () => assert.ok(page.raw.includes('id="file"')));
+
+  const getOpen = await request('/api/settings/open', {
+    headers: { Origin: sameOrigin, Authorization: 'Bearer secret' },
+  });
+  check('GET 打开配置文件 404', () => assert.equal(getOpen.status, 404));
+
+  const anonOpen = await postJson('/api/settings/open', {});
+  check('无 Origin 打开配置文件 403', () => assert.equal(anonOpen.status, 403));
+  check('打开配置文件的错误码', () => assert.equal(anonOpen.body?.code, 'auth.forbidden'));
+
   // 2. Error codes: invalid state / invalid baseUrl
   const badState = await postJson('/api/settings', { state: 'maybe' }, { Origin: sameOrigin });
   check('非法 state 返回 400', () => assert.equal(badState.status, 400));

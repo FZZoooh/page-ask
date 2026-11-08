@@ -65,6 +65,13 @@ export function settingsPageHtml({ version, locale = DEFAULT_LOCALE }) {
   #msg.err { color: var(--err); white-space: pre-wrap; }
   .meta { margin-top: 22px; color: var(--muted); font-size: 12.5px; }
   .meta code { font-size: 12px; word-break: break-all; }
+  button.path {
+    display: inline; max-width: 100%; padding: 0; border: 0; background: none; color: var(--accent);
+    font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 12px; text-align: left; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px;
+    word-break: break-all; vertical-align: baseline;
+  }
+  button.path:hover { text-decoration-style: solid; }
   .note { color: var(--muted); font-size: 12px; margin: 12px 0 0; }
 </style>
 </head>
@@ -117,7 +124,7 @@ export function settingsPageHtml({ version, locale = DEFAULT_LOCALE }) {
   </div>
 
   <p class="meta">
-    ${t('webui.metaFile')}<code id="file">…</code><br>
+    ${t('webui.metaFile')}<button type="button" class="path" id="file" title="${t('webui.openFile')}">…</button><br>
     ${t('webui.metaProvider')}<code id="hBase">…</code><br>
     ${t('webui.metaModel')}<code id="hModel">…</code><br>
     ${t('webui.metaKey')}<code id="hKey">…</code><br>
@@ -271,6 +278,19 @@ $('clearKey').onclick = async () => {
     setMsg(m('webui.clearFailed', { message: err.message }), 'err');
   } finally {
     $('clearKey').disabled = false;
+  }
+};
+
+// The path is a button rather than a link: Chromium blocks http → file:// navigation, so the
+// backend opens the file. Same-origin only, like every other /api/settings write.
+$('file').onclick = async () => {
+  $('file').disabled = true;
+  try {
+    await api('/api/settings/open', {});
+  } catch (err) {
+    setMsg(m('webui.openFailed', { message: err.message }), 'err');
+  } finally {
+    $('file').disabled = false;
   }
 };
 
