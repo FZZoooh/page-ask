@@ -6,10 +6,12 @@
  * 前端扩展有自己的 `src/lib/i18n.ts`；这里只服务后端直出的内容（配置页、错误体）。
  */
 import zhCN, { locale as zhCNLocale } from './zh-CN.mjs';
+import enUS, { locale as enUSLocale } from './en-US.mjs';
 import enXA, { locale as enXALocale } from './en-XA.mjs';
 
 const DICTS = new Map([
   [zhCNLocale, zhCN],
+  [enUSLocale, enUS],
   [enXALocale, enXA],
 ]);
 
@@ -27,10 +29,13 @@ function normalizeTag(tag) {
 function lookup(tag) {
   if (!tag) return undefined;
   if (DICTS.has(tag)) return tag;
-  // 先做大小写归一，再接受同语种的宽泛匹配（zh、zh-Hans → zh-CN）
+  // 先做大小写归一，再接受同语种的宽泛匹配（zh、zh-Hans → zh-CN；en、en-GB → en-US）
   const normalized = normalizeTag(tag);
   if (DICTS.has(normalized)) return normalized;
-  if (/^zh(?:\b|-)/i.test(tag)) return DEFAULT_LOCALE;
+  const base = String(tag).toLowerCase().split('-')[0];
+  for (const locale of DICTS.keys()) {
+    if (locale.toLowerCase().split('-')[0] === base) return locale;
+  }
   return undefined;
 }
 

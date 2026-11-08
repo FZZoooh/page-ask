@@ -1,4 +1,6 @@
 /** 扩展自己的设置：现在只关心「后端地址」和显示偏好；模型与 Key 都在后端的 settings.json 里。 */
+import type { LocalePreference } from './i18n';
+
 export interface Settings {
   /** 本地后端地址，例如 http://127.0.0.1:8787 */
   backendUrl: string;
@@ -6,12 +8,15 @@ export interface Settings {
   verbose: boolean;
   /** 后端设了 PAGEASK_TOKEN 时，浏览器端要带同一个令牌；后端没设就留空 */
   token: string;
+  /** 界面语言；auto 跟随浏览器，其余强制指定 */
+  locale: LocalePreference;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   backendUrl: 'http://127.0.0.1:8787',
   verbose: true,
   token: '',
+  locale: 'auto',
 };
 
 const KEY = 'pageask.settings.v2';
@@ -23,6 +28,7 @@ function pick(raw: Partial<Settings> | undefined): Settings {
     backendUrl: raw?.backendUrl?.trim() || DEFAULT_SETTINGS.backendUrl,
     verbose: raw?.verbose !== false,
     token: raw?.token?.trim() ?? '',
+    locale: raw?.locale === 'zh-CN' || raw?.locale === 'en-US' ? raw.locale : 'auto',
   };
 }
 

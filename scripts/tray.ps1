@@ -26,15 +26,17 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-# 托盘文案放在 scripts/i18n/<culture>/Tray.psd1，按系统 UI 语言取；没有对应语言就回退 zh-CN。
-# 日志（Write-Tray）保持英文，不参与本地化。
+# 托盘文案放在 scripts/i18n/<culture>/Tray.psd1，按系统 UI 语言取；
+# 先试完整 culture，再试语言前缀，最后回退 en-US / zh-CN。日志（Write-Tray）保持英文。
 function Get-TrayStrings {
   param([string]$Culture)
   $base = Join-Path $PSScriptRoot 'i18n'
+  $lang = if ($Culture) { ($Culture -split '-')[0] } else { '' }
   $tried = @()
-  foreach ($c in @($Culture, 'zh-CN')) {
+  foreach ($c in @($Culture, $lang, 'en-US', 'zh-CN')) {
     if (-not $c -or $tried -contains $c) { continue }
     $tried += $c
+    if (-not (Test-Path (Join-Path (Join-Path $base $c) 'Tray.psd1'))) { continue }
     try {
       return Import-LocalizedData -BaseDirectory $base -FileName 'Tray.psd1' -UICulture $c -ErrorAction Stop
     } catch { }

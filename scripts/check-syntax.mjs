@@ -8,11 +8,17 @@ import { fileURLToPath } from 'node:url';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const dirs = ['server', 'scripts'];
 const files = [];
-for (const dir of dirs) {
-  for (const name of readdirSync(join(root, dir))) {
-    if (name.endsWith('.mjs')) files.push(join(root, dir, name));
+
+// 递归：server/i18n/ 等子目录里的 .mjs 同样要检查。
+function collect(dir) {
+  for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
+    const rel = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) collect(rel);
+    else if (entry.name.endsWith('.mjs')) files.push(join(root, rel));
   }
 }
+
+for (const dir of dirs) collect(dir);
 
 let failed = 0;
 for (const file of files) {

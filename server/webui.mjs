@@ -33,6 +33,8 @@ export function settingsPageHtml({ version, locale = DEFAULT_LOCALE }) {
     font: 14px/1.65 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
   }
   main { max-width: 620px; margin: 0 auto; }
+  .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  #lang { width: auto; padding: 4px 8px; font-size: 12px; }
   h1 { font-size: 19px; margin: 0 0 4px; }
   .sub { color: var(--muted); margin: 0 0 24px; font-size: 12.5px; }
   .card { border: 1px solid var(--line); border-radius: 12px; padding: 18px 18px 6px; background: var(--card); }
@@ -68,8 +70,16 @@ export function settingsPageHtml({ version, locale = DEFAULT_LOCALE }) {
 </head>
 <body>
 <main>
-  <h1>${t('webui.title')}</h1>
-  <p class="sub">${t('webui.subtitle', { version })}</p>
+  <div class="top">
+    <div>
+      <h1>${t('webui.title')}</h1>
+      <p class="sub">${t('webui.subtitle', { version })}</p>
+    </div>
+    <select id="lang" aria-label="${t('webui.language')}" title="${t('webui.language')}">
+      <option value="zh-CN">${t('webui.languageZh')}</option>
+      <option value="en-US">${t('webui.languageEn')}</option>
+    </select>
+  </div>
 
   <div class="card">
     <label class="field">
@@ -119,6 +129,14 @@ export function settingsPageHtml({ version, locale = DEFAULT_LOCALE }) {
 const M = ${clientDict};
 const $ = (id) => document.getElementById(id);
 const msg = $('msg');
+
+const lang = $('lang');
+lang.value = ${JSON.stringify(locale)};
+lang.onchange = () => {
+  const url = new URL(location.href);
+  url.searchParams.set('lang', lang.value);
+  location.href = url.toString();
+};
 
 function m(key, vars) {
   const text = M[key] || key;

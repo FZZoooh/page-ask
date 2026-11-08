@@ -16,7 +16,7 @@ import {
   type ExtractedPage,
   type ReadFailure,
 } from '@/lib/extract';
-import { t, tError, type MessageKey } from '@/lib/i18n';
+import { getLocale, resolveLocale, setLocale, t, tError, type MessageKey } from '@/lib/i18n';
 import {
   DEFAULT_SETTINGS,
   isConfigured,
@@ -207,8 +207,16 @@ export default function App() {
   }, [load]);
 
   useEffect(() => {
-    void loadSettings().then(setSettings);
+    void loadSettings().then((next) => {
+      setLocale(resolveLocale(next.locale));
+      setSettings(next);
+    });
   }, []);
+
+  // 语言切换后同步 <html lang>，屏幕阅读器与拼写检查都看它
+  useEffect(() => {
+    document.documentElement.lang = getLocale();
+  }, [settings]);
 
   /* ---------------- 换页 → 换会话 ---------------- */
 
@@ -897,6 +905,7 @@ export default function App() {
         <SettingsPanel
           value={settings}
           onDone={(next) => {
+            setLocale(resolveLocale(next.locale));
             setSettings(next);
             setSettingsOpen(false);
           }}

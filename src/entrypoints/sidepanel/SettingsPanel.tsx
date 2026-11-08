@@ -39,6 +39,7 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
     backendUrl: draft.backendUrl.trim() || DEFAULT_SETTINGS.backendUrl,
     verbose: draft.verbose,
     token: draft.token.trim(),
+    locale: draft.locale,
   });
 
   /** 校验草稿地址；失败时直接写进 probe，调用方返回即可 */
@@ -120,6 +121,18 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
           placeholder={t('settings.tokenPlaceholder')}
         />
         <small>{t('settings.tokenHint')}</small>
+      </label>
+
+      <label className="field">
+        <span>{t('settings.language')}</span>
+        <select
+          value={draft.locale}
+          onChange={(e) => patch({ locale: e.target.value as Settings['locale'] })}
+        >
+          <option value="auto">{t('settings.languageAuto')}</option>
+          <option value="zh-CN">{t('settings.languageZh')}</option>
+          <option value="en-US">{t('settings.languageEn')}</option>
+        </select>
       </label>
 
       {/* 「显示详细信息」的说明放在 title 里，悬停才出现，不占版面 */}

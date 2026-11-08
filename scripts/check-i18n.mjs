@@ -225,12 +225,18 @@ async function checkErrorCodes() {
 
 async function checkLocales() {
   const zh = await loadDict('server/i18n/zh-CN.mjs');
+  const en = await loadDict('server/i18n/en-US.mjs');
   const xa = await loadDict('server/i18n/en-XA.mjs');
   const zhKeys = Object.keys(zh.default).sort();
-  const xaKeys = Object.keys(xa.default).sort();
 
-  if (zhKeys.join('\n') !== xaKeys.join('\n')) {
-    fail('server/i18n/en-XA.mjs', 0, 'en-XA 与 zh-CN 的 key 不一致');
+  for (const [file, dict] of [
+    ['server/i18n/en-US.mjs', en],
+    ['server/i18n/en-XA.mjs', xa],
+  ]) {
+    const keys = Object.keys(dict.default).sort();
+    if (zhKeys.join('\n') !== keys.join('\n')) {
+      fail(file, 0, `key 与 zh-CN 不一致（缺 ${zhKeys.filter((k) => !keys.includes(k)).join(', ') || '无'}；多 ${keys.filter((k) => !zhKeys.includes(k)).join(', ') || '无'}）`);
+    }
   }
 
   let zhLen = 0;
@@ -250,27 +256,44 @@ async function checkLocales() {
   }
 
   const index = await loadDict('server/i18n/index.mjs');
-  if (!index.SUPPORTED_LOCALES.includes('en-XA')) {
-    fail('server/i18n/index.mjs', 0, 'en-XA 没有注册进 DICTS');
+  for (const locale of ['en-US', 'en-XA']) {
+    if (!index.SUPPORTED_LOCALES.includes(locale)) {
+      fail('server/i18n/index.mjs', 0, `${locale} 没有注册进 DICTS`);
+    }
   }
 }
 
 async function checkTrayKeys() {
   const texts = ['scripts/tray.ps1', 'scripts/tray-bg.ps1'].map((f) => readFileSync(f, 'utf8'));
-  const dictText = readFileSync('scripts/i18n/zh-CN/Tray.psd1', 'utf8');
-  const keys = new Set(
-    [...dictText.matchAll(/^\s*([A-Za-z]\w*)\s*=\s*'/gm)].map((m) => m[1]),
-  );
+  const dictFiles = ['scripts/i18n/zh-CN/Tray.psd1', 'scripts/i18n/en-US/Tray.psd1'];
+  const keySets = dictFiles.map((file) => {
+    const dictText = readFileSync(file, 'utf8');
+    return new Set(
+      [...dictText.matchAll(/^\s*([A-Za-z]\w*)\s*=\s*'/gm)].map((m) => m[1]),
+    );
+  });
   const used = new Set(
     texts.flatMap((text) =>
       [...text.matchAll(/\$(?:script:)?Tray\.(\w+)/g)].map((m) => m[1]),
     ),
   );
-  for (const key of used) {
-    if (!keys.has(key)) fail('scripts/i18n/zh-CN/Tray.psd1', 0, `缺少 ${key}`);
+
+  for (const [i, file] of dictFiles.entries()) {
+    const keys = keySets[i];
+    for (const key of used) {
+      if (!keys.has(key)) fail(file, 0, `缺少 ${key}`);
+    }
+    for (const key of keys) {
+      if (!used.has(key)) fail(file, 0, `${key} 未被使用`);
+    }
   }
-  for (const key of keys) {
-    if (!used.has(key)) fail('scripts/i18n/zh-CN/Tray.psd1', 0, `${key} 未被使用`);
+
+  const [zhKeys, enKeys] = keySets;
+  for (const key of zhKeys) {
+    if (!enKeys.has(key)) fail('scripts/i18n/en-US/Tray.psd1', 0, `缺少 ${key}`);
+  }
+  for (const key of enKeys) {
+    if (!zhKeys.has(key)) fail('scripts/i18n/zh-CN/Tray.psd1', 0, `缺少 ${key}`);
   }
 }
 

@@ -108,14 +108,27 @@ try {
   const up = await waitFor(async () => (await fetch(`${sameOrigin}/health/live`)).ok);
   check('后端启动', () => assert.ok(up));
 
-  // 1. 页面由外部字典渲染；Accept-Language 不匹配时回退 zh-CN
-  const page = await request('/settings', { headers: { 'Accept-Language': 'en-US,en;q=0.9' } });
+  // 1. 页面由外部字典渲染；Accept-Language 选语言，不匹配时回退 zh-CN
+  const enPage = await request('/settings', { headers: { 'Accept-Language': 'en-US,en;q=0.9' } });
+  check('en-US 配置页 200', () => assert.equal(enPage.status, 200));
+  check('Accept-Language 选 en-US', () => assert.match(enPage.raw, /<html lang="en-US">/));
+  check('英文标题来自字典', () => assert.ok(enPage.raw.includes('PageAsk Settings')));
+  check('英文页面没有空占位', () => assert.ok(!enPage.raw.includes('>undefined<') && !enPage.raw.includes('>null<')));
+  check('英文客户端拿到整份字典', () => assert.ok(enPage.raw.includes('"webui.saved"') && enPage.raw.includes('"Saved"')));
+
+  const page = await request('/settings');
   check('配置页 200', () => assert.equal(page.status, 200));
-  check('html lang 回退 zh-CN', () => assert.match(page.raw, /<html lang="zh-CN">/));
+  check('默认 html lang 为 zh-CN', () => assert.match(page.raw, /<html lang="zh-CN">/));
   check('标题来自字典', () => assert.ok(page.raw.includes('PageAsk 配置')));
   check('页面没有空占位', () => assert.ok(!page.raw.includes('>undefined<') && !page.raw.includes('>null<')));
   check('客户端拿到整份字典', () => assert.ok(page.raw.includes('"webui.saved"')));
   check('客户端拿到错误码文案', () => assert.ok(page.raw.includes('"error.settings.invalid_state"')));
+
+  // 1a. ?lang= 优先于 Accept-Language；不支持的语言回退默认
+  const forcedEn = await request('/settings?lang=en-US', { headers: { 'Accept-Language': 'zh-CN' } });
+  check('?lang=en-US 覆盖 Accept-Language', () => assert.match(forcedEn.raw, /<html lang="en-US">/));
+  const unsupported = await request('/settings?lang=fr-FR');
+  check('不支持的语言回退 zh-CN', () => assert.match(unsupported.raw, /<html lang="zh-CN">/));
 
   // 1b. 伪本地化：?lang=en-XA 走同一份字典，文本显著变长，用于肉眼/截图查布局
   const pseudo = await request('/settings?lang=en-XA');

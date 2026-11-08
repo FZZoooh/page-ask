@@ -51,6 +51,9 @@ export const messages = {
   'webui.stateful': '有状态',
   'webui.stateless': '无状态',
   'webui.errorUnknown': '未知错误',
+  'webui.language': '界面语言',
+  'webui.languageZh': '简体中文',
+  'webui.languageEn': 'English',
 
   // ---------------- 后端错误码 ----------------
   'error.auth.origin': '请求来源不被允许',

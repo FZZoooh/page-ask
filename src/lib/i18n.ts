@@ -1,7 +1,9 @@
 /**
  * 面向用户的文案都在这里：key 用「模块.名字」命名，组件里只写 t('key')。
- * 加一种语言就复制一份字典，把 DEFAULT_LOCALE 改掉即可，组件不用动。
+ * 语言在运行时选择（settings.locale / 浏览器语言）；新增语言就加一份字典并注册到 dictionaries，
+ * 组件不用动，但两份字典的 key 必须完全一致（由 i18n.en-US.ts 的 satisfies 保证）。
  */
+import { enUS } from './i18n.en-US';
 
 export const zhCN = {
 
@@ -189,6 +191,10 @@ export const zhCN = {
   'settings.probeOk': '已连接到 {model}',
   'settings.console': '打开后端配置页',
   'settings.consoleHint': '配置 API 密钥、端点和模型名',
+  'settings.language': '界面语言',
+  'settings.languageAuto': '跟随浏览器',
+  'settings.languageZh': '简体中文',
+  'settings.languageEn': 'English',
 
   // 右键菜单
   'menu.askThisPage': '用 PageAsk 询问本页',
@@ -197,16 +203,26 @@ export const zhCN = {
 
 export type MessageKey = keyof typeof zhCN;
 
-const dictionaries = { 'zh-CN': zhCN } as const;
+const dictionaries = { 'zh-CN': zhCN, 'en-US': enUS } as const;
 
 export type Locale = keyof typeof dictionaries;
 
+/** 设置里存的偏号：auto 跟随浏览器，其余强制指定 */
+export type LocalePreference = 'auto' | Locale;
+
 export const DEFAULT_LOCALE: Locale = 'zh-CN';
 
-let current: Locale = DEFAULT_LOCALE;
+/** 浏览器语言是英文就用英文，其余一律中文；`zh` 与 `en` 都认 */
+export function resolveLocale(pref: LocalePreference = 'auto'): Locale {
+  if (pref !== 'auto') return pref;
+  const tag = typeof navigator !== 'undefined' ? navigator.language : '';
+  return /^en(?:-|$)/i.test(tag) ? 'en-US' : DEFAULT_LOCALE;
+}
+
+let current: Locale = resolveLocale('auto');
 
 export function setLocale(locale: Locale): void {
-  current = locale;
+  if (locale in dictionaries) current = locale;
 }
 
 export function getLocale(): Locale {
@@ -237,7 +253,8 @@ export function tError(
 ): string {
   if (!code) return fallback || t('error.unknown');
   const key = `error.${code}` as MessageKey;
-  if (Object.prototype.hasOwnProperty.call(zhCN, key)) return t(key, params);
+  // 当前语言有这条错误就用当前语言；没有就退回后端给的 fallback
+  if (Object.prototype.hasOwnProperty.call(dictionaries[current], key)) return t(key, params);
   return fallback || t('error.unknown');
 }
 

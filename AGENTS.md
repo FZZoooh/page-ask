@@ -39,10 +39,10 @@ src/entrypoints/background.ts     service worker：sidePanel 行为、右键菜�
 src/entrypoints/sidepanel/        侧栏：App.tsx 编排状态机；messages.ts 纯消息模型，
                                   editorDom.ts contenteditable 适配，Composer/HistoryPanel/
                                   PageCard/RoundPanel/SettingsPanel 为展示组件
-src/lib/                          chat.ts / extract.ts / pdf.ts / settings.ts / i18n.ts
+src/lib/                          chat.ts / extract.ts / pdf.ts / settings.ts / i18n.ts / i18n.en-US.ts
 src/components/                   MarkdownView.tsx、icons.tsx
 server/                           后端：index.mjs 路由 + db/tools/pdf/text/log/webui/net/lifecycle
-server/i18n/                      后端文案字典（zh-CN.mjs + en-XA 伪本地化）与 t()/negotiateLocale()
+server/i18n/                      后端文案字典（zh-CN.mjs + en-US.mjs + en-XA 伪本地化）与 t()/negotiateLocale()
 server/data/                      运行时产物（db、shots/、日志、run.json），不要提交
 scripts/                          PowerShell 启动/托盘/测试实例 + CDP/冒烟脚本
 test/                             手测夹具（article.html、*.pdf）
@@ -71,7 +71,8 @@ PLAN.md                           已归档的早期规划（不再维护，勿�
 **扩展**
 - `grabPage()` 会被 `scripting.executeScript({func})` 序列化后注入页面：**必须完全自包含**，不能 import、不能引用模块作用域变量、不能用外部工具函数。
 - 打开侧栏交给 `setPanelBehavior({ openPanelOnActionClick: true })`；`contextMenus.onClicked` 里**第一个 await 之前**就要调 `sidePanel.open()`，否则用户手势失效（报 `may only be called in response to a user gesture`）。
-- 所有面向用户的文案集中在 `src/lib/i18n.ts`（`t('模块.名字')`）；组件里不写硬编码中文 UI 文案。
+- 所有面向用户的文案集中在 `src/lib/i18n.ts` 与 `src/lib/i18n.en-US.ts`（`t('模块.名字')`）；两份字典 key 必须一致（`satisfies Record<MessageKey, string>` 由 `tsc` 保证），组件里不写硬编码中文 UI 文案。
+- 界面语言存 `settings.locale`（`auto` / `zh-CN` / `en-US`，默认 `auto` 跟随浏览器）；`resolveLocale()` 把 `auto` 解析成具体 locale，切换后要 `setLocale()` 再触发重渲染，并同步 `<html lang>`。
 - 主题只改 `style.css` 的 CSS 变量（`:root` + `prefers-color-scheme: dark`），不写死颜色。
 - 存储键是 `pageask.settings.v2`；`backendUrl` 去尾斜杠；会话键用去 `#hash` 的 URL。
 - `App.tsx` 里的同步闸门 `sendingRef`、流式 token 50ms 批量 setState、contenteditable 引用 chip（序列化为 `<q>…</q>`）都是修过的坑，别简化掉。
@@ -84,9 +85,9 @@ PLAN.md                           已归档的早期规划（不再维护，勿�
 - 数据库加列用 `PRAGMA table_info` + `ALTER TABLE` 就地补，不写破坏性迁移；`messages.role` 只有 `user | assistant | tool`。
 - 改协议必须两端同步：`server/index.mjs` 的 SSE emit ↔ `src/lib/chat.ts` 的 `ChatEvent`；`page` 字段 ↔ `ChatRequest`。
 - 错误契约：HTTP 4xx/5xx 与 SSE `error` 都走 `server/errors.mjs` 的 `errorPayload()` / `UpstreamError`，响应体至少含 `code`（`domain.reason`）与可选 `params`，`message` 只作 fallback；前端用 `tError(code, params, message)` 映射 `error.<code>`。新增错误先定 code，再补两端文案；测试断言 `code`，不要断言中文句子。
-- 后端面向用户的文案（配置页、错误 fallback）统一放在 `server/i18n/zh-CN.mjs`：配置页用 `t('webui.*')`，错误用 `error.<code>`；`server/webui.mjs` 里不写硬编码中文。配置页按 `?lang=` / `Accept-Language` 选字典；现有 `zh-CN` 与伪本地化 `en-XA`（只用于布局测试，不是真实语言），不认识的语言回退默认；新增 locale 只加字典文件与 `server/i18n/index.mjs` 的注册，客户端脚本会拿到整份字典。
-- 托盘文案在 `scripts/i18n/<culture>/Tray.psd1`，`scripts/tray.ps1` 与 `scripts/tray-bg.ps1` 用 `Import-LocalizedData` 按 `$PSUICulture` 加载、缺失时回退 zh-CN；脚本里不写用户可见中文（`Write-Tray` 日志保持英文）。
-- `scripts/check-i18n.mjs` 是本地化守护，已串进 `pnpm verify`：扫 UI 字符串字面量里的硬编码中文（注释与 `[pageask]` 日志除外）、校验 server/client 错误码覆盖、zh-CN 与 en-XA 的 key 对齐/伪本地化长度、托盘 key 与 `$script:Tray.*` 双向一致。加文案或错误码后先跑它。
+- 后端面向用户的文案（配置页、错误 fallback）统一放在 `server/i18n/zh-CN.mjs` 与 `server/i18n/en-US.mjs`：配置页用 `t('webui.*')`，错误用 `error.<code>`；`server/webui.mjs` 里不写硬编码中文。配置页按 `?lang=` / `Accept-Language` 选字典，页内语言下拉会带 `?lang=` 重载；现有 `zh-CN`、`en-US` 与伪本地化 `en-XA`（只用于布局测试，不是真实语言），不认识的语言回退默认；新增 locale 只加字典文件与 `server/i18n/index.mjs` 的注册，客户端脚本会拿到整份字典。
+- 托盘文案在 `scripts/i18n/<culture>/Tray.psd1`，`scripts/tray.ps1` 与 `scripts/tray-bg.ps1` 用 `Import-LocalizedData` 按 `$PSUICulture` 加载；先试完整 culture，再试语言前缀，最后回退 `en-US` / `zh-CN`。脚本里不写用户可见中文（`Write-Tray` 日志保持英文）。
+- `scripts/check-i18n.mjs` 是本地化守护，已串进 `pnpm verify`：扫 UI 字符串字面量里的硬编码中文（注释与 `[pageask]` 日志除外）、校验 server/client 错误码覆盖、zh-CN/en-US/en-XA 的 key 对齐与伪本地化长度、托盘两份字典与 `$script:Tray.*` 双向一致。
 - 关键上限：`MAX_OUTPUT_TOKENS = 8192`、上游超时 300s、请求体 4MB（`/pdf` 64MB）、PDF 400 页 / 40 万字符。
 - 上游走 Responses API。`state=auto` 只对已知端点（`api.openai.com`、`*.openai.azure.com`、`*.services.ai.azure.com`）启用 `previous_response_id`；链断按 400/404/409/422 结构性判定并整段回退，失败后本进程不再尝试。不要改回 Chat Completions，也不要回传 reasoning item。
 
@@ -99,7 +100,7 @@ PLAN.md                           已归档的早期规划（不再维护，勿�
 
 ## 7. 验证方式
 
-提交前先跑 `pnpm verify`（本地化守护 + 类型 + 33 个 `.mjs` 语法 + 6 个后端回归 + 构建）；CI 用同一命令。仍没有前端单测，UI 靠类型检查 + 手测：
+提交前先跑 `pnpm verify`（本地化守护 + 类型 + 37 个 `.mjs` 语法 + 6 个后端回归 + 构建）；CI 用同一命令。仍没有前端单测，UI 靠类型检查 + 手测：
 
 1. `pnpm verify` 通过；只改前端时至少 `pnpm compile` + `pnpm build`。
 2. 后端改动：`pnpm server` 起服务，`curl http://127.0.0.1:8787/health`；必要时 `node scripts/test-chat.mjs "问题"` 看 SSE 事件；新增行为优先补进 `scripts/test-*.mjs`（临时 `PAGEASK_DATA_DIR`/`USERPROFILE` + 假上游，不要碰真实配置）。
