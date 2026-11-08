@@ -811,6 +811,8 @@ button.primary.save:hover:not(:disabled) {
   word-break: break-word;
 }
 
+/* Only matches while the DOM is truly empty: Chromium leaves a <br> behind after the last
+   character is deleted, so App.tsx clears that residue on input (clearEmptyEditorResidue). */
 .editor:empty::before {
   content: attr(data-placeholder);
   color: var(--muted);

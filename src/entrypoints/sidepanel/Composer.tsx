@@ -1,4 +1,4 @@
-import type { ClipboardEvent, KeyboardEvent, RefObject } from 'react';
+import type { ClipboardEvent, FormEvent, KeyboardEvent, RefObject } from 'react';
 import { IconSend, IconStop } from '@/components/icons';
 import { t } from '@/lib/i18n';
 
@@ -10,7 +10,7 @@ interface ComposerProps {
   canSend: boolean;
   /** Current page selection; an empty string means nothing is selected */
   selectionHint: string;
-  onInput: () => void;
+  onInput: (e: FormEvent<HTMLDivElement>) => void;
   onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => void;
   onPaste: (e: ClipboardEvent<HTMLDivElement>) => void;
   onSend: () => void;

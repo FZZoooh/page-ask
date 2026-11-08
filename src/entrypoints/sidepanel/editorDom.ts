@@ -84,6 +84,30 @@ export function fillEditor(el: HTMLElement, text: string): void {
   }
 }
 
+/**
+ * Chromium keeps a placeholder line after the last character is deleted (a lone `<br>`, or
+ * `<div><br></div>` when Enter produced blocks), so `.editor:empty` stops matching and the CSS
+ * placeholder never comes back. Drop that residue once no text is left and restore the caret.
+ * Returns whether the editor was cleaned.
+ */
+export function clearEmptyEditorResidue(el: HTMLElement | null): boolean {
+  if (!el || !el.firstChild) return false;
+  // Test textContent, not a trimmed serialization: a space the user typed is content, while
+  // <br>/block wrappers contribute no text and zero-width padding is invisible anyway.
+  if ((el.textContent ?? '').replace(/\u200b/g, '').length > 0) return false;
+  const sel = window.getSelection();
+  const caretInside = Boolean(sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).commonAncestorContainer));
+  el.innerHTML = '';
+  if (caretInside && sel) {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+  return true;
+}
+
 /** A recovery must not overwrite a draft the user already typed into the editor */
 export function editorHasDraft(el: HTMLElement | null): boolean {
   return Boolean(el?.textContent?.trim());

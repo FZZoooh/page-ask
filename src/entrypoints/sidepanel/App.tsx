@@ -44,6 +44,7 @@ import {
   type Round,
 } from './messages';
 import {
+  clearEmptyEditorResidue,
   editorHasDraft as hasDraftIn,
   fillEditor as fillDomEditor,
   insertTextAtCaret as insertTextInto,
@@ -831,6 +832,20 @@ export default function App() {
     }
   };
 
+  /**
+   * Every keystroke re-serializes the uncontrolled editor into React state. Chromium leaves an
+   * empty placeholder line (<br>, or a <div><br></div> block) behind after the last character is
+   * deleted, which defeats the `.editor:empty` rule that shows the placeholder — so clear that
+   * residue here. A blank line the user asked for with Shift+Enter is content, not residue.
+   */
+  const onInput = (e: React.FormEvent<HTMLDivElement>) => {
+    const native = e.nativeEvent as InputEvent;
+    if (!native.isComposing && native.inputType !== 'insertLineBreak' && native.inputType !== 'insertParagraph') {
+      clearEmptyEditorResidue(editorRef.current);
+    }
+    setInput(serialize());
+  };
+
   /** Accept plain-text paste only, so external HTML never enters the editor */
   const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -1167,7 +1182,7 @@ export default function App() {
         busy={busy}
         canSend={canSend}
         selectionHint={selectionHint}
-        onInput={() => setInput(serialize())}
+        onInput={onInput}
         onKeyDown={onKeyDown}
         onPaste={onPaste}
         onSend={() => void send()}
