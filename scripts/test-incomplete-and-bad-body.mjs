@@ -74,7 +74,6 @@ writeFileSync(
     state: 'off',
     port,
     token: '',
-    extensionId: 'mmlkafokjmojbmebfofjaakibnmoikkm',
     dataDir: data,
   }),
 );

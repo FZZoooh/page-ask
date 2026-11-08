@@ -102,7 +102,6 @@ writeFileSync(
     state: 'off',
     port: backendPort,
     token: '',
-    extensionId: 'mmlkafokjmojbmebfofjaakibnmoikkm',
     dataDir,
   }),
 );

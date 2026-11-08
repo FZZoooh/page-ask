@@ -8,8 +8,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-export const DEFAULT_EXTENSION_ID = 'mmlkafokjmojbmebfofjaakibnmoikkm';
-
 /**
  * Creates an isolated home with a settings.json and points USERPROFILE / HOME at it.
  * Call this before importing any server module: server/settings.mjs resolves the data dir at
@@ -29,7 +27,6 @@ export function makeTestConfig(options = {}) {
   const {
     port = 8787,
     token = '',
-    extensionId = DEFAULT_EXTENSION_ID,
     dataDir,
     apiKey = 'sk-test',
     baseUrl = 'http://127.0.0.1:1',
@@ -45,7 +42,7 @@ export function makeTestConfig(options = {}) {
   mkdirSync(data, { recursive: true });
 
   const settingsFile = join(configDir, 'settings.json');
-  const settings = { baseUrl, model, apiKey, state, port, token, extensionId, dataDir: data };
+  const settings = { baseUrl, model, apiKey, state, port, token, dataDir: data };
   writeFileSync(settingsFile, `${JSON.stringify(settings, null, 2)}\n`);
 
   process.env.USERPROFILE = home;

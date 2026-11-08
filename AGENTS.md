@@ -4,7 +4,7 @@ Project notes for AI collaborators (and humans) working in this repository. **Re
 
 ## 1. What this is
 
-PageAsk: an Edge side-panel extension plus a local Node backend. The panel asks an OpenAI-compatible `/responses` endpoint questions about the **current tab** (web page / PDF).
+PageAsk: a Chromium side-panel extension (Microsoft Edge and Google Chrome, 116+) plus a local Node backend. The panel asks an OpenAI-compatible `/responses` endpoint questions about the **current tab** (web page / PDF).
 
 - Extension: WXT 0.21 + React 19 + TypeScript (strict), `src/`.
 - Backend: `node server/index.mjs`, listening on `127.0.0.1:8787` by default (the `port` field in settings.json changes it). Routing and storage use Node built-ins only (`node:http`, `node:sqlite`); only PDF parsing pulls in the third-party `pdfjs-dist` (legacy build).
@@ -18,8 +18,10 @@ PageAsk: an Edge side-panel extension plus a local Node backend. The panel asks 
 | `pnpm install` | Install dependencies (`postinstall` runs `wxt prepare`) |
 | `pnpm dev:edge` | WXT dev server + launches Edge (`wxt -b edge`) |
 | `pnpm build` | Production build → `.output/chrome-mv3` |
+| `pnpm ext:key` | One-time: write `extension-key.json` (public, committed) + `~/.config/pageask/extension-key.pem`; **changes the extension ID** |
+| `pnpm ext:id` | Print the extension ID derived from `extension-key.json` |
 | `pnpm compile` | `tsc --noEmit` + `scripts/check-syntax.mjs` (syntax check for backend/script `.mjs`), **must pass after every change** |
-| `pnpm test:server` | Runs the 6 fixed backend regression scripts (temp dirs + fake upstream, never touches real config) |
+| `pnpm test:server` | Runs the 7 fixed backend regression scripts (temp dirs + fake upstream, never touches real config) |
 | `pnpm verify` | `check:i18n` + `compile` + `test:server` + `build`; run this before committing |
 | `pnpm server` | Start the backend in the foreground (`node server/index.mjs`) |
 | `pnpm server:win` | Start the backend through the PowerShell script |
@@ -30,6 +32,7 @@ PageAsk: an Edge side-panel extension plus a local Node backend. The panel asks 
 - Node **≥ 22.13** (`node:sqlite` + pdfjs-dist 6.x); package manager is pnpm (CI pins 11.x).
 - There is a git repository and GitHub Actions (`.github/workflows/ci.yml`, windows-latest + Node 22.13 + `pnpm verify`); the remote is `origin` (GitHub) and workflows fire on push/PR; Dependabot opens dependency-update PRs weekly.
 - After changing extension code, click "Reload" at `edge://extensions`; after changing the backend, restart the process; changing only `~/.config/pageask/settings.json` needs no restart (the backend re-reads it on every request).
+- `extension-key.json` pins the extension ID: it is a build property, not a per-machine setting. Replacing the key changes the ID, so it must be a deliberate act — afterwards reload the extension and restart the backend. Because dev and prod builds embed the same key, they now share one ID: only one of `.output/chrome-mv3` / `.output/chrome-mv3-dev` can be loaded at a time.
 - The version number is maintained only in `package.json`; `wxt.config.ts` reads it through a JSON import. Never hand-write a second copy.
 
 ## 3. Layout
@@ -42,10 +45,10 @@ src/entrypoints/sidepanel/        side panel: App.tsx orchestrates the state mac
                                   SettingsPanel are presentational components
 src/lib/                          chat.ts / extract.ts / pdf.ts / settings.ts / i18n.ts / i18n.en-US.ts
 src/components/                   MarkdownView.tsx, icons.tsx
-server/                           backend: index.mjs routing + db/tools/pdf/text/log/webui/net/lifecycle/errors/upstream
+server/                           backend: index.mjs routing + db/tools/pdf/text/log/webui/net/lifecycle/errors/upstream/extension-id
 server/i18n/                      backend message dictionaries (zh-CN.mjs + en-US.mjs + en-XA pseudo-locale) and t()/negotiateLocale()
 server/data/                      runtime artifacts (db, shots/, logs, run.json) — do not commit
-scripts/                          PowerShell launcher/tray/test instances + CDP/smoke scripts
+scripts/                          PowerShell launcher/tray/test instances + CDP/smoke scripts + ext-key/ext-id
 test/                             manual-test fixtures (article.html, *.pdf)
 docs/prior-art.md                 competitor research; docs/img/ holds version screenshots
 PLAN.md                           archived early planning (unmaintained, not an implementation reference)
@@ -64,7 +67,7 @@ PLAN.md                           archived early planning (unmaintained, not an 
 
 **Security / networking**
 - The backend binds to `127.0.0.1` only; never change it to `0.0.0.0`.
-- CORS: anything other than no Origin (curl/scripts), same-origin `http://127.0.0.1:8787` / `http://localhost:8787` (the port follows settings.json), and `chrome-extension://<extensionId>` (from settings.json) gets a 403.
+- CORS: anything other than no Origin (curl/scripts), same-origin `http://127.0.0.1:8787` / `http://localhost:8787` (the port follows settings.json), and `chrome-extension://<id>` (derived from `extension-key.json`; a missing key leaves the whitelist empty, so the backend fails closed instead of trusting an unknown origin) gets a 403.
 - `/settings` and `/api/settings*` sit **before** token validation (the settings page must be able to recover itself); but `/api/settings*` accepts only same-origin requests or requests carrying the correct token. `GET /health/live` requires no auth and reports liveness only.
 - The key never enters the extension, never enters front-end `chrome.storage`, never lands in logs, and is never returned in plaintext (the settings page shows only `sk-554…f398`).
 - URLs coming from the model or from web pages pass through `server/net.mjs` before any outbound request: public `http(s)` only; loopback/LAN/cloud-metadata addresses are rejected outright. Reads are capped by `content-length` + a streaming byte counter; never fall back to `arrayBuffer()` and check afterwards.
@@ -79,7 +82,8 @@ PLAN.md                           archived early planning (unmaintained, not an 
 - The sync gate `sendingRef` in `App.tsx`, the 50ms batched setState for streaming tokens, and the contenteditable reference chips (serialized as `<q>…</q>`) are all fixes for bugs we already hit — do not simplify them away.
 
 **Backend**
-- `server/settings.mjs` is the single source of truth for the whole configuration — `baseUrl` / `model` / `apiKey` / `state` plus `port`, `token`, `extensionId`, `dataDir`; the file is re-read on every call and `dataDir` is resolved at import time (that is why tests set up their `settings.json` before importing server modules); in `writeSettings`, `apiKey === ''` means "leave unchanged". **No environment variable and no startup argument overrides the file** (to avoid "I changed the file but nothing happened"); a missing key is added back once at startup and the file is rewritten. `port` / `token` / `extensionId` / `dataDir` changes need a backend restart; the tray re-reads the file every 4s and restarts onto a new port by itself.
+- `server/settings.mjs` is the single source of truth for the whole configuration — `baseUrl` / `model` / `apiKey` / `state` plus `port`, `token`, `dataDir`; the file is re-read on every call and `dataDir` is resolved at import time (that is why tests set up their `settings.json` before importing server modules); in `writeSettings`, `apiKey === ''` means "leave unchanged". **No environment variable and no startup argument overrides the file** (to avoid "I changed the file but nothing happened"); a missing key is added back once at startup and the file is rewritten. `port` / `token` / `dataDir` changes need a backend restart; the tray re-reads the file every 4s and restarts onto a new port by itself.
+- The extension ID is **not** a setting: `server/extension-id.mjs` derives it from `extension-key.json` (SHA-256 of the DER, first 16 bytes, nibble → `a`..`p`), the same file `wxt.config.ts` puts in `manifest.key`. A legacy `extensionId` field left in `settings.json` is ignored with one log line and dropped on the next save. `pnpm ext:id` prints the ID; startup logs it and `/health` exposes `extensionId` + `extensionIdSource` (`extension-key.json` / `missing` / `invalid`).
 - Tool results must be wrapped in `<untrusted_content source=...>` and hard-truncated (`RESULT_CAP = 8000`); a tool failure gives the model one short reason only, details go to `logError`, and upstream payloads are never exposed to the front end.
 - Exit must go through `shutdown()` (`SIGINT/SIGTERM/SIGBREAK` and `POST /api/shutdown`): delete `run.json`, close connections, `closeDb()`; never skip it with a bare `process.exit`, or WAL is not checkpointed and the next start falsely reports an abnormal exit.
 - `addTurn()` writes assistant and tool rows in a single transaction; if the tool loop ends early, every unexecuted call must get a `<untrusted_content>` placeholder output, and `rowsToItems` skips calls without output on replay, to avoid a 400 from upstream.
@@ -102,12 +106,12 @@ PLAN.md                           archived early planning (unmaintained, not an 
 
 ## 7. Verification
 
-Run `pnpm verify` before committing (localization guard + types + syntax check of the `.mjs` files + 6 backend regressions + build); CI runs the same command. There are still no front-end unit tests, so UI is covered by type checking + manual testing:
+Run `pnpm verify` before committing (localization guard + types + syntax check of the `.mjs` files + 7 backend regressions + build); CI runs the same command. There are still no front-end unit tests, so UI is covered by type checking + manual testing:
 
 1. `pnpm verify` passes; for front-end-only changes, at least `pnpm compile` + `pnpm build`.
 2. Backend changes: start the service with `pnpm server`, then `curl http://127.0.0.1:8787/health`; when needed use `node scripts/test-chat.mjs "question"` to watch SSE events (it reads port/token from settings.json); add new behavior to `scripts/test-*.mjs` first (temporary `USERPROFILE` + a `settings.json` in it, see `scripts/temp-config.mjs`, plus a fake upstream — never touch real config).
 3. UI changes: `pnpm build` → `pwsh -File scripts/edge-test.ps1` (clean Edge + CDP, opens `127.0.0.1:8811/article.html` by default; serve `test/` on port 8811 yourself first); use `scripts/cdp-eval.mjs`, `cdp-key.mjs`, `cdp-dark.mjs` to inspect the panel and both themes.
-4. Specialized scripts: `test-cache.mjs` (prefix caching), `test-shot.mjs` (screenshot persistence/replay), `test-pdf-prompt.mjs`, `test-selection-context.mjs`, `test-hist-time.mjs`, `test-turn-integrity.mjs` / `test-turn-abort.mjs` (tool rounds and aborts), `test-empty-stream.mjs` (empty stream), `test-incomplete-and-bad-body.mjs` (truncated/bad requests), `test-lifecycle-recover.mjs` (abnormal exit / truncated-question recovery), `test-settings-webui.mjs` (settings-page strings/error codes/key clearing/token same-origin behavior).
+4. Specialized scripts: `test-extension-id.mjs` (manifest key → ID known-answer test / fail-closed cases), `test-cache.mjs` (prefix caching), `test-shot.mjs` (screenshot persistence/replay), `test-pdf-prompt.mjs`, `test-selection-context.mjs`, `test-hist-time.mjs`, `test-turn-integrity.mjs` / `test-turn-abort.mjs` (tool rounds and aborts), `test-empty-stream.mjs` (empty stream), `test-incomplete-and-bad-body.mjs` (truncated/bad requests), `test-lifecycle-recover.mjs` (abnormal exit / truncated-question recovery), `test-settings-webui.mjs` (settings-page strings/error codes/key clearing/token same-origin behavior).
 5. Record new decisions or pitfalls in `docs/` or the commit message; `PLAN.md` is archived — do not backfill it.
 
 ## 8. Dead ends (already disproved)

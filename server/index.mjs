@@ -7,8 +7,9 @@
 //
 // start: node server/index.mjs        (defaults to 127.0.0.1:8787)
 // config: settings.json (the backend serves /settings; open it from the tray menu or the extension settings page)
-// Every setting comes from settings.json: baseUrl / model / apiKey / state plus port, token,
-// extensionId and dataDir. No environment variable and no startup argument may override it.
+// Every setting comes from settings.json: baseUrl / model / apiKey / state plus port, token and
+// dataDir. No environment variable and no startup argument may override it. The extension ID is
+// the one exception: it is derived from extension-key.json, which the build also consumes.
 import { createServer } from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -43,6 +44,7 @@ import { errorPayload, normalizePdfCode, upstreamErrorCode } from './errors.mjs'
 import { negotiateLocale } from './i18n/index.mjs';
 import { extractPdfText, PdfError } from './pdf.mjs';
 import { publicSettings, readSettings, settingsFile, STATE_MODES, writeSettings } from './settings.mjs';
+import { resolveExtensionId } from './extension-id.mjs';
 import { RESPONSES_TOOLS, runTool, ToolError } from './tools.mjs';
 import { settingsPageHtml } from './webui.mjs';
 
@@ -56,14 +58,22 @@ const VERSION = (() => {
 
 /* ---------------- config ---------------- */
 
-// Every setting, including port / token / extensionId / dataDir, comes from settings.json:
+// Every setting, including port / token / dataDir, comes from settings.json:
 // no environment variable and no startup argument may override it (see server/settings.mjs).
 const cfg = readSettings();
 const PORT = cfg.port;
 const HOST = '127.0.0.1'; // loopback only, never 0.0.0.0
 const TOKEN = cfg.token;
-const EXT_ID = cfg.extensionId;
-const ALLOWED_ORIGINS = new Set([`chrome-extension://${EXT_ID}`]);
+// Not a setting: the ID is a function of the pinned manifest key, so the build and the backend
+// agree on it without the backend depending on .output/ (which may not exist on a fresh clone).
+const { id: EXT_ID, source: EXT_ID_SOURCE } = resolveExtensionId();
+const ALLOWED_ORIGINS = new Set(EXT_ID ? [`chrome-extension://${EXT_ID}`] : []);
+if (EXT_ID) {
+  console.log(`[pageask] extension id ${EXT_ID} (from ${EXT_ID_SOURCE})`);
+} else {
+  console.error('[pageask] no extension id: extension-key.json is missing or invalid, so the extension origin is blocked');
+  console.error('[pageask] run `pnpm ext:key` once, commit extension-key.json, then restart the backend');
+}
 const SELF_ORIGINS = new Set([`http://${HOST}:${PORT}`, `http://localhost:${PORT}`]);
 const MAX_BODY = 4 * 1024 * 1024;
 // once upstream proves it can't do previous_response_id (400/404/422 + related errors), never retry in this process
@@ -300,6 +310,9 @@ async function handle(req, res) {
       statefulActive:
         (s.state === 'on' || (s.state === 'auto' && looksStateful(s.baseUrl))) && !statefulUnsupported,
       settingsFile,
+      // the origin the backend whitelists, plus where it came from: enough to debug a 403
+      extensionId: EXT_ID || null,
+      extensionIdSource: EXT_ID_SOURCE,
       db: dbFile,
       tools: RESPONSES_TOOLS.map((t) => t.name),
       // abnormal last exit: the tray/scripts use it to warn that a turn may have been lost

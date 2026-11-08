@@ -80,7 +80,6 @@ writeFileSync(
     state: 'auto',
     port,
     token: 'secret',
-    extensionId: 'mmlkafokjmojbmebfofjaakibnmoikkm',
     dataDir,
   }),
 );

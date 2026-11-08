@@ -1,8 +1,8 @@
 # PageAsk
 
-[简体中文](#pageask) | [English](#english)
+简体中文 | [English](#english)
 
-PageAsk 是一款专为 Microsoft Edge 设计的侧栏 AI 助手扩展。无需离开当前网页或阅读界面，即可一键解析当前标签页（支持普通网页与本地/在线 PDF）并向大语言模型提问。
+PageAsk 是一款面向 Chromium 内核浏览器（Microsoft Edge / Google Chrome）的侧栏 AI 助手扩展。无需离开当前网页或阅读界面，即可一键解析当前标签页（支持普通网页与本地/在线 PDF）并向大语言模型提问。
 
 ---
 
@@ -19,7 +19,7 @@ PageAsk 是一款专为 Microsoft Edge 设计的侧栏 AI 助手扩展。无需�
 
 - **Node.js**：`≥ 22.13`（后端依赖原生 `node:sqlite` 及现代 PDF 解析能力）
 - **包管理器**：`pnpm`
-- **浏览器**：Microsoft Edge（需开启“开发人员模式”）
+- **浏览器**：Microsoft Edge 或 Google Chrome（需开启“开发人员模式”；侧栏 API 要求 116 及以上版本）
 
 ---
 
@@ -44,7 +44,7 @@ pnpm server:win
 
 > 服务默认监听 `127.0.0.1:8787`。首次启动会自动在 `%USERPROFILE%\.config\pageask\` 下生成配置文件，所有配置都在这一个文件里。
 >
-> 配置文件中的 `port`、`dataDir`、`extensionId`、`token` 分别控制端口、数据目录、扩展 ID 与访问令牌（`dataDir` 留空表示 `server/data`）。改这几个字段需要重启后端，或等待托盘每 4 秒自动重读文件并重启。
+> 配置文件中的 `port`、`dataDir`、`token` 分别控制端口、数据目录与访问令牌（`dataDir` 留空表示 `server/data`）。改这几个字段需要重启后端，或等待托盘每 4 秒自动重读文件并重启。
 
 ### 3. 配置 LLM 服务
 
@@ -56,9 +56,9 @@ pnpm server:win
 
 > 如果配置文件里的 `token` 不为空，侧栏“设置”里的 **访问令牌** 必须填同一个值；`token` 为空时留空。
 
-### 4. 安装 Edge 侧栏扩展
+### 4. 安装侧栏扩展（Edge / Chrome）
 
-1. 打开 Edge，在地址栏输入 `edge://extensions`。
+1. 打开 Edge 并访问 `edge://extensions`；使用 Chrome 则访问 `chrome://extensions`。
 2. 开启页面左侧的 **开发人员模式** 开关。
 3. 点击 **加载解压缩的扩展**，选择项目根目录下的 `.output/chrome-mv3`。
 
@@ -101,9 +101,6 @@ A：受限于浏览器安全策略，`edge://*` 内部页面及扩展商店不�
 **Q：本地 PDF（`file://`）无法解析？**  
 A：由于浏览器扩展自身的沙盒权限限制，本地 PDF 由后端服务直接读取磁盘文件解析。请确保本地后端服务处于运行状态。
 
-**Q：切换标签页后侧栏空白或消失？**  
-A：此为 Edge 侧栏当前版本的已知交互行为，再次点击工具栏的 PageAsk 图标即可唤回当前激活标签页的状态。
-
 ---
 
 ## 开发指南
@@ -124,7 +121,7 @@ pnpm verify       # 提交前验证（本地化 + 编译 + 测试 + 构建）
 
 [简体中文](#pageask) | English
 
-PageAsk is a side-panel AI assistant built for Microsoft Edge. Without leaving the current page or reading view, you can extract the active tab (regular web pages and local or online PDFs) in one click and ask a large language model about it.
+PageAsk is a side-panel AI assistant for Chromium-based browsers (Microsoft Edge and Google Chrome). Without leaving the current page or reading view, you can extract the active tab (regular web pages and local or online PDFs) in one click and ask a large language model about it.
 
 ---
 
@@ -141,7 +138,7 @@ PageAsk is a side-panel AI assistant built for Microsoft Edge. Without leaving t
 
 - **Node.js**: `≥ 22.13` (the backend relies on native `node:sqlite` and modern PDF parsing)
 - **Package manager**: `pnpm`
-- **Browser**: Microsoft Edge (with Developer mode enabled)
+- **Browser**: Microsoft Edge or Google Chrome (with Developer mode enabled; the side panel API needs version 116+)
 
 ---
 
@@ -166,7 +163,7 @@ pnpm server:win
 
 > The service listens on `127.0.0.1:8787` by default. The first start creates the config file under `%USERPROFILE%\.config\pageask\`, and that one file holds the entire configuration.
 >
-> Its `port`, `dataDir`, `extensionId` and `token` fields control the port, data directory, extension ID and access token (`dataDir` empty means `server/data`). Changing these fields requires restarting the backend, or waiting for the tray to re-read the file every 4 seconds and restart automatically.
+> Its `port`, `dataDir` and `token` fields control the port, data directory and access token (`dataDir` empty means `server/data`). Changing these fields requires restarting the backend, or waiting for the tray to re-read the file every 4 seconds and restart automatically.
 
 #### 3. Configure LLM service
 
@@ -178,9 +175,9 @@ pnpm server:win
 
 > If `token` in the config file is non-empty, the **Access token** field in the panel's Settings must contain the same value; leave it empty when `token` is empty.
 
-#### 4. Install the Edge side-panel extension
+#### 4. Install the side-panel extension (Edge / Chrome)
 
-1. Open Edge and go to `edge://extensions`.
+1. Open `edge://extensions` in Edge, or `chrome://extensions` in Chrome.
 2. Turn on **Developer mode** on the left side of the page.
 3. Click **Load unpacked** and select `.output/chrome-mv3` in the project root.
 

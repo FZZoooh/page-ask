@@ -30,7 +30,6 @@ function writeConfig(port) {
       state: 'auto',
       port,
       token: '',
-      extensionId: 'mmlkafokjmojbmebfofjaakibnmoikkm',
       dataDir,
     }),
   );

@@ -1,11 +1,30 @@
 import { defineConfig } from 'wxt';
+import extensionKeyJson from './extension-key.json' with { type: 'json' };
 import pkg from './package.json' with { type: 'json' };
+
+/**
+ * The extension ID is derived from this public key, so it stays the same wherever the built folder
+ * is loaded from — prod, dev, a copy, another machine. The backend derives the same ID from
+ * extension-key.json at startup, which is why it never has to read build output.
+ *
+ * Read through a JSON import rather than node:fs: this project has no @types/node, and a missing
+ * file already fails the build at the import instead of producing a keyless manifest.
+ *
+ * Generate it once with `pnpm ext:key` and commit the file; the private half never enters the repo.
+ */
+function readExtensionKey(): string {
+  const key = typeof extensionKeyJson.key === 'string' ? extensionKeyJson.key.trim() : '';
+  if (!key) throw new Error('extension-key.json has no "key": run `pnpm ext:key` once and commit the generated file');
+  return key;
+}
 
 export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-react'],
   manifest: {
     name: 'PageAsk',
+    // Pinned signing key: the extension ID follows from it, not from the install path (see above)
+    key: readExtensionKey(),
     // Version lives only in package.json; the manifest follows it
     version: pkg.version,
     description: '就当前标签页内容向 AI 助手提问（侧栏）',

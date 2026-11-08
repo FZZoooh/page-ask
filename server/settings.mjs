@@ -3,7 +3,9 @@
  * `C:\Users\<you>\.config\pageask\settings.json`. The dir is auto-created (incl. `.config`).
  *
  * **Everything is in this file and nothing is read from the environment**: model settings
- * (baseUrl / model / apiKey / state) plus service settings (port / token / extensionId / dataDir).
+ * (baseUrl / model / apiKey / state) plus service settings (port / token / dataDir). The extension
+ * ID is deliberately absent: it follows from `extension-key.json`, which the build and the backend
+ * both read, so it is a build property rather than a per-machine setting.
  * Config used to live in env vars, then split between env vars and this file; the split meant
  * "I changed it but nothing happened" and made the tray and the backend disagree about the port,
  * so the file is now the only source. Startup arguments cannot override it.
@@ -57,7 +59,6 @@ export const DEFAULTS = {
   // service settings: bound at startup, so changing them needs a backend restart
   port: 8787,
   token: '',
-  extensionId: 'mmlkafokjmojbmebfofjaakibnmoikkm',
   /** empty = `<repo>/server/data` */
   dataDir: '',
 };
@@ -75,9 +76,8 @@ function normalize(raw) {
   const port = Number(raw?.port ?? DEFAULTS.port);
   const validPort = Number.isInteger(port) && port >= 1 && port <= 65535 ? port : DEFAULTS.port;
   const token = String(raw?.token ?? '').trim();
-  const extensionId = String(raw?.extensionId ?? DEFAULTS.extensionId).trim() || DEFAULTS.extensionId;
   const dataDirRaw = String(raw?.dataDir ?? DEFAULTS.dataDir).trim();
-  return { baseUrl, model, apiKey, state, port: validPort, token, extensionId, dataDir: dataDirRaw };
+  return { baseUrl, model, apiKey, state, port: validPort, token, dataDir: dataDirRaw };
 }
 
 /**
@@ -113,6 +113,7 @@ export function readSettings() {
   try {
     const raw = JSON.parse(text);
     const settings = normalize(raw);
+    warnLegacyExtensionId(raw);
     upgradeShape(raw, settings);
     return settings;
   } catch (err) {
@@ -121,6 +122,19 @@ export function readSettings() {
     quarantineBroken(err);
     return normalize({});
   }
+}
+
+/**
+ * Files written before the ID became derived still carry an `extensionId` field. Ignoring it
+ * silently would recreate the "I changed it but nothing happened" trap, so mention it once.
+ */
+let legacyIdWarned = false;
+function warnLegacyExtensionId(raw) {
+  if (legacyIdWarned || typeof raw !== 'object' || raw === null || !('extensionId' in raw)) return;
+  legacyIdWarned = true;
+  console.log(
+    '[pageask] settings.json still has extensionId; it is derived from extension-key.json now and will be dropped on the next save',
+  );
 }
 
 /**
@@ -166,7 +180,6 @@ export function writeSettings(patch) {
     state: patch.state ?? current.state,
     port: patch.port ?? current.port,
     token: patch.token ?? current.token,
-    extensionId: patch.extensionId ?? current.extensionId,
     dataDir: patch.dataDir ?? current.dataDir,
   });
   // dir 0700, file 0600: the key sits in plaintext on disk — at least keep other users on the box out
