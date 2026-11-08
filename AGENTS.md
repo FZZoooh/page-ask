@@ -92,10 +92,11 @@ PLAN.md                           archived early planning (unmaintained, not an 
 - Key limits: `MAX_OUTPUT_TOKENS = 8192`, upstream timeout 300s, request body 4MB (`/pdf` 64MB), PDF 400 pages / 400k characters.
 - Upstream uses the Responses API. `state=auto` enables `previous_response_id` only for known endpoints (`api.openai.com`, `*.openai.azure.com`, `*.services.ai.azure.com`); a broken chain is detected structurally by 400/404/409/422, falls back for the whole conversation, and is not retried again in this process. Do not switch back to Chat Completions, and do not send reasoning items back upstream.
 
-## 6. Code style
+## 6. Code and commit style
 
 - 2-space indent, single quotes, semicolons, trailing commas; line width ~120.
 - **Write comments in English** (unless something explicitly requires otherwise). Comments **explain why** — pitfalls we hit, protocol limits, trade-offs — never "what this line does" filler. The localization dictionaries (`src/lib/i18n.ts`, `src/lib/i18n.en-US.ts`, `server/i18n/*.mjs`, `scripts/i18n/*/Tray.psd1`) are exempt: their content is the localized data itself.
+- **Write commit messages in English** too — subject and body — keeping the conventional `type(scope): summary` prefix this history already uses (e.g. `feat(sidepanel): …`, `fix: …`, `chore: …`). Older commits are in Chinese; do not take them as the convention.
 - Exported types/interfaces live in `src/lib/*.ts`, components only consume them; avoid `any` — `tsconfig` enables `strict` and `noUncheckedIndexedAccess`.
 - Think before adding a dependency: the backend HTTP/DB layers must stay zero-dependency; PDF code uses `pdfjs-dist` only in `server/pdf.mjs`.
 
