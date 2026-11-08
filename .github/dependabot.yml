@@ -26,6 +26,11 @@ updates:
         update-types:
           - minor
           - patch
+    # katex 0.17+ 需要 rehype-katex 同步支持；当前 7.0.1 仍依赖 katex ^0.16，
+    # 单独升级会导致「0.19 的 CSS + 0.16 的渲染标记」版本错位。
+    ignore:
+      - dependency-name: "katex"
+        versions: [">=0.17.0"]
 
   - package-ecosystem: github-actions
     directory: "/"
