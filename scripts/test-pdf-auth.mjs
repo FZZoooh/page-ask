@@ -6,7 +6,7 @@ import { createServer } from 'node:http';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const home = mkdtempSync(join(tmpdir(), 'pageask-pdf-auth-home-'));
@@ -64,11 +64,11 @@ const waitUp = async () => {
   return false;
 };
 
-const postPdf = async (headers = {}) => {
+const postPdf = async (headers = {}, payload = { base64: pdf }) => {
   const res = await fetch(`${base}/pdf`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...headers },
-    body: JSON.stringify({ base64: pdf }),
+    body: JSON.stringify(payload),
   });
   let body = null;
   try {
@@ -93,6 +93,12 @@ try {
   check('正确 token 的 /pdf 返回 200', good.res.status === 200, `${good.res.status} ${JSON.stringify(good.body).slice(0, 200)}`);
   check('提取出至少一页', (good.body?.pageCount ?? 0) >= 1, JSON.stringify(good.body).slice(0, 200));
   check('提取出正文', typeof good.body?.text === 'string' && good.body.text.trim().length > 0, JSON.stringify(good.body).slice(0, 200));
+
+  // Acceptance C1: local file URLs are not limited to the user profile / temp directory.
+  const localPdf = join(root, 'test', 'marker.pdf');
+  const local = await postPdf({ Authorization: `Bearer ${TOKEN}` }, { fileUrl: pathToFileURL(localPdf).href });
+  check('本地 PDF 可以位于用户目录之外', local.res.status === 200, `${local.res.status} ${JSON.stringify(local.body).slice(0, 200)}`);
+  check('本地 PDF 位于仓库测试目录', !localPdf.toLowerCase().startsWith(home.toLowerCase()), localPdf);
 } finally {
   child.kill();
   await new Promise((r) => {

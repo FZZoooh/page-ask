@@ -14,8 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
-import { basename, join, resolve, sep } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   addMessage,
@@ -511,9 +510,11 @@ async function handlePdf(req, res) {
   }
 }
 
-/** read a local file:// PDF (the extension's fetch can't do file:, so the backend reads the disk) */
-const LOCAL_PDF_ROOTS = [homedir(), tmpdir()].map((p) => resolve(p));
-
+/**
+ * Read a local file:// PDF (the extension's fetch can't do file:, so the backend reads the disk).
+ * Any readable path is allowed: the extension is a trusted personal client and /pdf remains
+ * token-gated; the checks below keep it to real .pdf files and block UNC/device paths.
+ */
 function readLocalPdf(fileUrl) {
   let path;
   try {
@@ -522,25 +523,20 @@ function readLocalPdf(fileUrl) {
     throw new PdfError('pdf_bad_file_url', 'Not a valid local file URL');
   }
   // A same-origin page can call /pdf with fileUrl too, so treat the path as untrusted input:
-  // no UNC/device paths, only a real .pdf under the user profile or the OS temp directory.
+  // no UNC/device paths, only a real .pdf file.
   if (/^[\\/]{2}/.test(path)) {
     throw new PdfError('pdf_bad_file_url', 'UNC and device paths are not allowed');
   }
   const resolved = resolve(path);
-  const insideRoots = (candidate) =>
-    LOCAL_PDF_ROOTS.some((root) => candidate === root || candidate.startsWith(`${root}${sep}`));
-  if (!insideRoots(resolved)) {
-    throw new PdfError('pdf_bad_file_url', 'Local PDFs must be under the user profile or the temp directory');
-  }
   let real;
   try {
     real = realpathSync(resolved);
   } catch (err) {
     throw new PdfError('pdf_not_found', `Cannot read this local file (${err?.code ?? 'error'})`);
   }
-  // realpath catches symlinks that point outside the allowed roots
-  if (!insideRoots(real)) {
-    throw new PdfError('pdf_bad_file_url', 'Local PDF resolves outside the allowed directories');
+  // Re-check after realpath: a local symlink must not turn into a UNC/device path.
+  if (/^[\\/]{2}/.test(real)) {
+    throw new PdfError('pdf_bad_file_url', 'UNC and device paths are not allowed');
   }
   if (!/\.pdf$/i.test(real)) {
     throw new PdfError('pdf_bad_file_url', 'Only .pdf files can be read from disk');
