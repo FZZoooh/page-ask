@@ -29,7 +29,7 @@ PageAsk: a Chromium side-panel extension (Microsoft Edge and Google Chrome, 116+
 
 - The tray judges liveness by `/health/live` and reads the model/abnormal-exit state from the token-authenticated `/health`; when another program owns the port it shows "port in use" and pauses auto-restart; quitting the tray stops only the backend it started (an external `pnpm server` is left alone).
 
-- Node **≥ 22.13** (`node:sqlite` + pdfjs-dist 6.x); package manager is pnpm (CI pins 11.x).
+- Node **≥ 22.13** (`node:sqlite` + pdfjs-dist 6.x); package manager is pnpm, and CI installs the exact version from `packageManager` in `package.json`.
 - There is a git repository and GitHub Actions (`.github/workflows/ci.yml`, windows-latest + Node 22.13 + `pnpm verify`); the remote is `origin` (GitHub) and workflows fire on push/PR; Dependabot opens dependency-update PRs weekly.
 - After changing extension code, click "Reload" at `edge://extensions`; after changing the backend, restart the process; changing only `~/.config/pageask/settings.json` needs no restart (the backend re-reads it on every request).
 - `extension-key.json` pins the extension ID: it is a build property, not a per-machine setting. Replacing the key changes the ID, so it must be a deliberate act — afterwards reload the extension and restart the backend. Because dev and prod builds embed the same key, they now share one ID: only one of `.output/chrome-mv3` / `.output/chrome-mv3-dev` can be loaded at a time.
