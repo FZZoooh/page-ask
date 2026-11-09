@@ -340,7 +340,7 @@ fetch(`${BASE}/responses`, { headers: { Authorization: `Bearer ${KEY}` }, ... })
 - **本地优先威胁模型**：token 可空；同用户的本机进程本来就能读 `settings.json`；`/api/settings*` 的“同源”只防浏览器跨站，不防本机代理。
 - **`host_permissions: ['<all_urls>']`**：个人使用、不发布，`wxt.config.ts` 有注释说明。
 - **PDF 内存缓存**：URL → 解析结果，10 分钟、最多 12 条；单进程、低并发，属于性能取舍。
-- **`readLocalPdf` 允许 `$HOME`/`%TEMP%` 下的任意 `.pdf`**：token 持有者可让后端读本机 PDF；已用 `realpath` 阻止 symlink 逃逸，且只允许 `.pdf`。这是“本地 PDF 读取”功能本身的边界。
+- **`readLocalPdf` 允许任意可读的本地 `.pdf`**：2026-11-09 验收后按要求放宽（原限制为 `$HOME`/`%TEMP%`）。`/pdf` 仍受 token 保护，且只接受真实普通 `.pdf` 文件（拒绝 UNC/设备路径、限制 64 MB）；代价是 token 持有者/同源页面可让后端读取本机任意可读 PDF。这是“本地 PDF 读取”功能本身的边界。
 
 ## 8. 建议的修复顺序
 
@@ -386,3 +386,16 @@ P1-1 与 P2-1…P2-8 已按本报告实现，P3 未动。主要落点：
 - **工具链/测试/CI（T-1…T-8、T-10、T-11）**：`server:win` 传递退出码；托盘后台参数逐项加引号；托盘自启动快捷方式固定为 `PageAsk Tray.lnk`；`edge-test.ps1` 诊断改英文；`check-syntax` 覆盖 `src/lib/*.mjs`；新增带 10 秒超时的 `cdp-client.mjs` 并替换三份复制实现；测试清理/断言/轮询改为 `try/finally`、错误码和持久化状态，lifecycle 测试加进程退出兜底清理；新增 schema 迁移、外站 Origin CORS、损坏 extension-key、shot 预算去重回归；`package.json` 删除重复的 `check:server`；AGENTS 同步 31 项测试、`.edge-profiles` 与 check-i18n 的 JSX/cwd 行为。T-9 的 free-port TOCTOU 保留为已知测试竞态（31 项串行运行下未再触发），不在本轮引入跨进程端口协商。
 
 验证：`pnpm verify` 退出码 0；31 个后端回归全绿；`tsc --noEmit` + 70 个 `.mjs`/6 个 PowerShell 语法与 BOM 检查通过；`wxt build` 成功，sidepanel 仍约 1.03 MB（既有警告），总产物 2.18 MB。新增回归：`test-edge-profile.mjs`、`test-pdf-cancel.mjs`、`test-upstream-error-cap.mjs`、`test-i18n-guard.mjs`、`test-migration.mjs`、`test-cors-origin.mjs`，并在 `test-history-page.mjs` 增加截图预算共享文件用例。真实 Edge 面板的手工巡检未在无人值守流程中执行。
+
+## 12. 验收补丁（2026-11-09）
+
+按实际 UI/运行验收结果补的改动：
+
+- **B5 历史记录报错**：`refreshConversations()` 在 `commit=false`（标签页加载路径）时也会设置 `error.historyUnavailable`，不再静默清空；打开历史面板会重新拉取列表，失败时保留旧列表；点击历史项失败会关闭面板并显示带原因的横幅。
+- **C1 本地 PDF 路径**：`readLocalPdf()` 移除 `$HOME`/`%TEMP%` 根目录限制，任意可读的普通 `.pdf` 都可以读取；保留 UNC/设备路径拒绝、`realpath`、`.pdf` 后缀、普通文件与 64 MB 限制。`test-pdf-auth.mjs` 增加“仓库测试目录（用户目录之外）的 fileUrl 可读”回归。
+- **C3 拖放**：原生非编辑区无法用 Shift+方向键选中文本，按要求不再为键盘选中做适配，也不提供“整段引用”按钮；保留鼠标选区的浮动引用菜单。拖入非纯文本文件时显示“只能拖入纯文本”提示，并补 `onDragOver` 防止浏览器默认处理。
+- **托盘卡顿**：`Get-BackendState` 先做 50ms TCP 预检，端口关闭立即判定 `down`，不再先等 2 秒 HTTP 超时；端口可连接后再用 1 秒 HTTP 区分 `up`/`foreign`。
+- **C5**：Edge 按扩展名决定是否进入 PDF 查看器，后端拿到的是 HTML 却以 `.pdf` 命名时页面根本不会交给扩展，面板侧无法修复；记录为环境限制。
+- **B1/C2/D**：B1 的“超大上游错误体”已有 `test-upstream-error-cap.mjs` 自动覆盖，人工 fake upstream 项仍可补跑；C2/D 未在本轮执行。
+
+验证：`pnpm verify` 退出码 0（31 个后端回归、70 个 `.mjs`/6 个 PowerShell、`wxt build` 全部通过）；`test-pdf-auth.mjs` 的新增本地路径用例通过。
