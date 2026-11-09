@@ -45,7 +45,10 @@ export function normalizePdfCode(code) {
  */
 export function errorPayload(code, params = undefined, message = undefined) {
   const key = `error.${code}`;
-  const body = { error: message || (has(key) ? t(key, params) : code), code };
+  const text = message || (has(key) ? t(key, params) : code);
+  // `error` is the historical field; `message` is the documented fallback name. Emit both so
+  // third-party clients and older readers agree, while `code` stays the contract.
+  const body = { error: text, message: text, code };
   if (params) {
     const clean = Object.fromEntries(
       Object.entries(params).filter(([, value]) => value !== undefined && value !== null),

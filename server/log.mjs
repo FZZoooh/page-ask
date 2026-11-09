@@ -4,7 +4,7 @@
  * Purpose: the front end shows only a one-liner "failed"; the real debugging detail
  * (upstream status, raw error text, tool arguments) lands here and never reaches the UI.
  */
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { dbFile } from './db.mjs';
 
@@ -18,6 +18,13 @@ function line(kind, data) {
 export function logEvent(kind, data = {}) {
   try {
     mkdirSync(dirname(logFile), { recursive: true });
+    // A long-running tray would otherwise grow this file forever; keep one previous generation.
+    // The size check is cheap and only triggers a rename every 5 MB.
+    try {
+      if (statSync(logFile).size > 5 * 1024 * 1024) renameSync(logFile, `${logFile}.1`);
+    } catch {
+      /* first write, or rename raced another process */
+    }
     appendFileSync(logFile, line(kind, data), 'utf8');
   } catch (err) {
     console.error('[pageask] failed to write log file', err?.message ?? err);

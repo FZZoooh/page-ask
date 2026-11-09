@@ -12,10 +12,10 @@
 // the one exception: it is derived from extension-key.json, which the build also consumes.
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
+import { basename, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   addMessage,
@@ -36,6 +36,7 @@ import {
   shotsDir,
   statsFor,
   touchConversation,
+  trimShotBudget,
   truncateAfterLastUser,
 } from './db.mjs';
 import { lifecycleInfo, markCleanExit, startLifecycle } from './lifecycle.mjs';
@@ -323,6 +324,11 @@ async function handle(req, res) {
       }
     }
     const apiKey = typeof body.apiKey === 'string' && body.apiKey.trim() ? body.apiKey.trim() : current.apiKey;
+    // Testing a different endpoint than the stored one must not forward the stored key to it:
+    // otherwise a same-origin page (or a local proxy) could exfiltrate the key with one request.
+    if (baseUrl !== current.baseUrl && !(typeof body.apiKey === 'string' && body.apiKey.trim())) {
+      return sendJson(res, 400, errorPayload('settings.key_required_for_url'));
+    }
     if (!apiKey) {
       return sendJson(res, 200, { ok: false, code: 'settings.missing_api_key' });
     }
@@ -334,7 +340,8 @@ async function handle(req, res) {
       });
       // Drain the body so the socket can be reused, but never echo the upstream payload to the page:
       // it is untrusted, may contain HTML/JSON internals, and the localized error code says enough.
-      await r.text();
+      // Cap the drain: /models is normally tiny, but a broken endpoint must not stream forever.
+      await readErrorDetail(r);
       const detail = `HTTP ${r.status} · ${Date.now() - started} ms`;
       // body.model comes straight from JSON: a number/object must fall back, not crash on .trim().
       const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : current.model;
@@ -363,11 +370,11 @@ async function handle(req, res) {
       // whether stateful is actually used: config allows it, endpoint looks right, and this process hasn't been burned
       statefulActive:
         (s.state === 'on' || (s.state === 'auto' && looksStateful(s.baseUrl))) && !statefulUnsupported,
-      settingsFile,
+      settingsFile: basename(settingsFile),
       // the origin the backend whitelists, plus where it came from: enough to debug a 403
       extensionId: EXT_ID || null,
       extensionIdSource: EXT_ID_SOURCE,
-      db: dbFile,
+      db: basename(dbFile),
       tools: RESPONSES_TOOLS.map((t) => t.name),
       // abnormal last exit: the tray/scripts use it to warn that a turn may have been lost
       lifecycle: lifecycleInfo(),
@@ -498,7 +505,8 @@ async function handlePdf(req, res) {
     logError('pdf_extract_failed', { message: String(err?.message ?? err), code });
     return sendJson(res, clientError ? 400 : 502, {
       ...errorPayload(code),
-      message: clientError ? 'Unable to read this local file' : String(err?.message ?? err),
+      // Never echo the parse error: it can contain absolute paths or upstream internals.
+      ...(clientError ? { message: 'Unable to read this local file' } : {}),
     });
   }
 }
@@ -641,10 +649,26 @@ async function handleChat(req, res) {
   } catch {
     return sendJson(res, 400, errorPayload('request.bad_body'));
   }
-  const page = body?.page;
-  const text = (body?.text ?? '').trim();
+  const rawPage = body?.page;
+  if (!rawPage || typeof rawPage !== 'object' || typeof rawPage.url !== 'string' || !rawPage.url) {
+    return sendJson(res, 400, errorPayload('chat.missing_page'));
+  }
+  // Normalize the client-controlled fields that reach the prompt. `pages`/`kind` were previously
+  // interpolated as-is; a bad value could corrupt the system prompt rather than fail this request.
+  const page = {
+    ...rawPage,
+    url: rawPage.url.slice(0, 2048),
+    title: typeof rawPage.title === 'string' ? rawPage.title.slice(0, 500) : '',
+    markdown: typeof rawPage.markdown === 'string' ? rawPage.markdown : '',
+    kind: rawPage.kind === 'pdf' ? 'pdf' : 'web',
+    pages:
+      Number.isInteger(rawPage.pages) && rawPage.pages > 0 && rawPage.pages <= 10_000
+        ? rawPage.pages
+        : undefined,
+  };
+  // `text` used to throw on a non-string and surface as a 500; a malformed request is a 400.
+  const text = typeof body?.text === 'string' ? body.text.trim() : '';
   if (!text) return sendJson(res, 400, errorPayload('chat.empty_text'));
-  if (!page?.url) return sendJson(res, 400, errorPayload('chat.missing_page'));
   // The UI sends its resolved locale; the prompt/title are built in English but the final instruction
   // pins the answer language, so one prompt serves both locales without two translations drifting apart.
   const locale = body?.locale === 'en-US' ? 'en-US' : 'zh-CN';
@@ -674,9 +698,13 @@ async function handleChat(req, res) {
   // would otherwise interleave addTurn rows or remove the conversation under the running turn.
   if ((activeChats.get(conv.id) ?? 0) > 0) return sendJson(res, 409, errorPayload('conversation.busy'));
 
-  const userMsg = body.regenerate
-    ? (truncateAfterLastUser(conv.id) ?? { id: '' })
-    : addMessage({ conversationId: conv.id, role: 'user', content: text });
+  let userMsg;
+  if (body.regenerate) {
+    userMsg = truncateAfterLastUser(conv.id);
+    if (!userMsg) return sendJson(res, 400, errorPayload('chat.nothing_to_regenerate'));
+  } else {
+    userMsg = addMessage({ conversationId: conv.id, role: 'user', content: text });
+  }
   logEvent(body.regenerate ? 'chat_regenerate' : 'chat_start', { conversationId: conv.id, kind: page.kind ?? '(none)', pages: page.pages, chars: (page.markdown ?? '').length, hasShot: Boolean(page.screenshot) });
   if (!conv.title && (page.title || text)) touchConversation(conv.id, { title: page.title || text.slice(0, 40) });
 
@@ -691,12 +719,17 @@ async function handleChat(req, res) {
   let phaseMs = null; // reasoning + tool-call phase of this turn; frozen when the first content segment appears
   const emit = (event, data) => {
     if (finished || res.writableEnded || res.destroyed) return;
+    // A client that stops reading must not make the backend buffer the whole answer in memory.
+    if (res.writableLength > 8 * 1024 * 1024) {
+      res.destroy();
+      return;
+    }
     if (event === 'content' && phaseMs == null) phaseMs = Date.now() - started;
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
   const model = typeof body?.model === 'string' && body.model.trim() ? body.model.trim() : readSettings().model;
-  emit('meta', { conversationId: conv.id, userMessageId: userMsg.id, model });
+  emit('meta', { conversationId: conv.id, messageId: userMsg.id, userMessageId: userMsg.id, model });
 
   // client gone ("Stop" or panel closed) → abort upstream; whatever was produced is still persisted
   const controller = new AbortController();
@@ -741,6 +774,8 @@ async function handleChat(req, res) {
     else activeChats.set(conv.id, remaining);
   };
   const totals = { tokensIn: 0, tokensOut: 0 };
+  // Per-answer usage for this round; totals above stay cumulative for the conversation stats.
+  const turnTokens = { tokensIn: 0, tokensOut: 0 };
   let steps = 0;
   let aborted = false;
 
@@ -781,6 +816,8 @@ async function handleChat(req, res) {
       if (turn.usage) {
         totals.tokensIn += turn.usage.input_tokens ?? 0;
         totals.tokensOut += turn.usage.output_tokens ?? 0;
+        turnTokens.tokensIn += turn.usage.input_tokens ?? 0;
+        turnTokens.tokensOut += turn.usage.output_tokens ?? 0;
       }
 
       // timed out with nothing received: nothing to keep, treat it as an error — don't write an empty answer.
@@ -848,7 +885,10 @@ async function handleChat(req, res) {
             id: assistant.id,
             content: turn.content,
             reasoning: turn.reasoning,
+            ms: assistant.ms ?? 0,
             processMs: assistant.processMs ?? phaseMs,
+            tokensIn: turnTokens.tokensIn,
+            tokensOut: turnTokens.tokensOut,
           },
           usage: turn.usage,
           totals,
@@ -888,7 +928,17 @@ async function handleChat(req, res) {
         const toolSignal = AbortSignal.any([controller.signal, timeout]);
         let result;
         try {
-          result = await runTool(call.name, args, { ...toolCtx, signal: toolSignal });
+          // Some tools (pdfjs text extraction) do CPU work that cannot observe an AbortSignal
+          // mid-call. Race the signal so Stop/timeout releases the turn instead of waiting for
+          // the parser; the signal still stops work at the next page boundary.
+          const running = runTool(call.name, args, { ...toolCtx, signal: toolSignal });
+          running.catch(() => {});
+          const aborted = new Promise((_, reject) => {
+            const onAbort = () => reject(new ToolError(499, 'tool aborted'));
+            if (toolSignal.aborted) onAbort();
+            else toolSignal.addEventListener('abort', onAbort, { once: true });
+          });
+          result = await Promise.race([running, aborted]);
         } catch (err) {
           if (stopRequested()) {
             result = {
@@ -1120,7 +1170,7 @@ async function streamTurn({ input, instructions, model, signal, emit, previousRe
   }
 
   if (!upstream.ok || !upstream.body) {
-    const detail = await upstream.text().catch(() => '');
+    const detail = await readErrorDetail(upstream);
     throw new UpstreamError(upstream.status, detail);
   }
 
@@ -1282,6 +1332,12 @@ function saveShot(dataUrl) {
     // write a temp file then rename: a crash leaves a cleanable .tmp, not a half-written screenshot
     writeFileSync(tmp, buf, { mode: 0o600 });
     renameSync(tmp, target);
+    // Keep the replayed-image total bounded; old rows lose only their image, not their text.
+    try {
+      trimShotBudget();
+    } catch (err) {
+      logError('trim_shot_budget_failed', err);
+    }
     return name;
   } catch (err) {
     try {
@@ -1317,9 +1373,10 @@ function failureStatus(failure) {
 
 class UpstreamError extends Error {
   constructor(status, detail, code = upstreamErrorCode(status), params = undefined) {
-    super(`upstream ${status}: ${detail.slice(0, 500)}`);
+    const text = String(detail ?? '').slice(0, 8192);
+    super(`upstream ${status}: ${text.slice(0, 500)}`);
     this.status = status;
-    this.detail = detail;
+    this.detail = text;
     this.code = code;
     this.params = params ?? (code === 'upstream.status' ? { status } : undefined);
   }
@@ -1336,7 +1393,8 @@ class UpstreamError extends Error {
     const hint = hints[this.status] ?? `Upstream returned ${this.status}`;
     let upstreamMsg = '';
     try {
-      upstreamMsg = JSON.parse(this.detail)?.error?.message ?? '';
+      const parsed = JSON.parse(this.detail)?.error?.message;
+      upstreamMsg = typeof parsed === 'string' ? parsed.slice(0, 300) : '';
     } catch {
       upstreamMsg = this.detail.slice(0, 300);
     }
@@ -1484,6 +1542,10 @@ async function* parseSseEvents(stream) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
+    // An upstream that never emits a blank line would otherwise make `buffer` grow without bound.
+    if (buffer.length > 1024 * 1024) {
+      throw new UpstreamError(502, 'SSE frame exceeds 1 MB', 'upstream.bad_frame');
+    }
     // SSE spec allows CRLF; normalize after appending so a CR/LF pair split across chunks is joined first.
     buffer = buffer.replace(/\r\n/g, '\n');
     let idx;
@@ -1494,6 +1556,7 @@ async function* parseSseEvents(stream) {
       if (evt) yield evt;
     }
   }
+  buffer += decoder.decode();
   const rest = parseBlock(buffer);
   if (rest) yield rest;
 }
@@ -1538,8 +1601,10 @@ function allowSettingsRequest(req) {
 }
 
 function checkToken(req) {
-  const auth = req.headers.authorization ?? '';
-  return auth === `Bearer ${TOKEN}`;
+  if (!TOKEN) return false;
+  const expected = Buffer.from(`Bearer ${TOKEN}`);
+  const actual = Buffer.from(String(req.headers.authorization ?? ''));
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
 /**
@@ -1573,6 +1638,18 @@ function openSettingsFile() {
   if (result.status !== 0) throw new Error(`${cmd} exited with ${result.status}`);
 }
 
+/**
+ * Drain a non-OK response for diagnostics without letting a hostile/broken endpoint
+ * stream unbounded data into memory. The caller only ever shows a short slice.
+ */
+async function readErrorDetail(res, cap = 64 * 1024) {
+  try {
+    return (await readBodyCapped(res, cap)).toString('utf8');
+  } catch {
+    return '';
+  }
+}
+
 function sendJson(res, status, data) {
   const body = JSON.stringify(data);
   res.writeHead(status, {
@@ -1589,18 +1666,27 @@ async function readJson(req, maxBytes = MAX_BODY) {
     let tooLarge = false;
     let settled = false;
     const chunks = [];
+    // A local client can still open a socket and drip bytes forever; without an idle deadline the
+    // handler and its 64 MB buffer would stay pinned. 15 s between chunks is far above normal use.
+    const idle = setTimeout(() => {
+      fail(new Error('body timeout'));
+      req.destroy();
+    }, 15_000);
     const fail = (err) => {
       if (settled) return;
       settled = true;
+      clearTimeout(idle);
       reject(err);
     };
     req.on('data', (c) => {
+      idle.refresh();
       if (settled || tooLarge) return;
       size += c.length;
       if (size > maxBytes) {
         // Don't destroy: the client would only see "fetch failed". Let the request end naturally,
         // the caller replies 400 normally, and the remaining bytes are simply discarded.
         tooLarge = true;
+        clearTimeout(idle);
         fail(new Error('body too large'));
         return;
       }
@@ -1609,6 +1695,7 @@ async function readJson(req, maxBytes = MAX_BODY) {
     req.on('end', () => {
       if (settled) return;
       settled = true;
+      clearTimeout(idle);
       if (!chunks.length) return resolve(null);
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));

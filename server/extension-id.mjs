@@ -52,11 +52,23 @@ export function readExtensionKey(file = EXTENSION_KEY_FILE) {
 /**
  * Resolve the ID the backend should whitelist. `source` is reported at startup and in /health so
  * a 403 can be traced to "no key generated yet" instead of a mysterious origin mismatch.
- * `file` exists so tests can point at a fixture instead of the committed key.
+ * A corrupt file is `invalid`, not `missing`: the two need different fixes.
  */
 export function resolveExtensionId(file = EXTENSION_KEY_FILE) {
-  const key = readExtensionKey(file);
-  if (!key) return { id: '', source: 'missing' };
+  let text;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (err) {
+    return { id: '', source: err?.code === 'ENOENT' ? 'missing' : 'invalid' };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { id: '', source: 'invalid' };
+  }
+  const key = typeof parsed?.key === 'string' ? parsed.key.trim() : '';
+  if (!key) return { id: '', source: 'invalid' };
   try {
     return { id: extensionIdFromKey(key), source: 'extension-key.json' };
   } catch {

@@ -341,7 +341,7 @@ async function fetchPdf(url, signal) {
   if (!res.ok) throw new ToolError(res.status, `Failed to fetch PDF: HTTP ${res.status}`);
   const buf = await readBodyCapped(res, 64 * 1024 * 1024);
 
-  const out = await extractPdfText(buf);
+  const out = await extractPdfText(buf, { signal });
   if (!out.text.trim()) {
     throw new ToolError(404, 'PDF contains no extractable text layer (likely scanned). Use screenshot instead.');
   }
@@ -403,7 +403,12 @@ async function fetchJson(url, payload, apiKey, signal) {
     throw err;
   }
   if (!res.ok) {
-    const detail = await res.text().catch(() => '');
+    let detail = '';
+    try {
+      detail = (await readBodyCapped(res, 64 * 1024)).toString('utf8');
+    } catch {
+      /* oversized/broken error body: the status still tells the story */
+    }
     throw new ToolError(res.status, `${url} returned HTTP ${res.status}: ${detail.slice(0, 300)}`);
   }
   const buf = await readBodyCapped(res, 4 * 1024 * 1024);

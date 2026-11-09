@@ -43,12 +43,17 @@ export function normalizePdfLimits(opts = {}) {
 /**
  * Extract text from a PDF byte stream.
  * @param {Uint8Array} bytes
- * @param {{maxPages?: number, maxChars?: number, onProgress?: (done:number,total:number)=>void}} [opts]
+ * @param {{maxPages?: number, maxChars?: number, onProgress?: (done:number,total:number)=>void, signal?: AbortSignal}} [opts]
  * @returns {Promise<{pageCount:number, pages:Array<{n:number,text:string}>, text:string, chars:number, truncated:boolean}>}
  */
 export async function extractPdfText(bytes, opts = {}) {
   const { maxPages, maxChars } = normalizePdfLimits(opts);
+  const cancelled = () => new PdfError('cancelled', 'PDF parsing cancelled');
+  const throwIfCancelled = () => {
+    if (opts.signal?.aborted) throw cancelled();
+  };
 
+  throwIfCancelled();
   let doc;
   let loadingTask;
   try {
@@ -75,18 +80,28 @@ export async function extractPdfText(bytes, opts = {}) {
   try {
     const limit = Math.min(pageCount, maxPages);
     for (let n = 1; n <= limit; n++) {
+      throwIfCancelled();
       if (chars >= maxChars) {
         truncated = true;
         break;
       }
       let text = '';
+      let page;
       try {
-        const page = await doc.getPage(n);
+        page = await doc.getPage(n);
+        throwIfCancelled();
         const content = await page.getTextContent();
         text = joinTextItems(content.items);
-        page.cleanup();
       } catch (err) {
+        // A Stop/timeout during getPage/getTextContent is cancellation, not a broken page.
+        if (opts.signal?.aborted) throw cancelled();
         text = `(Page ${n} failed to parse: ${err?.message ?? err})`;
+      } finally {
+        try {
+          page?.cleanup();
+        } catch {
+          /* cleanup is best-effort; a failed page must not mask cancellation */
+        }
       }
       if (text) {
         chars += text.length;

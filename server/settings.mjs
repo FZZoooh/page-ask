@@ -194,9 +194,20 @@ export function writeSettings(patch) {
   });
   // dir 0700, file 0600: the key sits in plaintext on disk — at least keep other users on the box out
   mkdirSync(configDir, { recursive: true, mode: 0o700 });
-  const tmp = `${settingsFile}.tmp`;
+  const tmp = `${settingsFile}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-  renameSync(tmp, settingsFile);
+  try {
+    renameSync(tmp, settingsFile);
+  } catch (err) {
+    // Two saves can race (settings page + tray); a unique temp avoids the loser's rename hitting
+    // the winner's file. Clean up our temp so a failed save leaves no stale secret-bearing file.
+    try {
+      unlinkSync(tmp);
+    } catch {
+      /* already gone */
+    }
+    throw err;
+  }
   try {
     chmodSync(settingsFile, 0o600);
   } catch {

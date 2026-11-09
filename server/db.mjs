@@ -540,6 +540,54 @@ function shotToDataUrl(name) {
 }
 
 /**
+ * Keep the referenced screenshots under a total byte budget. Images are replayed into future
+ * requests, so old ones eventually cost more than they are worth; drop the oldest rows' image_path
+ * (the text stays) and their files. Returns the number of dropped files.
+ */
+export function trimShotBudget({ maxBytes = 512 * 1024 * 1024 } = {}) {
+  const rows = db
+    .prepare('SELECT id, image_path FROM messages WHERE image_path IS NOT NULL ORDER BY rowid DESC')
+    .all();
+  let total = 0;
+  let dropped = 0;
+  const kept = new Set();
+  const removed = new Set();
+  for (const row of rows) {
+    const full = join(shotsDir, row.image_path);
+    // Screenshots are content-addressed, so several rows may share one file. Count it once and
+    // only unlink it after the last referencing row has been trimmed.
+    if (kept.has(row.image_path)) continue;
+    if (removed.has(row.image_path)) {
+      db.prepare('UPDATE messages SET image_path = NULL WHERE id = ?').run(row.id);
+      dropped++;
+      continue;
+    }
+    let size = 0;
+    try {
+      size = statSync(full).size;
+    } catch {
+      size = 0;
+    }
+    if (total + size <= maxBytes) {
+      total += size;
+      kept.add(row.image_path);
+      continue;
+    }
+    db.prepare('UPDATE messages SET image_path = NULL WHERE id = ?').run(row.id);
+    removed.add(row.image_path);
+    dropped++;
+    const still = db.prepare('SELECT COUNT(*) AS n FROM messages WHERE image_path = ?').get(row.image_path);
+    if (still.n > 0) continue;
+    try {
+      unlinkSync(full);
+    } catch {
+      /* already gone */
+    }
+  }
+  return dropped;
+}
+
+/**
  * On startup, delete screenshots no message references, plus half-written `.tmp-*` files a crash left behind.
  * Only files older than 1 hour: another instance / an in-flight turn may have written one, not yet in the DB.
  */
