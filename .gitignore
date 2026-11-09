@@ -18,6 +18,7 @@ settings.json.broken-*
 
 # Browser test instance profile (may contain tokens in extension storage)
 .edge-profile*/
+.edge-profiles/
 
 # Editor / OS
 .DS_Store

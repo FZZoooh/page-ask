@@ -9,3 +9,4 @@ $root = Split-Path -Parent $PSScriptRoot
 
 Set-Location $root
 node server/index.mjs
+exit $LASTEXITCODE

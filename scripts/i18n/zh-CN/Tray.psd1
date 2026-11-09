@@ -27,7 +27,7 @@
   BalloonAbnormal        = '上次后端未正常退出'
   BalloonRecovered       = '后端已恢复'
 
-  AutostartShortcutName  = 'PageAsk 托盘.lnk'
+  AutostartShortcutName  = 'PageAsk Tray.lnk'
   AutostartDescription   = 'PageAsk 后端托盘（守护进程）'
   HostAutostartInstalled = '已设置开机自启：{0}'
   HostAutostartRemoved   = '已取消开机自启'

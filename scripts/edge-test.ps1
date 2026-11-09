@@ -6,31 +6,64 @@
 #   pwsh -File scripts/edge-test.ps1
 #   pwsh -File scripts/edge-test.ps1 -Url http://127.0.0.1:8811/marker.pdf -DebugPort 9360
 #   pwsh -File scripts/edge-test.ps1 -Reuse          # reopen with the same profile (saves disk)
+#   pwsh -File scripts/edge-test.ps1 -ProfileName ci -ValidateOnly   # print the profile path only
 
 param(
   [int]$DebugPort = 9358,
   [string]$Url = 'http://127.0.0.1:8811/article.html',
   [string]$ProfileName = '',
-  [switch]$Reuse
+  [switch]$Reuse,
+  [switch]$ValidateOnly
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$ext = Join-Path $root '.output\chrome-mv3'
-if (-not (Test-Path (Join-Path $ext 'manifest.json'))) {
-  throw "找不到构建产物：$ext（先跑 pnpm build）"
+
+# Profile names are user input and are later passed to Remove-Item. Restrict them to a
+# single path segment and keep every profile under .edge-profiles so a typo cannot point
+# the recursive delete at the repository or its parent.
+if (-not $ProfileName) { $ProfileName = "edge-profile$DebugPort" }
+if ($ProfileName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$') {
+  throw "Invalid -ProfileName '$ProfileName': use 1-64 chars from [A-Za-z0-9._-], starting with a letter or digit."
+}
+$profilesRoot = [IO.Path]::GetFullPath((Join-Path $root '.edge-profiles'))
+$profileDir = [IO.Path]::GetFullPath((Join-Path $profilesRoot $ProfileName))
+$profilePrefix = $profilesRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+if (-not $profileDir.StartsWith($profilePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+  throw "Invalid -ProfileName '$ProfileName': resolved path escapes $profilesRoot."
 }
 
-# profile dir: named after the port by default, so instances do not collide
-if (-not $ProfileName) { $ProfileName = ".edge-profile$DebugPort" }
-$profileDir = Join-Path $root $ProfileName
+if ($ValidateOnly) {
+  Write-Host "profile=$profileDir"
+  exit 0
+}
 
-if (-not $Reuse -and (Test-Path $profileDir)) {
+$ext = Join-Path $root '.output\chrome-mv3'
+if (-not (Test-Path (Join-Path $ext 'manifest.json'))) {
+  throw "Build output not found: $ext (run pnpm build first)"
+}
+
+if (-not $Reuse -and (Test-Path -LiteralPath $profileDir)) {
+  # Only profiles created by this script carry the marker. If it is missing, refuse to
+  # delete the directory: it may be a user profile or a mistyped path.
+  $marker = Join-Path $profileDir '.pageask-edge-profile'
+  if (-not (Test-Path -LiteralPath $marker)) {
+    throw "Refusing to delete '$profileDir': it was not created by this script. Delete it manually if it is safe."
+  }
+  $userDataArg = [regex]::Escape("--user-data-dir=$profileDir")
   Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" |
-    Where-Object { $_.CommandLine -like "*$ProfileName*" } |
+    Where-Object { $_.CommandLine -and ($_.CommandLine -match $userDataArg) } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
   Start-Sleep -Milliseconds 800
-  Remove-Item -Recurse -Force $profileDir -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $profileDir -Recurse -Force -ErrorAction Stop
+}
+
+if (-not (Test-Path -LiteralPath $profileDir)) {
+  New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
+  Set-Content -LiteralPath (Join-Path $profileDir '.pageask-edge-profile') -Value 'pageask edge test profile'
+} elseif (-not (Test-Path -LiteralPath (Join-Path $profileDir '.pageask-edge-profile'))) {
+  # -Reuse must not adopt a directory this script did not create.
+  throw "Refusing to reuse '$profileDir': it was not created by this script."
 }
 
 $candidates = @(
@@ -39,7 +72,7 @@ $candidates = @(
   (Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\Application\msedge.exe')
 )
 $exe = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-if (-not $exe) { throw "找不到 Edge，试过：`n$($candidates -join "`n")" }
+if (-not $exe) { throw "Edge not found; tried:`n$($candidates -join "`n")" }
 
 $edgeArgs = @(
   "--user-data-dir=$profileDir"
@@ -63,10 +96,10 @@ for ($i = 0; $i -lt 20; $i++) {
   try { $targets = Invoke-RestMethod "http://127.0.0.1:$DebugPort/json/list" -TimeoutSec 2 } catch { continue }
   $extTarget = $targets | Where-Object { $_.url -like 'chrome-extension://*/background.js' } | Select-Object -First 1
   if ($extTarget) {
-    Write-Host "扩展已加载：$($extTarget.url)"
-    Write-Host "提示：还要自己点一次「以后再说」关掉开发者模式警告（别点「关闭扩展」）。"
+    Write-Host "Extension loaded: $($extTarget.url)"
+    Write-Host 'Note: dismiss the developer-mode warning with "Not now" (do not click "Remove").'
     exit 0
   }
 }
-Write-Warning 'CDP 起来了但没看到扩展的 service worker：检查 edge://extensions 是否开着「开发人员模式」。'
+Write-Warning 'CDP is up but the extension service worker did not appear: enable Developer mode at edge://extensions.'
 exit 1

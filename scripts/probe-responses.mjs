@@ -1,11 +1,15 @@
 // Probe the Responses API: images inside tool results, and replaying reasoning+tool history.
 // Reads baseUrl / model / key from ~/.config/pageask/settings.json.
-// Usage: node scripts/probe-responses.mjs
+// Usage: PAGEASK_ALLOW_REAL=1 node scripts/probe-responses.mjs
 import { readSettings } from '../server/settings.mjs';
+import { withV1 } from '../server/upstream.mjs';
+import { requireRealConfig } from './require-real-config.mjs';
 
+// This script spends real tokens, so make the opt-in explicit before touching the config.
+requireRealConfig();
 const cfg = readSettings();
 const KEY = cfg.apiKey;
-const BASE = cfg.baseUrl.replace(/\/+$/, '');
+const BASE = withV1(cfg.baseUrl);
 const MODEL = cfg.model;
 if (!KEY) {
   console.error('no API key in ~/.config/pageask/settings.json');
@@ -20,6 +24,7 @@ async function post(body) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${KEY}` },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(300_000),
   });
   const text = await res.text();
   let json = null;

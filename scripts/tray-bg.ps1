@@ -58,7 +58,10 @@ if ($pwsh) {
   $argv = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', $trayScript)
 }
 
-$proc = Start-Process -FilePath $exe -ArgumentList $argv -WorkingDirectory $root -WindowStyle Hidden -PassThru
+# Start-Process joins an array with spaces without quoting; quote every argument so a repo path
+# containing spaces survives. PowerShell 7 accepts an array, but 5.1 does not quote it.
+$argLine = ($argv | ForEach-Object { if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } }) -join ' '
+$proc = Start-Process -FilePath $exe -ArgumentList $argLine -WorkingDirectory $root -WindowStyle Hidden -PassThru
 Write-Host ($Tray.BgStarted -f $proc.Id, (Split-Path -Leaf $exe))
 Write-Host ($Tray.BgLog -f (Join-Path $root 'server\data\tray.log'))
 Write-Host $Tray.BgStop

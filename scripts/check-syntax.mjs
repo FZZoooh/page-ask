@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const dirs = ['server', 'scripts'];
+const dirs = ['server', 'scripts', 'src/lib'];
 const mjsFiles = [];
 const psFiles = [];
 
@@ -64,8 +64,8 @@ if (psFiles.length > 0 && process.platform === 'win32') {
 }
 
 if (failed) {
-  console.error(`\n${failed} 个语法/编码错误（${mjsFiles.length} 个 .mjs，${psFiles.length} 个 PowerShell 文件）`);
+  console.error(`\n${failed} syntax/encoding error(s) (${mjsFiles.length} .mjs, ${psFiles.length} PowerShell files)`);
   process.exitCode = 1;
 } else {
-  console.log(`✓ ${mjsFiles.length} 个 .mjs、${psFiles.length} 个 PowerShell 文件语法检查通过`);
+  console.log(`✓ ${mjsFiles.length} .mjs and ${psFiles.length} PowerShell files passed syntax checks`);
 }

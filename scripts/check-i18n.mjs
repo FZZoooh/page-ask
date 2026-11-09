@@ -10,8 +10,11 @@
  */
 import { readFileSync } from 'node:fs';
 import { globSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const CJK = /[\u4e00-\u9fff]/;
 
 const problems = [];
 function fail(file, line, message) {
@@ -134,7 +137,115 @@ function collectPsStrings(text) {
   return out;
 }
 
-const CJK = /[\u4e00-\u9fff]/;
+/** Blank out JS/TS comments while preserving newlines and character positions. */
+function stripJsComments(text) {
+  const out = [];
+  let i = 0;
+  // A quote is a string delimiter only in expression position. JSX text may contain
+  // apostrophes ("Don't"), and treating one as a string start would hide the rest of
+  // the line, including its Chinese copy.
+  const isStringStart = () => {
+    let j = out.length - 1;
+    while (j >= 0 && /\s/.test(out[j])) j--;
+    if (j < 0) return true;
+    return '=(:[,;!&|?+-*%<>{}~^'.includes(out[j]);
+  };
+  while (i < text.length) {
+    const ch = text[i];
+    const next = text[i + 1];
+    if (ch === '/' && next === '/') {
+      // `https://` in JSX copy is text, not a comment; blanking it would hide the rest
+      // of the line, including any Chinese that follows the URL.
+      const before = out.join('').slice(-12);
+      if (/[a-z][a-z0-9+.-]*:$/i.test(before)) {
+        out.push(ch, next);
+        i += 2;
+        continue;
+      }
+      while (i < text.length && text[i] !== '\n') {
+        out.push(' ');
+        i++;
+      }
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      out.push('  ');
+      i += 2;
+      while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) {
+        out.push(text[i] === '\n' ? '\n' : ' ');
+        i++;
+      }
+      if (i < text.length) {
+        out.push('  ');
+        i += 2;
+      }
+      continue;
+    }
+    if ((ch === "'" || ch === '"' || ch === '`') && isStringStart()) {
+      const quote = ch;
+      out.push(' ');
+      i++;
+      while (i < text.length) {
+        const cur = text[i];
+        if (cur === '\\') {
+          out.push(text[i + 1] === '\n' ? '\n' : ' ', text[i + 1] === '\n' ? '' : ' ');
+          i += 2;
+          continue;
+        }
+        if (cur === quote) {
+          out.push(' ');
+          i++;
+          break;
+        }
+        out.push(cur === '\n' ? '\n' : ' ');
+        i++;
+      }
+      continue;
+    }
+    out.push(ch);
+    i++;
+  }
+  return out.join('');
+}
+
+/**
+ * Collect Chinese text between a JSX closing `>` and the next `<`.
+ *
+ * This deliberately avoids the TypeScript compiler API: the installed TS 7 native preview
+ * does not expose `createSourceFile`. A tag-to-tag scan is enough here because raw JSX text
+ * cannot contain an unescaped `<` or `>`, and a regex also survives apostrophes in copy
+ * such as "Don't". Quoted strings are collected separately by collectJsStrings().
+ */
+function scanJsxText(file, text) {
+  const stripped = stripJsComments(text);
+  const found = [];
+  let line = 1;
+  let scanned = 0;
+  for (const match of stripped.matchAll(/>([^<>]*)</g)) {
+    const index = match.index ?? 0;
+    for (let i = scanned; i < index; i++) if (stripped[i] === '\n') line++;
+    scanned = index;
+    const value = match[1].replace(/\s+/g, ' ').trim();
+    if (CJK.test(value)) found.push({ value, line });
+  }
+  return found;
+}
+
+/**
+ * All hard-coded Chinese in one source file: quoted literals plus JSX text nodes.
+ * Exported so the guard itself can be regression-tested without touching the tree.
+ */
+export function findHardcodedChinese(file, text) {
+  const found = [];
+  for (const s of collectJsStrings(text)) {
+    if (!CJK.test(s.value)) continue;
+    // Dev logs all start with [pageask]; they are not user-facing UI copy
+    if (s.value.trimStart().startsWith('[pageask]')) continue;
+    found.push({ value: s.value, line: s.line });
+  }
+  if (file.endsWith('.tsx')) found.push(...scanJsxText(file, text));
+  return found;
+}
 
 function checkHardcodedChinese() {
   // Both dictionaries are the copy itself: zh-CN is all Chinese and en-US keeps the
@@ -147,12 +258,15 @@ function checkHardcodedChinese() {
   const serverFiles = globSync('server/**/*.mjs').filter((f) => !f.replaceAll('\\', '/').includes('server/i18n/'));
   const configFiles = ['wxt.config.ts'];
 
+  // A cwd/glob mistake must fail loudly instead of reporting a clean scan of zero files.
+  if (jsFiles.length === 0 || serverFiles.length === 0) {
+    fail('scripts/check-i18n.mjs', 0, `扫描范围为空（js=${jsFiles.length}, server=${serverFiles.length}）`);
+    return;
+  }
+
   for (const file of [...jsFiles, ...serverFiles, ...configFiles]) {
     const text = readFileSync(file, 'utf8');
-    for (const s of collectJsStrings(text)) {
-      if (!CJK.test(s.value)) continue;
-      // Dev logs all start with [pageask]; they are not user-facing UI copy
-      if (s.value.trimStart().startsWith('[pageask]')) continue;
+    for (const s of findHardcodedChinese(file, text)) {
       fail(file, s.line, `硬编码中文：${JSON.stringify(s.value.slice(0, 80))}`);
     }
   }
@@ -192,6 +306,7 @@ async function checkErrorCodes() {
     'backendStatus',
     'historyDelete',
     'historyLoad',
+    'historyUnavailable',
     'pageMismatch',
     'streamCut',
     'unknown',
@@ -301,15 +416,25 @@ async function checkTrayKeys() {
   }
 }
 
-checkHardcodedChinese();
-await checkErrorCodes();
-await checkLocales();
-await checkTrayKeys();
+async function main() {
+  // Globs and dictionary paths below are repo-relative. Anchor them to this file so
+  // `node ../scripts/check-i18n.mjs` from a subdirectory cannot scan an empty tree.
+  process.chdir(ROOT);
 
-if (problems.length > 0) {
-  console.error(`✗ i18n 检查失败（${problems.length} 项）：`);
-  for (const p of problems) console.error(`  ${p}`);
-  process.exitCode = 1;
-} else {
-  console.log('✓ i18n 检查通过（硬编码中文、错误码、locale、托盘 key）');
+  checkHardcodedChinese();
+  await checkErrorCodes();
+  await checkLocales();
+  await checkTrayKeys();
+
+  if (problems.length > 0) {
+    console.error(`✗ i18n 检查失败（${problems.length} 项）：`);
+    for (const p of problems) console.error(`  ${p}`);
+    process.exitCode = 1;
+  } else {
+    console.log('✓ i18n 检查通过（硬编码中文、错误码、locale、托盘 key）');
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  await main();
 }
