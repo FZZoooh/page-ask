@@ -39,6 +39,7 @@ const TESTS = [
   'test-i18n-guard.mjs',
   'test-migration.mjs',
   'test-cors-origin.mjs',
+  'test-replace-sse.mjs',
 ];
 
 function runOne(script) {
