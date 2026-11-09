@@ -120,6 +120,7 @@ export const enUS = {
   'composer.send': 'Send',
   'composer.stop': 'Stop',
   'composer.inputAria': 'Message input',
+  'composer.textOnly': 'Only plain text can be dropped',
   // Selection hint on the composer's first line (also sent with the request)
   'composer.selection.aria': 'Web page selection: {text}',
 

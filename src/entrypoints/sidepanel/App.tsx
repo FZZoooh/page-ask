@@ -185,16 +185,26 @@ export default function App() {
     async (url: string, s: Settings, commit = true) => {
       try {
         const list = await listConversations(s, url);
-        if (commit) setConversations(list);
+        if (commit) {
+          setConversations(list);
+          setLoadError(null);
+        }
         return list;
       } catch {
         // Keep the list we already have: a backend hiccup must not look like "no history".
-        if (commit) setLoadError(t('error.historyUnavailable'));
+        setLoadError(t('error.historyUnavailable'));
         return [];
       }
     },
     [],
   );
+
+  const toggleHistory = useCallback(() => {
+    const next = !historyOpen;
+    setHistoryOpen(next);
+    // Opening the panel is also a retry: a backend that was down when the tab loaded may be back now.
+    if (next && pageUrl && settings) void refreshConversations(pageUrl, settings);
+  }, [historyOpen, pageUrl, settings, refreshConversations]);
 
   /* ---------------- Page loading ---------------- */
 
@@ -924,6 +934,7 @@ export default function App() {
     } catch (err) {
       if (mine !== loadSeqRef.current) return;
       // On failure keep the conversation and only show a banner; never replace the list with an error bubble
+      setHistoryOpen(false);
       setLoadError(t('error.historyLoad', { message: errText(err) }));
     }
   };
@@ -1038,6 +1049,7 @@ export default function App() {
     e.preventDefault();
     const text = e.dataTransfer.getData('text/plain').replace(/\r\n?/g, '\n');
     if (text) insertTextAtCaret(text);
+    else if (e.dataTransfer.files.length > 0) showToast(t('composer.textOnly'));
   };
 
   /* ---------------- Miscellaneous ---------------- */
@@ -1124,7 +1136,7 @@ export default function App() {
           </button>
           <button
             className={`ghost ${historyOpen ? 'on' : ''}`}
-            onClick={() => setHistoryOpen((v) => !v)}
+            onClick={toggleHistory}
             disabled={!pageUrl || busy}
             title={t('header.history.title')}
           >

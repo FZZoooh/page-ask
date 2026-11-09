@@ -124,6 +124,7 @@ export const zhCN = {
   'composer.send': '发送',
   'composer.stop': '停止',
   'composer.inputAria': '消息输入框',
+  'composer.textOnly': '只能拖入纯文本',
   // 输入框首行的网页选区提示（发送时会随请求带上）
   'composer.selection.aria': '网页选区：{text}',
 

@@ -101,6 +101,7 @@ export function Composer({
           onCompositionEnd={onCompositionEnd}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
+          onDragOver={(e) => e.preventDefault()}
           onDrop={onDrop}
         />
         {busy ? (
