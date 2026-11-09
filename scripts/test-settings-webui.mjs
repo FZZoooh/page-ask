@@ -202,10 +202,8 @@ try {
     { baseUrl: 'http://127.0.0.1:9' },
     { Origin: sameOrigin },
   );
-  check('更换 Base URL 但未填 Key 时拒绝', () => assert.equal(changedUrlNoKey.status, 400));
-  check('拒绝时带 settings.key_required_for_url', () =>
-    assert.equal(changedUrlNoKey.body?.code, 'settings.key_required_for_url'),
-  );
+  check('更换 Base URL 不再要求重填 Key', () => assert.equal(changedUrlNoKey.status, 200));
+  check('不可达地址返回测试失败', () => assert.equal(changedUrlNoKey.body?.code, 'settings.test_failed'));
 
   const wrongKey = await postJson(
     '/api/settings/test',

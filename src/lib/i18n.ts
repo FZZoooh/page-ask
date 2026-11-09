@@ -143,7 +143,6 @@ export const zhCN = {
   'error.chat.nothing_to_regenerate': '没有可重新生成的提问',
   'error.chat.invalid_page': '页面信息不合法',
   'error.upstream.bad_frame': '上游返回了无法解析的数据',
-  'error.settings.key_required_for_url': '更换 Base URL 后请重新填写 API Key',
   'error.pageMismatch': '这个会话属于另一个页面',
   'error.historyDelete': '删除失败：{message}',
   'answer.copyFailed': '复制失败，请手动选中文字',

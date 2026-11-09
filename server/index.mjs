@@ -323,11 +323,6 @@ async function handle(req, res) {
       }
     }
     const apiKey = typeof body.apiKey === 'string' && body.apiKey.trim() ? body.apiKey.trim() : current.apiKey;
-    // Testing a different endpoint than the stored one must not forward the stored key to it:
-    // otherwise a same-origin page (or a local proxy) could exfiltrate the key with one request.
-    if (baseUrl !== current.baseUrl && !(typeof body.apiKey === 'string' && body.apiKey.trim())) {
-      return sendJson(res, 400, errorPayload('settings.key_required_for_url'));
-    }
     if (!apiKey) {
       return sendJson(res, 200, { ok: false, code: 'settings.missing_api_key' });
     }

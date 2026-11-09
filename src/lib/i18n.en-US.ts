@@ -139,7 +139,6 @@ export const enUS = {
   'error.chat.nothing_to_regenerate': 'There is no question to regenerate',
   'error.chat.invalid_page': 'Invalid page information',
   'error.upstream.bad_frame': 'The upstream returned unreadable data',
-  'error.settings.key_required_for_url': 'Re-enter the API key after changing the base URL',
   'error.pageMismatch': 'This chat belongs to a different page',
   'error.historyDelete': 'Delete failed: {message}',
   'answer.copyFailed': 'Copy failed — select the text manually',
