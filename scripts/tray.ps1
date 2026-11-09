@@ -54,6 +54,9 @@ $script:Port = 8787
 $script:Child = $null
 $script:Starts = 0
 $script:WasDown = $false
+# When the backend first looked down. A quick restart (50ms TCP probe now catches the gap) must not
+# turn into a "recovered" balloon; only a down state that lasts several watchdog ticks counts.
+$script:DownSince = [datetime]::MinValue
 $script:PortBlocked = $false
 # Watchdog backoff: 10s → 20s → 40s → 60s on consecutive failures; reset after a success
 $script:RestartDelay = 10
@@ -162,6 +165,13 @@ function Get-BackendState {
 
 function Test-Backend {
   return (Get-BackendState) -eq 'up'
+}
+
+# A restart can leave the port closed for one watchdog tick. Only call the backend "was down" after
+# it has stayed down for 8s, so a normal restart does not produce a false "Backend recovered" balloon.
+function Note-BackendDown {
+  if ($script:DownSince -eq [datetime]::MinValue) { $script:DownSince = Get-Date }
+  if (((Get-Date) - $script:DownSince).TotalSeconds -ge 8) { $script:WasDown = $true }
 }
 
 function Get-HealthModel {
@@ -439,6 +449,7 @@ $menu.add_Opening({ & $refresh })
 $miStart.add_Click({
   $script:StoppedByUser = $false
   $script:WasDown = $false
+  $script:DownSince = [datetime]::MinValue
   $script:RestartDelay = 10
   $script:NextRestartAt = [datetime]::MinValue
   Start-Backend | Out-Null
@@ -446,6 +457,8 @@ $miStart.add_Click({
 })
 $miStop.add_Click({
   $script:StoppedByUser = $true
+  $script:WasDown = $false
+  $script:DownSince = [datetime]::MinValue
   Stop-Backend
   Write-Tray 'stop by user: watchdog paused'
   & $refresh
@@ -453,6 +466,7 @@ $miStop.add_Click({
 $miRestart.add_Click({
   $script:StoppedByUser = $false
   $script:WasDown = $false
+  $script:DownSince = [datetime]::MinValue
   $script:RestartDelay = 10
   $script:NextRestartAt = [datetime]::MinValue
   Restart-Backend
@@ -463,6 +477,7 @@ $miConsole.add_Click({
   if (-not (Test-Backend)) {
     $script:StoppedByUser = $false
     $script:WasDown = $false
+    $script:DownSince = [datetime]::MinValue
     Start-Backend | Out-Null
     & $refresh
   }
@@ -507,6 +522,7 @@ $timer.add_Tick({
   # Stopped by the user: the watchdog must not interfere (else the Stop button means nothing)
   if ($script:StoppedByUser) {
     $script:WasDown = $false
+    $script:DownSince = [datetime]::MinValue
     return
   }
 
@@ -519,6 +535,7 @@ $timer.add_Tick({
   $state = Get-BackendState
   if ($state -eq 'up') {
     $script:StartingUntil = [datetime]::MinValue
+    $script:DownSince = [datetime]::MinValue
     if (-not $script:StartupChecked) {
       $script:StartupChecked = $true
       if (Get-AbnormalExit) {
@@ -541,11 +558,11 @@ $timer.add_Tick({
       Write-Tray ("watchdog: port {0} occupied by another program; auto-restart paused" -f $script:Port)
       $script:PortBlocked = $true
     }
-    $script:WasDown = $true
+    Note-BackendDown
     return
   }
   $script:PortBlocked = $false
-  $script:WasDown = $true
+  Note-BackendDown
 
   # A spawn is still inside its startup window; check again on the next tick instead of blocking here.
   if ((Get-Date) -lt $script:StartingUntil) { return }
