@@ -136,24 +136,27 @@ function Get-NodeExe {
 # Only /health/live's {ok,app} counts; a TCP connect is no longer accepted as proof of "alive" —
 # otherwise any program holding the port makes the tray say "running", and the real backend never starts.
 function Get-BackendState {
+  # Fast TCP precheck first: a closed port used to wait for the full HTTP timeout (2s) before the
+  # 400ms probe, which made the tray menu hang for seconds while the backend was stopped. Loopback
+  # connects are immediate, so a 50ms wait is enough to distinguish "nobody listening".
+  $client = New-Object System.Net.Sockets.TcpClient
   try {
-    $r = Invoke-WebRequest -Uri "http://127.0.0.1:$($script:Port)/health/live" -UseBasicParsing -TimeoutSec 2
+    $iar = $client.BeginConnect('127.0.0.1', $script:Port, $null, $null)
+    if (-not $iar.AsyncWaitHandle.WaitOne(50)) { return 'down' }
+    $client.EndConnect($iar)
+  } catch {
+    return 'down'
+  } finally {
+    $client.Close()
+  }
+  try {
+    $r = Invoke-WebRequest -Uri "http://127.0.0.1:$($script:Port)/health/live" -UseBasicParsing -TimeoutSec 1
     $j = $r.Content | ConvertFrom-Json
     if ($j.ok -eq $true -and $j.app -eq 'pageask') { return 'up' }
     return 'foreign'
   } catch {
-    # HTTP failing does not mean the port is free: probe TCP once more; if it connects, someone else holds it
-    $client = New-Object System.Net.Sockets.TcpClient
-    try {
-      $iar = $client.BeginConnect('127.0.0.1', $script:Port, $null, $null)
-      if ($iar.AsyncWaitHandle.WaitOne(400)) {
-        $client.EndConnect($iar)
-        return 'foreign'
-      }
-    } catch { } finally {
-      $client.Close()
-    }
-    return 'down'
+    # The port accepted a connection, so another program (or a half-started backend) owns it.
+    return 'foreign'
   }
 }
 
