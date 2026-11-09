@@ -17,6 +17,7 @@ PageAsk 是一款面向 Chromium 内核浏览器（Microsoft Edge / Google Chrom
 
 ## 环境要求
 
+- **操作系统**：Windows 10 1709（Fall Creators Update）或更高版本，建议 Windows 10 22H2 / Windows 11；系统托盘集成仅支持 Windows。
 - **Node.js**：`≥ 22.13`（后端依赖原生 `node:sqlite` 及现代 PDF 解析能力）
 - **包管理器**：`pnpm`
 - **浏览器**：Microsoft Edge 或 Google Chrome（>= 116）
@@ -135,6 +136,7 @@ PageAsk is a side-panel AI assistant for Chromium-based browsers (Microsoft Edge
 
 ### Requirements
 
+- **OS**: Windows 10 version 1709 (Fall Creators Update) or later; Windows 10 22H2 / Windows 11 recommended. The system tray integration is Windows-only.
 - **Node.js**: `≥ 22.13` (the backend relies on native `node:sqlite` and modern PDF parsing)
 - **Package manager**: `pnpm`
 - **Browser**: Microsoft Edge or Google Chrome (with Developer mode enabled; the side panel API needs version 116+)

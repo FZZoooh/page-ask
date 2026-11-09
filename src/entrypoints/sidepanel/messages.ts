@@ -13,7 +13,7 @@ export interface Message {
   aborted?: boolean;
   error?: string;
   ms?: number;
-  /** Think + tool phase duration (ms) for this turn; only the final answer segment carries it */
+  /** Think + tool phase duration (ms) for the answer segment that follows it */
   processMs?: number;
   /** Persist time, used to estimate the phase duration for old rows without processMs */
   createdAt?: number;
@@ -30,21 +30,29 @@ export interface Message {
   toolChars?: number;
 }
 
-/** Render model: one turn = user message + its reasoning and tool calls + final answer */
-export interface Round {
+/** One think/tool phase inside a turn; a tool round splits the turn into several of these. */
+export interface RoundPhase {
   key: string;
-  user: Message | null;
   reasoning: string;
   steps: Message[];
   answers: Message[];
-  /** This turn is still running (streaming or a tool is in flight) */
+  /** This phase is still running (streaming or a tool is in flight) */
   running: boolean;
-  /** Answer text has started: the collapsed block stops saying "thinking" and need not expand again */
+  /** Answer text has started: the collapsed block stops saying "thinking" */
   answered: boolean;
-  /** Think + tool phase duration (ms): how long it took before the answer began */
+  /** Think + tool phase duration (ms), frozen when this phase's answer begins */
   processMs: number | null;
   /** Phase end time (createdAt of the last non-answer message); old rows rely on it for estimates */
   phaseEndAt: number | null;
+  /** Where this phase began: the user message or the end of the previous phase */
+  startAt: number | null;
+}
+
+/** Render model: one turn = user message + one or more think/tool phases with their answers */
+export interface Round {
+  key: string;
+  user: Message | null;
+  phases: RoundPhase[];
 }
 
 /** Milliseconds → "3.4" (seconds, one decimal); falls back to "0.0" when there is no data */
@@ -52,76 +60,84 @@ export function seconds(ms: number | null | undefined): string {
   return ((ms ?? 0) / 1000).toFixed(1);
 }
 
-/** Split the flat message stream into turns at each user message; reasoning and tool calls stay in-turn */
+function newPhase(key: string, startAt: number | null): RoundPhase {
+  return {
+    key,
+    reasoning: '',
+    steps: [],
+    answers: [],
+    running: false,
+    answered: false,
+    processMs: null,
+    phaseEndAt: startAt,
+    startAt,
+  };
+}
+
+function phaseEnd(phase: RoundPhase): number | null {
+  const last = phase.answers[phase.answers.length - 1];
+  return last?.createdAt ?? phase.phaseEndAt ?? phase.startAt;
+}
+
+/** Split the flat message stream into turns at each user message; each think/tool round becomes a phase */
 export function buildRounds(list: Message[]): Round[] {
   const rounds: Round[] = [];
   const last = () => rounds[rounds.length - 1];
 
   for (const m of list) {
     if (m.role === 'user') {
-      rounds.push({
-        key: m.id,
-        user: m,
-        reasoning: '',
-        steps: [],
-        answers: [],
-        running: false,
-        answered: false,
-        processMs: null,
-        phaseEndAt: m.createdAt ?? null,
-      });
+      rounds.push({ key: m.id, user: m, phases: [] });
       continue;
     }
 
     // No user message leads (e.g. recovering mid-turn): synthesize a turn that holds only the answer
-    if (!rounds.length) {
-      rounds.push({
-        key: `lead:${m.id}`,
-        user: null,
-        reasoning: '',
-        steps: [],
-        answers: [],
-        running: false,
-        answered: false,
-        processMs: null,
-        phaseEndAt: null,
-      });
-    }
+    if (!rounds.length) rounds.push({ key: `lead:${m.id}`, user: null, phases: [] });
     const r = last()!;
+    let phase = r.phases[r.phases.length - 1] ?? null;
 
     if (m.role === 'tool') {
-      r.steps.push(m);
-      if (m.createdAt != null) r.phaseEndAt = m.createdAt;
-      if (m.toolState === 'running') r.running = true;
+      // A tool after answer text starts a new phase; consecutive tools share the current one.
+      if (!phase || phase.answered) {
+        phase = newPhase(`phase:${m.id}`, phase ? phaseEnd(phase) : (r.user?.createdAt ?? null));
+        r.phases.push(phase);
+      }
+      phase.steps.push(m);
+      if (m.createdAt != null) phase.phaseEndAt = m.createdAt;
+      if (m.toolState === 'running') phase.running = true;
       continue;
     }
 
     // assistant: skip segments with only tool_calls and no content — nothing to render
     if (!m.content && !m.reasoning && !m.error && !m.streaming) {
-      if (m.createdAt != null) r.phaseEndAt = m.createdAt;
+      if (phase && m.createdAt != null) phase.phaseEndAt = m.createdAt;
       continue;
     }
-    if (m.reasoning) r.reasoning += m.reasoning;
-    if (m.streaming) r.running = true;
-    // Once content or an error appears the turn has "spoken"; the collapsed block returns to a static summary
-    if (m.content || m.error) {
-      r.answered = true;
-      // Prefer the backend's exact phaseMs; old rows derive it as whole-turn ms minus the answer segment's span
-      if (r.processMs == null) {
-        const ownSpan = m.createdAt != null && r.phaseEndAt != null ? Math.max(0, m.createdAt - r.phaseEndAt) : null;
-        r.processMs =
-          m.processMs ??
-          (m.ms != null && ownSpan != null
-            ? Math.max(0, m.ms - ownSpan)
-            : r.phaseEndAt != null && r.user?.createdAt != null
-              ? Math.max(0, r.phaseEndAt - r.user.createdAt)
-              : null);
-      }
-    } else if (m.createdAt != null) {
-      // A reasoning-only segment before the answer: its persist time is the phase end
-      r.phaseEndAt = m.createdAt;
+    if (!phase || phase.answered) {
+      phase = newPhase(`phase:${m.id}`, phase ? phaseEnd(phase) : (r.user?.createdAt ?? null));
+      r.phases.push(phase);
     }
-    if (m.content || m.error || m.streaming) r.answers.push(m);
+    if (m.reasoning) phase.reasoning += m.reasoning;
+    if (m.streaming) phase.running = true;
+
+    if (m.content || m.error) {
+      phase.answered = true;
+      if (m.processMs != null) {
+        phase.processMs = m.processMs;
+      } else if (phase.processMs == null) {
+        // Old rows have no per-phase processMs: derive it from the segment span when possible.
+        const ownSpan =
+          m.createdAt != null && phase.phaseEndAt != null ? Math.max(0, m.createdAt - phase.phaseEndAt) : null;
+        phase.processMs =
+          m.ms != null && ownSpan != null
+            ? Math.max(0, m.ms - ownSpan)
+            : phase.phaseEndAt != null && phase.startAt != null
+              ? Math.max(0, phase.phaseEndAt - phase.startAt)
+              : null;
+      }
+      phase.answers.push(m);
+    } else if (m.createdAt != null) {
+      phase.phaseEndAt = m.createdAt;
+    }
   }
 
   return rounds;
@@ -150,8 +166,13 @@ export const TIME_SEP_GAP_MS = 3 * 60 * 60 * 1000;
 
 /** End of a turn: last answer's persist time → phase end → user message time */
 export function roundEndAt(r: Round): number | null {
-  const last = r.answers[r.answers.length - 1];
-  return last?.createdAt ?? r.phaseEndAt ?? r.user?.createdAt ?? null;
+  for (let i = r.phases.length - 1; i >= 0; i--) {
+    const phase = r.phases[i]!;
+    const last = phase.answers[phase.answers.length - 1];
+    const end = last?.createdAt ?? phase.phaseEndAt ?? phase.startAt;
+    if (end != null) return end;
+  }
+  return r.user?.createdAt ?? null;
 }
 
 const TOOL_LABEL_KEYS: Record<string, MessageKey> = {

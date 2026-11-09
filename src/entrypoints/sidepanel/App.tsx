@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { MarkdownView } from '@/components/MarkdownView';
 import { IconCheck, IconCopy, IconQuote, IconReload } from '@/components/icons';
 import {
@@ -604,6 +604,12 @@ export default function App() {
       // flush into state in one go.
       let contentBuf = '';
       let reasoningBuf = '';
+      // Live answer start: the server only reports processMs with done, so the collapsed summary would
+      // otherwise show "0.0s" for the whole time the answer text is still streaming.
+      let phaseMs: number | null = null;
+      let responseStartedAt = 0;
+      /** The current phase already rendered answer text, so the next tool starts a new phase. */
+      let phaseAnswered = false;
       let timer: ReturnType<typeof setTimeout> | null = null;
       const flush = () => {
         timer = null;
@@ -614,8 +620,18 @@ export default function App() {
         reasoningBuf = '';
         const id = targetId;
         if (!id) return;
+        const livePhaseMs = phaseMs;
         setMessages((prev) =>
-          prev.map((m) => (m.id === id ? { ...m, content: m.content + c, reasoning: (m.reasoning ?? '') + r } : m)),
+          prev.map((m) =>
+            m.id === id
+              ? {
+                  ...m,
+                  content: m.content + c,
+                  reasoning: (m.reasoning ?? '') + r,
+                  ...(livePhaseMs != null ? { processMs: m.processMs ?? livePhaseMs } : {}),
+                }
+              : m,
+          ),
         );
       };
       const schedule = () => {
@@ -660,6 +676,7 @@ export default function App() {
         ]);
         const selected = sel?.text || snapshot.selection || '';
 
+        responseStartedAt = Date.now();
         for await (const ev of streamChat({
           settings,
           conversationId,
@@ -694,6 +711,8 @@ export default function App() {
             convId = ev.conversationId;
             setConversationId(ev.conversationId);
           } else if (ev.type === 'content') {
+            if (phaseMs == null) phaseMs = Date.now() - responseStartedAt;
+            phaseAnswered = true;
             ensureTarget();
             contentBuf += ev.delta;
             schedule();
@@ -701,6 +720,9 @@ export default function App() {
             // Final output differs from the streamed deltas. Set the final text directly: flush()
             // appends, so buffering ev.text there would duplicate the already-rendered prefix.
             ensureTarget();
+            if (phaseMs == null) phaseMs = Date.now() - responseStartedAt;
+            phaseAnswered = true;
+            const answerPhaseMs = phaseMs;
             if (timer) {
               clearTimeout(timer);
               timer = null;
@@ -711,7 +733,12 @@ export default function App() {
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === targetId
-                  ? { ...m, content: ev.text, reasoning: (m.reasoning ?? '') + pendingReasoning }
+                  ? {
+                      ...m,
+                      content: ev.text,
+                      reasoning: (m.reasoning ?? '') + pendingReasoning,
+                      processMs: m.processMs ?? answerPhaseMs,
+                    }
                   : m,
               ),
             );
@@ -724,6 +751,23 @@ export default function App() {
           } else if (ev.type === 'tool') {
             if (ev.phase === 'start') {
               flush();
+              // Only a tool after answer text begins a new phase. A tool before any answer (e.g.
+              // reasoning -> tool) is still the same think/tool phase, so keep its original clock.
+              const startsNewPhase = phaseAnswered;
+              // Close the segment that just answered: without this its streaming opacity/typing state
+              // survives into the next think/tool phase and the fade appears stuck on answer A.
+              if (targetId) {
+                const doneTarget = targetId;
+                setMessages((prev) =>
+                  prev.map((m) => (m.id === doneTarget ? { ...m, streaming: false } : m)),
+                );
+              }
+              // A new answer segment starts after the tool: measure its own phase from the tool start.
+              if (startsNewPhase) {
+                phaseMs = null;
+                responseStartedAt = Date.now();
+                phaseAnswered = false;
+              }
               targetId = null;
               setMessages((prev) => [
                 ...prev,
@@ -857,7 +901,8 @@ export default function App() {
    * hangs on the last one only, so copy concatenates every segment in order.
    */
   const copyRound = useCallback((r: Round, anchorId: string) => {
-    const text = r.answers
+    const text = r.phases
+      .flatMap((p) => p.answers)
       .map((a) => a.content.trim())
       .filter(Boolean)
       .join('\n\n');
@@ -1253,8 +1298,9 @@ export default function App() {
         )}
 
         {rounds.map((r, roundIndex) => {
-          // As soon as answer text starts, return to the static summary (and collapse) without waiting for the turn
-          const active = r.running && !r.answered;
+          // The last phase that has text owns the copy/regenerate row; while B is still thinking,
+          // answer A keeps its actions instead of losing them to an empty phase.
+          const lastAnswerPhase = r.phases.reduce((acc, p, i) => (p.answers.length ? i : acc), -1);
           // Only the last turn can regenerate: the backend truncates after the last user message and reruns
           const isLastRound = roundIndex === rounds.length - 1;
           // More than 3h since the previous turn ended → insert a time row above this question;
@@ -1277,96 +1323,110 @@ export default function App() {
               </>
             )}
 
-            {/* A turn's reasoning + tool calls collapse into one block: open while streaming, collapses on answer */}
-            {verbose && (r.reasoning || r.steps.length > 0) && (
-              <RoundPanel
-                key={r.key}
-                active={active}
-                summary={
-                  active
-                    ? t('round.running')
-                    : r.steps.length > 0 && r.reasoning
-                      ? t('round.both', { tools: r.steps.length, secs: seconds(r.processMs) })
-                      : r.steps.length > 0
-                        ? t('round.toolsOnly', { tools: r.steps.length })
-                        : t('round.thinkOnly', { secs: seconds(r.processMs) })
-                }
-              >
-                {r.reasoning && <pre className="think-text">{r.reasoning}</pre>}
-                {r.steps.map((m) => (
-                  <div key={m.id} className="step">
-                    <span
-                      className={`step-ico ${m.toolState === 'running' ? 'run' : m.toolOk === false ? 'bad' : 'ok'}`}
-                    >
-                      {m.toolState === 'running' ? '◌' : m.toolOk === false ? '!' : '✓'}
-                    </span>
-                    <span className="step-name">{m.toolLabel ?? t('tool.unknown')}</span>
-                    {m.toolDetail && <span className="step-detail">{m.toolDetail}</span>}
-                    {m.toolState === 'running' ? (
-                      <span className="muted small">{t('tool.running')}</span>
-                    ) : m.toolOk === false ? (
-                      <span className="err small">{t('tool.failed')}</span>
-                    ) : m.toolChars != null && !m.toolDetail && m.toolName !== 'screenshot' ? (
-                      <span className="muted small">{t('tool.chars', { count: m.toolChars.toLocaleString(getLocale()) })}</span>
-                    ) : null}
-                  </div>
-                ))}
-              </RoundPanel>
-            )}
-
-            {/* Clean-mode placeholder: one per turn, so multiple tool calls never duplicate it */}
-            {!verbose && r.running && <ThinkingFade show={active} />}
-
-            {r.answers.map((m, ai) => {
-              // Reasoning/tool calls can split a turn into several answers; actions hang on the last segment only
-              const isLastAnswer = ai === r.answers.length - 1;
+            {/* Each think/tool round has its own collapsible block, so reasoning/tools B never
+                hide above answer A and each answer gets its own summary. */}
+            {r.phases.map((p, pi) => {
+              // A tool can finish before the next upstream segment starts. Keep the block in its
+              // "thinking" state during that gap instead of collapsing to a 0.0s summary.
+              const waiting = !p.answered && (p.running || (isLastRound && busy));
+              const active = waiting;
+              const isLastAnswerPhase = pi === lastAnswerPhase;
               return (
-              <div key={m.id} className="msg assistant">
-                <div className="answer" aria-live="polite" aria-busy={m.streaming || undefined}>
-                  {m.content ? (
-                    <div className={`md-wrap${m.streaming ? ' streaming' : ''}`}>
-                      <MarkdownView text={m.content} streaming={m.streaming} baseUrl={page?.url} />
-                    </div>
-                  ) : null}
-                  {m.error && <p className="err">{m.error}</p>}
-                  {m.aborted && !m.streaming && <p className="muted small">{t('answer.truncated')}</p>}
-                  {isLastAnswer && m.content && !m.streaming && (
-                    <div className="answer-actions">
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        title={copiedId === m.id ? t('answer.copied') : t('answer.copy')}
-                        aria-label={copiedId === m.id ? t('answer.copied') : t('answer.copy')}
-                        onClick={() => copyRound(r, m.id)}
-                      >
-                        {copiedId === m.id ? <IconCheck /> : <IconCopy />}
-                      </button>
-                      {/* Only the last turn can regenerate: backend truncates after the last user message */}
-                      {isLastRound && conversationId && (
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          title={t('answer.regenerate.title')}
-                          aria-label={t('answer.regenerate')}
-                          disabled={busy}
-                          onClick={() => regenerateRound(r)}
-                        >
-                          <IconReload />
-                        </button>
-                      )}
-                      {/* Verbose mode: stats follow the buttons on the right, same row */}
-                      {verbose && (m.ms != null || m.tokensOut != null) && (
-                        <span className="meta foot">
-                          {m.ms != null && <span>{(m.ms / 1000).toFixed(1)}s</span>}
-                          {m.tokensOut != null && (
-                            <span>{t('answer.usage', { out: m.tokensOut, in: m.tokensIn ?? '?' })}</span>
-                          )}
-                        </span>
-                      )}
-                    </div>
+                <Fragment key={p.key}>
+                  {verbose && (p.reasoning || p.steps.length > 0) && (
+                    <RoundPanel
+                      active={active}
+                      summary={
+                        active
+                          ? t('round.running')
+                          : p.steps.length > 0
+                            ? t('round.both', { tools: p.steps.length, secs: seconds(p.processMs) })
+                            : t('round.thinkOnly', { secs: seconds(p.processMs) })
+                      }
+                    >
+                      {p.reasoning && <pre className="think-text">{p.reasoning}</pre>}
+                      {p.steps.map((m) => (
+                        <div key={m.id} className="step">
+                          <span
+                            className={`step-ico ${m.toolState === 'running' ? 'run' : m.toolOk === false ? 'bad' : 'ok'}`}
+                          >
+                            {m.toolState === 'running' ? '◌' : m.toolOk === false ? '!' : '✓'}
+                          </span>
+                          <span className="step-name">{m.toolLabel ?? t('tool.unknown')}</span>
+                          {m.toolDetail && <span className="step-detail">{m.toolDetail}</span>}
+                          {m.toolState === 'running' ? (
+                            <span className="muted small">{t('tool.running')}</span>
+                          ) : m.toolOk === false ? (
+                            <span className="err small">{t('tool.failed')}</span>
+                          ) : m.toolChars != null && !m.toolDetail && m.toolName !== 'screenshot' ? (
+                            <span className="muted small">
+                              {t('tool.chars', { count: m.toolChars.toLocaleString(getLocale()) })}
+                            </span>
+                          ) : null}
+                        </div>
+                      ))}
+                    </RoundPanel>
                   )}
-                </div>
-              </div>
+
+                  {/* Clean-mode placeholder is per phase: a new tool round fades in a fresh one */}
+                  {!verbose && waiting && <ThinkingFade show={!p.answered} />}
+
+                  {p.answers.map((m, ai) => {
+                    // Actions hang on the last answer of the turn, not on the last phase mid-stream.
+                    // While the turn is busy, a later phase may still be waiting for its answer; keep
+                    // the actions hidden then, otherwise they flash on answer A during a tool round.
+                    const isLastAnswer = isLastAnswerPhase && ai === p.answers.length - 1;
+                    const actionsReady = isLastAnswer && m.content && !m.streaming && !(isLastRound && busy);
+                    return (
+                      <div key={m.id} className="msg assistant">
+                        <div className="answer" aria-live="polite" aria-busy={m.streaming || undefined}>
+                          {m.content ? (
+                            <div className={`md-wrap${m.streaming ? ' streaming' : ''}`}>
+                              <MarkdownView text={m.content} streaming={m.streaming} baseUrl={page?.url} />
+                            </div>
+                          ) : null}
+                          {m.error && <p className="err">{m.error}</p>}
+                          {m.aborted && !m.streaming && <p className="muted small">{t('answer.truncated')}</p>}
+                          {actionsReady && (
+                            <div className="answer-actions">
+                              <button
+                                type="button"
+                                className="icon-btn"
+                                title={copiedId === m.id ? t('answer.copied') : t('answer.copy')}
+                                aria-label={copiedId === m.id ? t('answer.copied') : t('answer.copy')}
+                                onClick={() => copyRound(r, m.id)}
+                              >
+                                {copiedId === m.id ? <IconCheck /> : <IconCopy />}
+                              </button>
+                              {/* Only the last turn can regenerate: backend truncates after the last user message */}
+                              {isLastRound && conversationId && (
+                                <button
+                                  type="button"
+                                  className="icon-btn"
+                                  title={t('answer.regenerate.title')}
+                                  aria-label={t('answer.regenerate')}
+                                  disabled={busy}
+                                  onClick={() => regenerateRound(r)}
+                                >
+                                  <IconReload />
+                                </button>
+                              )}
+                              {/* Verbose mode: stats follow the buttons on the right, same row */}
+                              {verbose && (m.ms != null || m.tokensOut != null) && (
+                                <span className="meta foot">
+                                  {m.ms != null && <span>{(m.ms / 1000).toFixed(1)}s</span>}
+                                  {m.tokensOut != null && (
+                                    <span>{t('answer.usage', { out: m.tokensOut, in: m.tokensIn ?? '?' })}</span>
+                                  )}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </Fragment>
               );
             })}
           </div>

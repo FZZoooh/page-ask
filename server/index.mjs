@@ -707,7 +707,10 @@ async function handleChat(req, res) {
   });
   let finished = false;
   const started = Date.now();
-  let phaseMs = null; // reasoning + tool-call phase of this turn; frozen when the first content segment appears
+  // A turn can alternate think/tool rounds and answer text. Reset this at each answer segment so
+  // every collapsed summary measures only its own phase (tools included), not the whole turn.
+  let phaseStarted = started;
+  let phaseMs = null; // frozen when the first content of the current phase appears
   const emit = (event, data) => {
     if (finished || res.writableEnded || res.destroyed) return;
     // A client that stops reading must not make the backend buffer the whole answer in memory.
@@ -715,7 +718,7 @@ async function handleChat(req, res) {
       res.destroy();
       return;
     }
-    if (event === 'content' && phaseMs == null) phaseMs = Date.now() - started;
+    if (event === 'content' && phaseMs == null) phaseMs = Date.now() - phaseStarted;
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
@@ -837,11 +840,18 @@ async function handleChat(req, res) {
         tokensIn: turn.usage?.input_tokens ?? null,
         tokensOut: turn.usage?.output_tokens ?? null,
         ms: Date.now() - started,
-        // the reasoning + tool-call phase duration lands only on the final answer segment (tool-call segments get null)
-        processMs: turn.calls.length ? null : phaseMs,
+        // Every segment that produced answer text gets its own phase duration; tool-only segments get null.
+        processMs: turn.content ? phaseMs : null,
         responseId: turn.responseId,
         aborted: Boolean(turn.aborted || turn.timedOut || turn.incomplete),
       };
+
+      // The answer just ended this phase. Tools that follow belong to the next phase, so their
+      // duration is counted into the next summary rather than this one.
+      if (turn.content) {
+        phaseStarted = Date.now();
+        phaseMs = null;
+      }
 
       // decide the next hop's context before running tools (argument order matches the old logic)
       const chaining = wantChain && !statefulUnsupported;

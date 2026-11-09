@@ -108,7 +108,7 @@ export const zhCN = {
 
   // 一轮回答里折叠起来的「思考 + 工具调用」
   'round.running': '正在思考与调用工具…',
-  'round.both': '调用了 {tools} 次工具，思考了 {secs} 秒',
+  'round.both': '思考了 {secs} 秒，调用了 {tools} 次工具',
   'round.toolsOnly': '调用了 {tools} 次工具',
   'round.thinkOnly': '思考了 {secs} 秒',
 

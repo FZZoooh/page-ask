@@ -104,7 +104,7 @@ export const enUS = {
 
   // Collapsed reasoning + tool calls
   'round.running': 'Thinking and calling tools…',
-  'round.both': 'Used {tools} tools · thought for {secs}s',
+  'round.both': 'Thought for {secs}s · used {tools} tools',
   'round.toolsOnly': 'Used {tools} tools',
   'round.thinkOnly': 'Thought for {secs}s',
 
