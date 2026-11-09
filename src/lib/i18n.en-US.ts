@@ -76,6 +76,7 @@ export const enUS = {
   'page.failure.pdfNotPdf': "Didn't get a PDF file. Check for a redirect or a login requirement.",
   'page.failure.pdfParse': 'Failed to parse PDF: {message}',
   'page.failure.pdfFetch': 'Failed to download PDF: {message}',
+  'page.failure.pdfTimeout': 'Timed out downloading or parsing the PDF; try again',
   'page.failure.pdfNoText': 'This PDF has no extractable text layer',
 
   // Empty state
@@ -133,6 +134,11 @@ export const enUS = {
   'error.backendDetail': ': {detail}',
   'error.unknown': 'Unknown error',
   'error.historyLoad': 'Failed to load history: {message}',
+  'error.historyUnavailable': 'History is temporarily unavailable; the current list was kept',
+  'error.chat.nothing_to_regenerate': 'There is no question to regenerate',
+  'error.chat.invalid_page': 'Invalid page information',
+  'error.upstream.bad_frame': 'The upstream returned unreadable data',
+  'error.settings.key_required_for_url': 'Re-enter the API key after changing the base URL',
   'error.pageMismatch': 'This chat belongs to a different page',
   'error.historyDelete': 'Delete failed: {message}',
   'answer.copyFailed': 'Copy failed — select the text manually',

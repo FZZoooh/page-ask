@@ -314,7 +314,7 @@ button.primary.save:hover:not(:disabled) {
 .meta.foot {
   margin-top: 6px;
   font-size: 11px;
-  opacity: 0.75;
+  color: var(--meta);
 }
 
 /* Small tag such as "PDF N pages" */
@@ -584,7 +584,7 @@ button.primary.save:hover:not(:disabled) {
 .answer-actions .meta.foot {
   margin: 0 0 0 8px;
   font-size: 11px;
-  opacity: 0.75;
+  color: var(--meta);
   white-space: nowrap;
 }
 
@@ -858,8 +858,19 @@ button.primary.save:hover:not(:disabled) {
   transition: border-color 0.12s ease;
 }
 
-.box:focus-within {
+/* Keyboard focus only: a pointer click must not paint a ring around the whole composer.
+   .kb-focus is set by Composer from the last input modality (Tab vs pointer). */
+.box.kb-focus:focus-within {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.icon-btn:focus-visible,
+.suggest:focus-visible,
+.btn:focus-visible,
+.conv-del:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* The input itself is contenteditable: quote chips flow inline with the text, and one chip counts as
@@ -881,9 +892,11 @@ button.primary.save:hover:not(:disabled) {
   word-break: break-word;
 }
 
-/* Only matches while the DOM is truly empty: Chromium leaves a <br> behind after the last
-   character is deleted, so App.tsx clears that residue on input (clearEmptyEditorResidue). */
-.editor:empty::before {
+/* Chromium leaves a <br> behind after the last character is deleted, and an IME can end with
+   isComposing=true so App.tsx's residue clean-up is skipped. editorDom.ts mirrors real emptiness
+   onto data-empty so the placeholder returns in both cases. */
+.editor:empty::before,
+.editor[data-empty='true']::before {
   content: attr(data-placeholder);
   color: var(--muted);
   pointer-events: none;
@@ -1311,7 +1324,7 @@ button.quote-btn .icon {
   align-self: center;
   margin: 6px 0 2px;
   font-size: 11.5px;
-  color: color-mix(in srgb, var(--fg) 38%, transparent);
+  color: var(--meta);
   user-select: none;
 }
 
@@ -1345,7 +1358,7 @@ button.quote-btn .icon {
   margin-right: 8px;
   font-size: 11.5px;
   line-height: 1;
-  color: color-mix(in srgb, var(--fg) 38%, transparent);
+  color: var(--meta);
   opacity: 0;
   transition: opacity 0.18s ease;
   pointer-events: none;

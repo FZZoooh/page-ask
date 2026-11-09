@@ -1,4 +1,5 @@
-import { t } from '@/lib/i18n';
+import { resolveLocale, setLocale, t } from '@/lib/i18n';
+import { loadSettings } from '@/lib/settings';
 
 export default defineBackground(() => {
   // Clicking the toolbar icon opens the side panel directly.
@@ -14,27 +15,41 @@ export default defineBackground(() => {
   // Use 'all', not ['page','selection']: Edge's built-in PDF viewer is an embedded frame at
   // chrome-extension://mhjfb...; with only page/selection declared the item never shows on
   // PDFs. 'all' fixes that (extensions like WeTab do the same).
-  const ensureMenu = () => {
+  const ensureMenu = async () => {
     // removeAll, then create: on an extension reload a duplicate id would otherwise leave an uncaught rejection
-    void browser.contextMenus
-      .removeAll()
-      .then(() =>
-        browser.contextMenus.create({
-          id: 'ask-page',
-          title: t('menu.askThisPage'),
-          contexts: ['all'],
-        }),
-      )
-      .catch((err: unknown) => console.warn('[pageask] failed to create context menu', err));
+    try {
+      await browser.contextMenus.removeAll();
+      await browser.contextMenus.create({
+        id: 'ask-page',
+        title: t('menu.askThisPage'),
+        contexts: ['all'],
+      });
+    } catch (err) {
+      console.warn('[pageask] failed to create context menu', err);
+    }
+  };
+
+  /** The service worker starts before the panel does, so it must load the UI locale itself. */
+  const refreshMenuLocale = async () => {
+    try {
+      const settings = await loadSettings();
+      setLocale(resolveLocale(settings.locale));
+    } catch {
+      /* defaults are fine */
+    }
+    await ensureMenu();
   };
 
   enableActionToOpen();
-  ensureMenu();
+  void refreshMenuLocale();
   browser.runtime.onInstalled.addListener(() => {
     enableActionToOpen();
-    ensureMenu();
+    void refreshMenuLocale();
   });
   browser.runtime.onStartup.addListener(enableActionToOpen);
+  browser.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes['pageask.settings.v2']) void refreshMenuLocale();
+  });
 
   browser.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId !== 'ask-page') return;

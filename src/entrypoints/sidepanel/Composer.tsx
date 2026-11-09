@@ -1,4 +1,5 @@
-import type { ClipboardEvent, FormEvent, KeyboardEvent, RefObject } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, RefObject } from 'react';
 import { IconSend, IconStop } from '@/components/icons';
 import { t } from '@/lib/i18n';
 
@@ -11,8 +12,10 @@ interface ComposerProps {
   /** Current page selection; an empty string means nothing is selected */
   selectionHint: string;
   onInput: (e: FormEvent<HTMLDivElement>) => void;
+  onCompositionEnd: () => void;
   onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => void;
   onPaste: (e: ClipboardEvent<HTMLDivElement>) => void;
+  onDrop: (e: DragEvent<HTMLDivElement>) => void;
   onSend: () => void;
   onStop: () => void;
 }
@@ -26,8 +29,10 @@ export function Composer({
   canSend,
   selectionHint,
   onInput,
+  onCompositionEnd,
   onKeyDown,
   onPaste,
+  onDrop,
   onSend,
   onStop,
 }: ComposerProps) {
@@ -37,9 +42,38 @@ export function Composer({
       ? t('composer.placeholder.noPage')
       : t('composer.placeholder.ready');
 
+  // :focus-visible cannot tell a pointer click from keyboard focus for contenteditable:
+  // Chrome treats editable text as keyboard-editable and keeps the ring on mouse focus.
+  // Track the last input modality ourselves so only Tab navigation paints the composer ring.
+  const keyboardNav = useRef(false);
+  const [keyboardRing, setKeyboardRing] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Tab') keyboardNav.current = true;
+    };
+    const onPointerDown = () => {
+      keyboardNav.current = false;
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, []);
+
   return (
     <div className="composer">
-      <div className="box">
+      <div
+        className={keyboardRing ? 'box kb-focus' : 'box'}
+        onFocusCapture={() => setKeyboardRing(keyboardNav.current)}
+        onBlurCapture={() => setKeyboardRing(false)}
+        onPointerDownCapture={() => {
+          keyboardNav.current = false;
+          setKeyboardRing(false);
+        }}
+      >
         {selectionHint && (
           <div
             className="sel-hint"
@@ -64,8 +98,10 @@ export function Composer({
           suppressContentEditableWarning
           data-placeholder={placeholder}
           onInput={onInput}
+          onCompositionEnd={onCompositionEnd}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
+          onDrop={onDrop}
         />
         {busy ? (
           <button className="send stop" onClick={onStop} title={t('composer.stop')} aria-label={t('composer.stop')}>

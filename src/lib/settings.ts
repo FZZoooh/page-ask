@@ -100,3 +100,13 @@ export function normalizeUrl(raw: string): string {
     return raw;
   }
 }
+
+/**
+ * True when two URLs point at the same document. `expectedUrl` comes from readActiveTab()
+ * (already normalized), while tab.url comes straight from the browser and still carries
+ * tracking params and a hash; comparing the raw strings silently disables screenshots.
+ */
+export function sameDocumentUrl(a?: string, b?: string): boolean {
+  if (!a || !b) return false;
+  return normalizeUrl(a) === normalizeUrl(b);
+}

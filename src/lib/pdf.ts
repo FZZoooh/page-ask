@@ -18,14 +18,26 @@ export interface PdfExtract {
 }
 
 export class PdfReadError extends Error {
-  constructor(message: string) {
+  /** Stable code lets the caller distinguish "not actually a PDF" from a transient read failure */
+  readonly code?: string;
+
+  constructor(message: string, code?: string) {
     super(message);
+    this.code = code;
   }
 }
 
 const MAX_BYTES = 45 * 1024 * 1024;
 /** The backend caps the JSON body at 64 MB; base64 expands by 4/3, so keep raw PDF bytes below that. */
 const MAX_RAW_LABEL = '45 MB';
+
+const PDF_FETCH_TIMEOUT_MS = 30_000;
+const PDF_BACKEND_TIMEOUT_MS = 120_000;
+
+/** AbortSignal.timeout() rejects with a DOMException named TimeoutError */
+function isTimeout(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { name?: string }).name === 'TimeoutError';
+}
 
 function tooBig(size: string): PdfReadError {
   return new PdfReadError(t('page.failure.pdfTooBig', { size, limit: MAX_RAW_LABEL }));
@@ -40,9 +52,7 @@ async function readCappedBody(res: Response): Promise<Uint8Array> {
   }
 
   if (!res.body) {
-    const fallback = new Uint8Array(await res.arrayBuffer());
-    if (fallback.byteLength > MAX_BYTES) throw tooBig(`${Math.round(fallback.byteLength / 1024 / 1024)} MB`);
-    return fallback;
+    throw new PdfReadError(t('page.failure.pdfFetch', { message: 'empty response' }), 'pdf.fetch');
   }
 
   const reader = res.body.getReader();
@@ -102,22 +112,38 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+/** Derive /pdf from the configured base, dropping any query/hash the settings page should have rejected */
+function pdfEndpoint(backendUrl: string): string {
+  try {
+    const u = new URL(backendUrl);
+    u.search = '';
+    u.hash = '';
+    u.pathname = `${u.pathname.replace(/\/+$/, '')}/pdf`;
+    return u.toString();
+  } catch {
+    return `${backendUrl.replace(/\/+$/, '')}/pdf`;
+  }
+}
+
 /**
  * Local file:// PDF: extension fetch does not support file:// (even with "Allow access to file URLs" on),
  * so pass the path to the backend and let it read the disk.
  */
 async function readLocalPdf(fileUrl: string, backendUrl: string, token?: string): Promise<PdfExtract> {
-  const endpoint = `${backendUrl.replace(/\/+$/, '')}/pdf`;
+  const endpoint = pdfEndpoint(backendUrl);
   let parsed: Response;
   try {
     parsed = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...tokenHeader(token) },
       body: JSON.stringify({ fileUrl }),
+      signal: AbortSignal.timeout(PDF_BACKEND_TIMEOUT_MS),
     });
   } catch (err) {
+    if (isTimeout(err)) throw new PdfReadError(t('page.failure.pdfTimeout'), 'pdf.timeout');
     throw new PdfReadError(
-      t('error.unreachable', { baseUrl: backendUrl }) + `（${err instanceof Error ? err.message : String(err)}）`,
+      t('error.unreachable', { baseUrl: backendUrl }) + ` (${err instanceof Error ? err.message : String(err)})`,
+      'pdf.unreachable',
     );
   }
   if (!parsed.ok) throw await pdfHttpError(parsed);
@@ -130,32 +156,39 @@ export async function readPdfFromTab(url: string, backendUrl: string, token?: st
 
   let res: Response;
   try {
-    res = await fetch(url, { credentials: 'include' });
+    res = await fetch(url, { credentials: 'include', signal: AbortSignal.timeout(PDF_FETCH_TIMEOUT_MS) });
   } catch (err) {
-    throw new PdfReadError(t('page.failure.pdfFetch', { message: err instanceof Error ? err.message : String(err) }));
+    if (isTimeout(err)) throw new PdfReadError(t('page.failure.pdfTimeout'), 'pdf.timeout');
+    throw new PdfReadError(
+      t('page.failure.pdfFetch', { message: err instanceof Error ? err.message : String(err) }),
+      'pdf.fetch',
+    );
   }
   if (!res.ok) {
-    throw new PdfReadError(t('page.failure.pdfFetch', { message: `HTTP ${res.status}` }));
+    throw new PdfReadError(t('page.failure.pdfFetch', { message: `HTTP ${res.status}` }), 'pdf.fetch');
   }
 
   const buf = await readCappedBody(res);
   // Some sites wrap the PDF behind a login page, so what comes back is actually HTML
   const head = String.fromCharCode(...buf.subarray(0, 5));
   if (head !== '%PDF-') {
-    throw new PdfReadError(t('page.failure.pdfNotPdf'));
+    throw new PdfReadError(t('page.failure.pdfNotPdf'), 'pdf.not_pdf');
   }
 
-  const endpoint = `${backendUrl.replace(/\/+$/, '')}/pdf`;
+  const endpoint = pdfEndpoint(backendUrl);
   let parsed: Response;
   try {
     parsed = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...tokenHeader(token) },
       body: JSON.stringify({ base64: toBase64(buf) }),
+      signal: AbortSignal.timeout(PDF_BACKEND_TIMEOUT_MS),
     });
   } catch (err) {
+    if (isTimeout(err)) throw new PdfReadError(t('page.failure.pdfTimeout'), 'pdf.timeout');
     throw new PdfReadError(
-      t('error.unreachable', { baseUrl: backendUrl }) + `（${err instanceof Error ? err.message : String(err)}）`,
+      t('error.unreachable', { baseUrl: backendUrl }) + ` (${err instanceof Error ? err.message : String(err)})`,
+      'pdf.unreachable',
     );
   }
 

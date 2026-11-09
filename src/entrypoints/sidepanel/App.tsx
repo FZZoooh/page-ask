@@ -14,6 +14,7 @@ import {
   readActiveTab,
   readSelection,
   readSelectionText,
+  readViewport,
   type ExtractedPage,
   type ReadFailure,
 } from '@/lib/extract';
@@ -50,6 +51,7 @@ import {
   fillEditor as fillDomEditor,
   insertTextAtCaret as insertTextInto,
   serializeEditor,
+  syncEditorEmptyState,
 } from './editorDom';
 
 /** Editor max height (beyond this it scrolls internally); must match .editor max-height in style.css */
@@ -146,10 +148,17 @@ export default function App() {
   const messagesRef = useRef<Message[]>([]);
   /** Conversation load sequence: on tab switches or rapid history clicks only the latest request wins */
   const loadSeqRef = useRef(0);
+  /** When the current page snapshot was read; sending refreshes stale SPA content */
+  const pageLoadedAtRef = useRef(0);
+  /** After "New chat", keep the same page from auto-resuming its latest conversation again */
+  const suppressedResumeUrl = useRef<string | null>(null);
 
   const fillEditor = useCallback((text: string) => {
     const el = editorRef.current;
-    if (el) fillDomEditor(el, text);
+    if (el) {
+      fillDomEditor(el, text);
+      syncEditorEmptyState(el);
+    }
     setInput(text);
   }, []);
 
@@ -179,7 +188,8 @@ export default function App() {
         if (commit) setConversations(list);
         return list;
       } catch {
-        if (commit) setConversations([]);
+        // Keep the list we already have: a backend hiccup must not look like "no history".
+        if (commit) setLoadError(t('error.historyUnavailable'));
         return [];
       }
     },
@@ -194,6 +204,7 @@ export default function App() {
     const result = await readActiveTab({ backendUrl: backendRef.current, token: tokenRef.current });
     if (mine !== seq.current) return; // a newer read started; drop this result
     if (result.ok) {
+      pageLoadedAtRef.current = Date.now();
       // Key conversations by URL without #hash: anchors of one article must not become two conversations
       setPageState({ kind: 'ready', page: { ...result.page, url: normalizeUrl(result.page.url) } });
     } else {
@@ -283,6 +294,7 @@ export default function App() {
     if (!pageUrl || !settings) {
       // An unreadable page must not keep showing the previous page's answer.
       loadSeqRef.current += 1;
+      suppressedResumeUrl.current = null;
       setConversationId(null);
       setMessages([]);
       setHistoryOpen(false);
@@ -295,6 +307,7 @@ export default function App() {
 
     // After a tab/backend change the previous page's answer no longer belongs here. The server persists
     // whatever was generated, flagged aborted, but the new page must never receive the old run's events.
+    if (suppressedResumeUrl.current && suppressedResumeUrl.current !== pageUrl) suppressedResumeUrl.current = null;
     const mine = ++loadSeqRef.current;
     let cancelled = false;
     setConversationId(null);
@@ -310,6 +323,8 @@ export default function App() {
       const latest = list[0];
       if (cancelled || mine !== loadSeqRef.current) return;
       setConversations(list);
+      // The user asked for a blank conversation on this page: don't immediately restore list[0] again.
+      if (suppressedResumeUrl.current === pageUrl) return;
       if (!latest) return;
       // Auto-resume this page's most recent conversation
       try {
@@ -390,13 +405,16 @@ export default function App() {
   /* ---------------- Answer selection → quote ---------------- */
 
   useEffect(() => {
-    const hide = () => setQuoteMenu(null);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const hide = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      setQuoteMenu(null);
+    };
 
-    const onUp = (e: MouseEvent) => {
-      // Don't clear when the click lands on the quote button itself, or the menu dies before click fires
-      const target = e.target as HTMLElement | null;
-      if (target?.closest?.('.quote-btn')) return;
-
+    const update = () => {
       const sel = window.getSelection();
       const text = sel?.toString().trim() ?? '';
       if (!sel || sel.rangeCount === 0 || text.length < 2) {
@@ -423,29 +441,62 @@ export default function App() {
       });
     };
 
+    const onUp = (e: MouseEvent) => {
+      // Don't clear when the click lands on the quote button itself, or the menu dies before click fires
+      const target = e.target as HTMLElement | null;
+      if (target?.closest?.('.quote-btn')) return;
+      update();
+    };
+
+    // Keyboard selection never fires mouseup; selectionchange is the only common signal.
+    const onSelectionChange = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(update, 160);
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        hide();
+        return;
+      }
+      if (e.shiftKey || e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End') {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(update, 80);
+      }
+    };
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') hide();
     };
 
     document.addEventListener('mouseup', onUp);
+    document.addEventListener('selectionchange', onSelectionChange);
+    document.addEventListener('keyup', onKeyUp);
     document.addEventListener('keydown', onKeyDown);
     window.addEventListener('resize', hide);
     return () => {
+      if (timer) clearTimeout(timer);
       document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('selectionchange', onSelectionChange);
+      document.removeEventListener('keyup', onKeyUp);
       document.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('resize', hide);
     };
   }, []);
 
-  const serialize = useCallback(() => serializeEditor(editorRef.current), []);
+  const serialize = useCallback(() => {
+    const text = serializeEditor(editorRef.current);
+    syncEditorEmptyState(editorRef.current);
+    return text;
+  }, []);
 
   /** Used for plain-text paste; line breaks are left to Shift+Enter's native command */
   const insertTextAtCaret = useCallback((text: string) => {
     const el = editorRef.current;
     if (!el) return;
     insertTextInto(el, text, savedRange.current);
-    setInput(serializeEditor(el));
-  }, []);
+    setInput(serialize());
+  }, [serialize]);
 
   /** Insert a quote chip at the caret: contenteditable=false, so editing treats it as one character */
   const insertQuoteChip = (text: string) => {
@@ -509,13 +560,18 @@ export default function App() {
       const question = (raw ?? serialize()).trim();
       if (!question || !settings || busy || sendingRef.current) return;
       if (!isConfigured(settings) || !page) return;
+      if (regenerate && !conversationId) return;
 
       const runId = ++runSeqRef.current;
       abortRef.current?.abort();
       sendingRef.current = true;
+      suppressedResumeUrl.current = null;
       if (!regenerate) {
         setInput('');
-        if (editorRef.current) editorRef.current.innerHTML = '';
+        if (editorRef.current) {
+          editorRef.current.innerHTML = '';
+          syncEditorEmptyState(editorRef.current);
+        }
         savedRange.current = null;
       }
       stickToBottom.current = true;
@@ -573,20 +629,37 @@ export default function App() {
       // Snapshot the visible area first: the screenshot tool needs it, and it never goes upstream otherwise.
       // Both screenshot and selection reads sit in try, so a failure still reaches finally and frees the gate.
       try {
-        // Screenshot and selection are independent: fetch in parallel to save a serial round-trip
-        const [shot, sel] = await Promise.all([captureScreenshot(page.url), readSelection()]);
-        const selected = sel?.text || page.selection || '';
+        // SPA content can change without a tab update. Re-read the body on an old snapshot, but never
+        // block the send if extraction fails; PDFs are excluded because re-downloading is expensive.
+        let snapshot = page;
+        if (page.kind !== 'pdf' && Date.now() - pageLoadedAtRef.current > 5000) {
+          const fresh = await readActiveTab({ backendUrl: backendRef.current, token: tokenRef.current }).catch(
+            () => null,
+          );
+          if (fresh?.ok && normalizeUrl(fresh.page.url) === page.url) {
+            snapshot = { ...fresh.page, url: page.url, selection: page.selection };
+            pageLoadedAtRef.current = Date.now();
+          }
+        }
+        // Screenshot, selection and viewport are independent: fetch in parallel to save a serial round-trip.
+        // The viewport is re-read here because the page snapshot dates from panel load and goes stale on scroll.
+        const [shot, sel, vp] = await Promise.all([
+          captureScreenshot(snapshot.url),
+          readSelection(snapshot.url),
+          snapshot.kind === 'pdf' ? Promise.resolve(null) : readViewport(snapshot.url),
+        ]);
+        const selected = sel?.text || snapshot.selection || '';
 
         for await (const ev of streamChat({
           settings,
           conversationId,
           page: {
-            url: page.url,
-            title: page.title,
-            markdown: page.markdown,
-            viewport: page.viewport,
-            kind: page.kind ?? 'web',
-            pages: page.pages,
+            url: snapshot.url,
+            title: snapshot.title,
+            markdown: snapshot.markdown,
+            viewport: vp ?? snapshot.viewport,
+            kind: snapshot.kind ?? 'web',
+            pages: snapshot.pages,
             selection: selected,
             selectionContext: sel,
           },
@@ -615,10 +688,23 @@ export default function App() {
             contentBuf += ev.delta;
             schedule();
           } else if (ev.type === 'replace') {
-            // Final output differs from streamed deltas: replace with final text so DB and UI don't diverge
+            // Final output differs from the streamed deltas. Set the final text directly: flush()
+            // appends, so buffering ev.text there would duplicate the already-rendered prefix.
             ensureTarget();
-            contentBuf = ev.text;
-            schedule();
+            if (timer) {
+              clearTimeout(timer);
+              timer = null;
+            }
+            const pendingReasoning = reasoningBuf;
+            contentBuf = '';
+            reasoningBuf = '';
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === targetId
+                  ? { ...m, content: ev.text, reasoning: (m.reasoning ?? '') + pendingReasoning }
+                  : m,
+              ),
+            );
           } else if (ev.type === 'reasoning') {
             ensureTarget();
             reasoningBuf += ev.delta;
@@ -676,8 +762,8 @@ export default function App() {
                   ms: ev.message?.ms ?? ev.ms,
                   processMs: ev.message?.processMs ?? m.processMs,
                   aborted: ev.aborted === true || m.aborted,
-                  tokensIn: ev.totals?.tokensIn ?? m.tokensIn,
-                  tokensOut: ev.totals?.tokensOut ?? m.tokensOut,
+                  tokensIn: ev.message?.tokensIn ?? ev.totals?.tokensIn ?? m.tokensIn,
+                  tokensOut: ev.message?.tokensOut ?? ev.totals?.tokensOut ?? m.tokensOut,
                   usage: ev.usage ?? m.usage,
                 };
               }),
@@ -778,7 +864,7 @@ export default function App() {
   const regenerateRound = useCallback(
     (r: Round) => {
       // Check every send precondition first, or the UI truncates while no request goes out
-      if (busy || sendingRef.current || !settings || !isConfigured(settings) || !page) return;
+      if (busy || sendingRef.current || !settings || !isConfigured(settings) || !page || !conversationId) return;
       const question = r.user?.content ?? '';
       if (!question) return;
       // Keep only the messages up to and including this user message
@@ -786,12 +872,13 @@ export default function App() {
       if (cutAt >= 0) setMessages((prev) => prev.slice(0, cutAt + 1));
       void send(question, { regenerate: true });
     },
-    [busy, messages, page, send, settings],
+    [busy, conversationId, messages, page, send, settings],
   );
 
   const newConversation = () => {
     if (busy) return;
     loadSeqRef.current += 1; // invalidate in-flight history loads so they can't refill the empty conversation
+    suppressedResumeUrl.current = pageUrl;
     setConversationId(null);
     setMessages([]);
     setHistoryOpen(false);
@@ -807,6 +894,7 @@ export default function App() {
       setHistoryOpen(false);
       return;
     }
+    suppressedResumeUrl.current = null;
     const mine = ++loadSeqRef.current;
     try {
       const conv = await getConversation(settings, id, { limit: HISTORY_PAGE_SIZE });
@@ -923,11 +1011,33 @@ export default function App() {
     setInput(serialize());
   };
 
+  /**
+   * An IME can swallow the final input event (or deliver it with isComposing still true) after
+   * the last character is deleted, so onInput never cleans the leftover <br> and the placeholder
+   * stays hidden. Re-check when composition ends, including the next frame for Chromium's final
+   * composition input.
+   */
+  const onCompositionEnd = () => {
+    clearEmptyEditorResidue(editorRef.current);
+    setInput(serialize());
+    requestAnimationFrame(() => {
+      clearEmptyEditorResidue(editorRef.current);
+      setInput(serialize());
+    });
+  };
+
   /** Accept plain-text paste only, so external HTML never enters the editor */
   const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
     const text = e.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
     insertTextAtCaret(text);
+  };
+
+  /** Dragging text in would otherwise let the browser insert HTML (and remote <img> tags). */
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const text = e.dataTransfer.getData('text/plain').replace(/\r\n?/g, '\n');
+    if (text) insertTextAtCaret(text);
   };
 
   /* ---------------- Miscellaneous ---------------- */
@@ -1185,7 +1295,7 @@ export default function App() {
                     ) : m.toolOk === false ? (
                       <span className="err small">{t('tool.failed')}</span>
                     ) : m.toolChars != null && !m.toolDetail && m.toolName !== 'screenshot' ? (
-                      <span className="muted small">{t('tool.chars', { count: m.toolChars.toLocaleString() })}</span>
+                      <span className="muted small">{t('tool.chars', { count: m.toolChars.toLocaleString(getLocale()) })}</span>
                     ) : null}
                   </div>
                 ))}
@@ -1200,7 +1310,7 @@ export default function App() {
               const isLastAnswer = ai === r.answers.length - 1;
               return (
               <div key={m.id} className="msg assistant">
-                <div className="answer" aria-live={m.streaming ? undefined : 'polite'}>
+                <div className="answer" aria-live="polite" aria-busy={m.streaming || undefined}>
                   {m.content ? (
                     <div className={`md-wrap${m.streaming ? ' streaming' : ''}`}>
                       <MarkdownView text={m.content} streaming={m.streaming} baseUrl={page?.url} />
@@ -1220,7 +1330,7 @@ export default function App() {
                         {copiedId === m.id ? <IconCheck /> : <IconCopy />}
                       </button>
                       {/* Only the last turn can regenerate: backend truncates after the last user message */}
-                      {isLastRound && (
+                      {isLastRound && conversationId && (
                         <button
                           type="button"
                           className="icon-btn"
@@ -1277,8 +1387,10 @@ export default function App() {
         canSend={canSend}
         selectionHint={selectionHint}
         onInput={onInput}
+        onCompositionEnd={onCompositionEnd}
         onKeyDown={onKeyDown}
         onPaste={onPaste}
+        onDrop={onDrop}
         onSend={() => void send()}
         onStop={stop}
       />

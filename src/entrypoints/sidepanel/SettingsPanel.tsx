@@ -16,6 +16,8 @@ function parseBackendUrl(raw: string): URL | null {
   try {
     const url = new URL(raw.trim());
     if (!['http:', 'https:'].includes(url.protocol) || !url.hostname) return null;
+    // Must match the backend's own baseUrl validation: no credentials, query or hash.
+    if (url.username || url.password || url.search || url.hash) return null;
     // `localhost.` / `127.0.0.1.` are valid forms; strip the trailing dot before the loopback check
     url.hostname = url.hostname.replace(/\.+$/, '');
     return url;

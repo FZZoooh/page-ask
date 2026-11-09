@@ -92,6 +92,21 @@ export function fillEditor(el: HTMLElement, text: string): void {
     chip.textContent = quote;
     el.appendChild(chip);
   }
+  syncEditorEmptyState(el);
+}
+
+/** True when the editor has no real text (a lone <br>/block wrapper is caret padding, not content) */
+export function editorIsEmpty(el: HTMLElement | null): boolean {
+  return Boolean(el) && (el?.textContent ?? '').replace(/\u200b/g, '').length === 0;
+}
+
+/**
+ * Mirror emptiness onto a data attribute. `:empty` cannot see a lone <br> left by Chromium (or an
+ * IME composition that ended without a final input event), so the CSS placeholder also keys off this.
+ */
+export function syncEditorEmptyState(el: HTMLElement | null): void {
+  if (!el) return;
+  el.toggleAttribute('data-empty', editorIsEmpty(el));
 }
 
 /**
@@ -104,10 +119,14 @@ export function clearEmptyEditorResidue(el: HTMLElement | null): boolean {
   if (!el || !el.firstChild) return false;
   // Test textContent, not a trimmed serialization: a space the user typed is content, while
   // <br>/block wrappers contribute no text and zero-width padding is invisible anyway.
-  if ((el.textContent ?? '').replace(/\u200b/g, '').length > 0) return false;
+  if (!editorIsEmpty(el)) {
+    syncEditorEmptyState(el);
+    return false;
+  }
   const sel = window.getSelection();
   const caretInside = Boolean(sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).commonAncestorContainer));
   el.innerHTML = '';
+  syncEditorEmptyState(el);
   if (caretInside && sel) {
     const range = document.createRange();
     range.selectNodeContents(el);

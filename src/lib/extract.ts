@@ -1,6 +1,7 @@
 import Defuddle from 'defuddle';
 import { t } from '@/lib/i18n';
 import { looksLikePdfUrl, PdfReadError, readPdfFromTab } from '@/lib/pdf';
+import { sameDocumentUrl } from '@/lib/settings';
 
 /** Whatever comes back from the target tab, untouched */
 export interface RawPage {
@@ -41,6 +42,8 @@ export interface ReadFailure {
   reason: ReadFailureReason;
   message: string;
   url?: string;
+  /** Optional stable code (PDF path uses pdf.not_pdf to fall back to DOM extraction) */
+  code?: string;
 }
 
 export type ReadResult = { ok: true; page: ExtractedPage } | ({ ok: false } & ReadFailure);
@@ -219,10 +222,15 @@ export async function readActiveTab(opts: { backendUrl?: string; token?: string 
   }
 
   // PDFs take another path: the built-in viewer exposes no DOM, so the bytes go to the backend.
-  // Some sites (e.g. arxiv's /pdf/2401.12345) have no .pdf in the URL, so fall back to the tab title.
-  const pdfByTitle = /\.pdf\s*$/i.test((tab.title ?? '').trim());
-  if ((looksLikePdfUrl(tab.url) || pdfByTitle) && tab.url) {
+  // arxiv's /pdf/2401.12345 has no .pdf suffix, so a title ending in .pdf is a hint, not proof:
+  // if the bytes turn out to be HTML, fall through to normal DOM extraction instead of failing.
+  if (looksLikePdfUrl(tab.url) && tab.url) {
     return readPdfTab(tab.url, tab.title, opts.backendUrl, opts.token);
+  }
+  const pdfByTitle = /\.pdf\s*$/i.test((tab.title ?? '').trim());
+  if (pdfByTitle && tab.url) {
+    const attempt = await readPdfTab(tab.url, tab.title, opts.backendUrl, opts.token);
+    if (attempt.ok || attempt.code !== 'pdf.not_pdf') return attempt;
   }
 
   try {
@@ -268,11 +276,12 @@ export interface SelectionInfo {
   end: number;
 }
 
-export async function readSelection(): Promise<SelectionInfo | null> {
+export async function readSelection(expectedUrl?: string): Promise<SelectionInfo | null> {
   try {
     const tabs = await browser.tabs.query({ active: true, currentWindow: true });
     const tab = tabs[0];
     if (!tab?.id || isRestrictedUrl(tab.url)) return null;
+    if (expectedUrl && !sameDocumentUrl(tab.url, expectedUrl)) return null;
     const results = await browser.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
@@ -317,6 +326,64 @@ export async function readSelection(): Promise<SelectionInfo | null> {
     });
     const info = results[0]?.result as SelectionInfo | null | undefined;
     return info && info.text ? info : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the currently visible area again at send time.
+ *
+ * The viewport captured with the page load goes stale as soon as the user scrolls, and
+ * read_page(scope="viewport") is exactly the tool meant to answer "what is on screen now".
+ * Kept separate from grabPage(): no DOM clone, no Defuddle, just the visible blocks.
+ */
+export async function readViewport(expectedUrl?: string): Promise<ViewportSnapshot | null> {
+  try {
+    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+    const tab = tabs[0];
+    if (!tab?.id || isRestrictedUrl(tab.url)) return null;
+    if (expectedUrl && !sameDocumentUrl(tab.url, expectedUrl)) return null;
+
+    const results = await browser.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const vh = window.innerHeight || 0;
+        const out: string[] = [];
+        let budget = 20000;
+        const TEXT_BLOCKS =
+          'p,li,pre,blockquote,h1,h2,h3,h4,h5,h6,td,th,dd,dt,figcaption,summary,caption';
+        const all = document.body
+          ? Array.from(document.body.querySelectorAll<HTMLElement>(TEXT_BLOCKS))
+          : [];
+        for (const el of all.slice(0, 2000)) {
+          if (out.length > 600 || budget <= 0) break;
+          const rect = el.getBoundingClientRect();
+          if (rect.width === 0 || rect.height === 0) continue;
+          if (rect.bottom <= 0 || rect.top >= vh) continue;
+          let hasBlockTextChild = false;
+          for (const child of Array.from(el.children)) {
+            if (child.matches(TEXT_BLOCKS) && (child.textContent ?? '').trim()) {
+              hasBlockTextChild = true;
+              break;
+            }
+          }
+          if (hasBlockTextChild) continue;
+          const line = (el.innerText ?? el.textContent ?? '').replace(/\s+/g, ' ').trim();
+          if (!line) continue;
+          out.push(line);
+          budget -= line.length + 1;
+        }
+        return {
+          scrollY: Math.round(window.scrollY || 0),
+          height: Math.round(window.innerHeight || 0),
+          scrollHeight: Math.round(document.documentElement?.scrollHeight || 0),
+          text: out.join('\n').slice(0, 20000),
+        };
+      },
+    });
+    const viewport = results[0]?.result as ViewportSnapshot | null | undefined;
+    return viewport ?? null;
   } catch {
     return null;
   }
@@ -392,7 +459,8 @@ async function readPdfTab(
     };
   } catch (err) {
     const message = err instanceof PdfReadError ? err.message : errMsg(err);
-    return { ok: false, reason: 'unknown', message, url };
+    const code = err instanceof PdfReadError ? err.code : undefined;
+    return { ok: false, reason: 'unknown', message, url, code };
   }
 }
 
@@ -414,8 +482,7 @@ export async function captureScreenshot(
 ): Promise<{ dataUrl: string; width: number; height: number } | null> {
   try {
     const [tab] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
-    const stripHash = (url?: string) => (url ? url.split('#')[0] : '');
-    if (expectedUrl && stripHash(tab?.url) !== stripHash(expectedUrl)) return null;
+    if (expectedUrl && !sameDocumentUrl(tab?.url, expectedUrl)) return null;
 
     const raw = await browser.tabs.captureVisibleTab(tab?.windowId, { format: 'jpeg', quality: 80 });
     if (!raw) return null;
@@ -423,7 +490,7 @@ export async function captureScreenshot(
     // captureVisibleTab is async: re-check the active tab so page A's shot never goes out with page B's question
     const [after] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
     if (tab?.id != null && after?.id !== tab.id) return null;
-    if (expectedUrl && stripHash(after?.url) !== stripHash(expectedUrl)) return null;
+    if (expectedUrl && !sameDocumentUrl(after?.url, expectedUrl)) return null;
 
     const blob = await (await fetch(raw)).blob();
     const bmp = await createImageBitmap(blob);

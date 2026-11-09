@@ -1,6 +1,6 @@
 import { IconChevron } from '@/components/icons';
 import { estimateTokens, type ExtractedPage } from '@/lib/extract';
-import { t } from '@/lib/i18n';
+import { getLocale, t } from '@/lib/i18n';
 
 interface PageCardProps {
   page: ExtractedPage;
@@ -35,8 +35,8 @@ export function PageCard({ page, open, copied, onToggle, onCopy }: PageCardProps
           {page.kind === 'pdf' && page.pages ? (
             <span className="tag">{t('page.pdf', { pages: page.pages })}</span>
           ) : null}
-          <span>{t('page.chars', { count: page.chars.toLocaleString() })}</span>
-          <span>{t('page.tokens', { count: estimateTokens(page.chars).toLocaleString() })}</span>
+          <span>{t('page.chars', { count: page.chars.toLocaleString(getLocale()) })}</span>
+          <span>{t('page.tokens', { count: estimateTokens(page.chars).toLocaleString(getLocale()) })}</span>
           <span>{t('page.tookMS', { count: page.tookMs })}</span>
           {page.chars > 30000 && <span className="warn">{t('page.longWarning')}</span>}
         </span>

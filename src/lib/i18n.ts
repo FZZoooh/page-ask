@@ -79,6 +79,7 @@ export const zhCN = {
   'page.failure.pdfNotPdf': '未获取到 PDF 文件，请检查是否发生跳转或需要登录',
   'page.failure.pdfParse': 'PDF 解析失败：{message}',
   'page.failure.pdfFetch': '下载 PDF 失败：{message}',
+  'page.failure.pdfTimeout': 'PDF 下载或解析超时，请重试',
   'page.failure.pdfNoText':
     '此 PDF 没有可抽取的文字层',
 
@@ -137,6 +138,11 @@ export const zhCN = {
   'error.backendDetail': '：{detail}',
   'error.unknown': '未知错误',
   'error.historyLoad': '加载历史失败：{message}',
+  'error.historyUnavailable': '历史列表暂时不可用，已保留当前列表',
+  'error.chat.nothing_to_regenerate': '没有可重新生成的提问',
+  'error.chat.invalid_page': '页面信息不合法',
+  'error.upstream.bad_frame': '上游返回了无法解析的数据',
+  'error.settings.key_required_for_url': '更换 Base URL 后请重新填写 API Key',
   'error.pageMismatch': '这个会话属于另一个页面',
   'error.historyDelete': '删除失败：{message}',
   'answer.copyFailed': '复制失败，请手动选中文字',

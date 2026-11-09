@@ -142,9 +142,12 @@ async function backendErrorText(res: Response): Promise<string> {
 async function httpJson<T>(settings: Settings, path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
+    // Only requests with a body are JSON; a GET with Content-Type triggers a needless CORS preflight.
+    const headers: Record<string, string> = { ...authHeaders(settings) };
+    if (init?.body) headers['Content-Type'] = 'application/json';
     res = await fetch(endpoint(settings, path), {
       ...init,
-      headers: { 'Content-Type': 'application/json', ...authHeaders(settings), ...(init?.headers ?? {}) },
+      headers: { ...headers, ...(init?.headers ?? {}) },
     });
   } catch {
     throw new Error(t('error.unreachable', { baseUrl: baseUrl(settings) }));
@@ -266,6 +269,13 @@ export async function* streamChat(req: ChatRequest): AsyncGenerator<ChatEvent> {
   const decoder = new TextDecoder();
   let buffer = '';
 
+  // SSE frames cross a process boundary; validate the fields we use instead of trusting the cast.
+  const record = (value: unknown): Record<string, unknown> | null =>
+    value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  const text = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined);
+  const count = (value: unknown): number | undefined =>
+    typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -282,79 +292,106 @@ export async function* streamChat(req: ChatRequest): AsyncGenerator<ChatEvent> {
         const raw = block.match(/^data: (.+)$/m)?.[1];
         if (!event || !raw) continue;
 
-        let payload: Record<string, unknown>;
+        let parsed: unknown;
         try {
-          payload = JSON.parse(raw) as Record<string, unknown>;
+          parsed = JSON.parse(raw);
         } catch {
           continue;
         }
+        const payload = record(parsed);
+        if (!payload) continue;
 
         switch (event) {
-          case 'meta':
+          case 'meta': {
+            const conversationId = text(payload.conversationId);
+            if (!conversationId) break;
             yield {
               type: 'meta',
-              conversationId: String(payload.conversationId ?? ''),
-              messageId: String(payload.userMessageId ?? ''),
-              model: String(payload.model ?? ''),
+              conversationId,
+              messageId: text(payload.messageId) ?? text(payload.userMessageId) ?? '',
+              model: text(payload.model) ?? '',
             };
             break;
-          case 'reasoning':
-            yield { type: 'reasoning', delta: String(payload.delta ?? '') };
+          }
+          case 'reasoning': {
+            const delta = text(payload.delta);
+            if (delta) yield { type: 'reasoning', delta };
             break;
-          case 'content':
-            yield { type: 'content', delta: String(payload.delta ?? '') };
+          }
+          case 'content': {
+            const delta = text(payload.delta);
+            if (delta) yield { type: 'content', delta };
             break;
-          case 'replace':
-            yield { type: 'replace', text: String(payload.text ?? '') };
+          }
+          case 'replace': {
+            const finalText = text(payload.text);
+            if (finalText !== undefined) yield { type: 'replace', text: finalText };
             break;
+          }
           case 'usage':
             yield { type: 'usage', usage: payload as Usage };
             break;
-          case 'tool':
+          case 'tool': {
+            const id = text(payload.id);
+            const name = text(payload.name);
+            if (!id || !name) break;
             yield {
               type: 'tool',
               phase: payload.phase === 'end' ? 'end' : 'start',
-              id: String(payload.id ?? ''),
-              name: String(payload.name ?? ''),
-              args: (payload.args as Record<string, unknown> | undefined) ?? undefined,
-              label: typeof payload.label === 'string' ? payload.label : undefined,
-              detail: typeof payload.detail === 'string' ? payload.detail : undefined,
+              id,
+              name,
+              args: record(payload.args) ?? undefined,
+              label: text(payload.label),
+              detail: text(payload.detail),
               ok: typeof payload.ok === 'boolean' ? payload.ok : undefined,
-              chars: typeof payload.chars === 'number' ? payload.chars : undefined,
+              chars: count(payload.chars),
             };
             break;
-          case 'done':
+          }
+          case 'done': {
+            const conversationId = text(payload.conversationId);
+            if (!conversationId) break;
+            const msg = record(payload.message);
+            const message =
+              msg && text(msg.id) !== undefined && text(msg.content) !== undefined && text(msg.reasoning) !== undefined
+                ? {
+                    id: text(msg.id) as string,
+                    content: text(msg.content) as string,
+                    reasoning: text(msg.reasoning) as string,
+                    ms: count(msg.ms) ?? 0,
+                    processMs: count(msg.processMs),
+                    tokensIn: count(msg.tokensIn) ?? null,
+                    tokensOut: count(msg.tokensOut) ?? null,
+                  }
+                : undefined;
             yield {
               type: 'done',
-              conversationId: String(payload.conversationId ?? ''),
+              conversationId,
               aborted: payload.aborted === true,
-              message: payload.message as
-                | { id: string; content: string; reasoning: string; ms: number; processMs?: number }
-                | undefined,
-              usage: (payload.usage as Usage | null) ?? null,
-              totals: payload.totals as { tokensIn: number; tokensOut: number } | undefined,
-              steps: typeof payload.steps === 'number' ? payload.steps : undefined,
-              ms: typeof payload.ms === 'number' ? payload.ms : undefined,
+              message,
+              usage: record(payload.usage) ? (payload.usage as Usage) : null,
+              totals: record(payload.totals)
+                ? (payload.totals as { tokensIn: number; tokensOut: number })
+                : undefined,
+              steps: count(payload.steps),
+              ms: count(payload.ms),
             };
             break;
+          }
           case 'error':
             yield {
               type: 'error',
-              message: String(payload.message ?? t('error.unknown')),
-              code: typeof payload.code === 'string' ? payload.code : undefined,
-              params:
-                payload.params && typeof payload.params === 'object'
-                  ? (payload.params as Record<string, string | number>)
-                  : undefined,
+              message: text(payload.message) ?? t('error.unknown'),
+              code: text(payload.code),
+              params: record(payload.params) ? (payload.params as Record<string, string | number>) : undefined,
             };
             break;
-          case 'title':
-            yield {
-              type: 'title',
-              conversationId: String(payload.conversationId ?? ''),
-              title: String(payload.title ?? ''),
-            };
+          case 'title': {
+            const conversationId = text(payload.conversationId);
+            const title = text(payload.title);
+            if (conversationId && title) yield { type: 'title', conversationId, title };
             break;
+          }
         }
       }
     }
