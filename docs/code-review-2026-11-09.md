@@ -382,7 +382,7 @@ P1-1 与 P2-1…P2-8 已按本报告实现，P3 未动。主要落点：
 §5 的 24 组 P3 已处理；§7 的已接受风险保持不变。没有新增依赖，没有提交。
 
 - **前端/协议（F-1…F-15）**：`meta` 同时发送 `messageId`/`userMessageId`，`done.message` 补齐 `ms`/`tokensIn`/`tokensOut`，前端对 SSE 帧做运行时形状校验；每轮 token 改用本轮值，不再显示累计值；历史列表出错时保留列表并显示错误；`New chat` 后用 `suppressedResumeUrl` 阻止同一页面的自动恢复覆盖空白会话；`regenerate` 前必须已有会话、否则 400；Service Worker 监听设置变化并重建本地化右键菜单；引用菜单支持键盘/`selectionchange`，答案常驻 `aria-live`，补齐焦点环、对比度和 `drop` 纯文本处理；移除硬编码 `<html lang>`，数字按 UI locale 格式化，PDF 错误改用 ASCII 括号；发送前对超过 5 秒的页面快照重新提取正文（PDF 不重下）；GET 不再发送 `Content-Type`；PDF 端点统一走 `pdfEndpoint()`，设置页与后端一样拒绝 credentials/query/hash；移除 `arrayBuffer()` 兜底；标题以 `.pdf` 结尾但 URL 不是 PDF 时先尝试 PDF，`pdf.not_pdf` 再回退 DOM。
-- **后端/安全（B-1…B-8）**：`/api/settings/test` 更换 baseUrl 且未填新 Key 时返回 `settings.key_required_for_url`，不再把已存 Key 转发到请求体指定的地址；`/pdf` 502 只返回错误码，不再回显 `err.message`；`/health` 只返回配置/数据库文件名；`readJson` 加 15 秒空闲超时，SSE 单帧上限 1 MB 并在 EOF flush decoder，`res.write` 超过 8 MB 缓冲时断开慢客户端；token 改 `timingSafeEqual`，设置临时文件带 pid+时间戳，日志 5 MB 轮转，截图总量 512 MB 上限（按内容寻址去重，最后一个引用移除后才删文件）；损坏的 `extension-key.json` 报 `invalid` 而不是 `missing`；错误体同时带 `error` 与 `message`；`/chat` 对 `page.url/title/markdown/kind/pages` 和 `text` 做类型/长度校验，非法请求返回 400 而不是 500。
+- **后端/安全（B-1…B-8）**：`/api/settings/test` 更换 baseUrl 时仍会使用已保存的 Key（2026-11-09 验收后按用户要求移除了“必须重填 Key”的限制）；`/pdf` 502 只返回错误码，不再回显 `err.message`；`/health` 只返回配置/数据库文件名；`readJson` 加 15 秒空闲超时，SSE 单帧上限 1 MB 并在 EOF flush decoder，`res.write` 超过 8 MB 缓冲时断开慢客户端；token 改 `timingSafeEqual`，设置临时文件带 pid+时间戳，日志 5 MB 轮转，截图总量 512 MB 上限（按内容寻址去重，最后一个引用移除后才删文件）；损坏的 `extension-key.json` 报 `invalid` 而不是 `missing`；错误体同时带 `error` 与 `message`；`/chat` 对 `page.url/title/markdown/kind/pages` 和 `text` 做类型/长度校验，非法请求返回 400 而不是 500。
 - **工具链/测试/CI（T-1…T-8、T-10、T-11）**：`server:win` 传递退出码；托盘后台参数逐项加引号；托盘自启动快捷方式固定为 `PageAsk Tray.lnk`；`edge-test.ps1` 诊断改英文；`check-syntax` 覆盖 `src/lib/*.mjs`；新增带 10 秒超时的 `cdp-client.mjs` 并替换三份复制实现；测试清理/断言/轮询改为 `try/finally`、错误码和持久化状态，lifecycle 测试加进程退出兜底清理；新增 schema 迁移、外站 Origin CORS、损坏 extension-key、shot 预算去重回归；`package.json` 删除重复的 `check:server`；AGENTS 同步 31 项测试、`.edge-profiles` 与 check-i18n 的 JSX/cwd 行为。T-9 的 free-port TOCTOU 保留为已知测试竞态（31 项串行运行下未再触发），不在本轮引入跨进程端口协商。
 
 验证：`pnpm verify` 退出码 0；31 个后端回归全绿；`tsc --noEmit` + 70 个 `.mjs`/6 个 PowerShell 语法与 BOM 检查通过；`wxt build` 成功，sidepanel 仍约 1.03 MB（既有警告），总产物 2.18 MB。新增回归：`test-edge-profile.mjs`、`test-pdf-cancel.mjs`、`test-upstream-error-cap.mjs`、`test-i18n-guard.mjs`、`test-migration.mjs`、`test-cors-origin.mjs`，并在 `test-history-page.mjs` 增加截图预算共享文件用例。真实 Edge 面板的手工巡检未在无人值守流程中执行。
@@ -395,7 +395,9 @@ P1-1 与 P2-1…P2-8 已按本报告实现，P3 未动。主要落点：
 - **C1 本地 PDF 路径**：`readLocalPdf()` 移除 `$HOME`/`%TEMP%` 根目录限制，任意可读的普通 `.pdf` 都可以读取；保留 UNC/设备路径拒绝、`realpath`、`.pdf` 后缀、普通文件与 64 MB 限制。`test-pdf-auth.mjs` 增加“仓库测试目录（用户目录之外）的 fileUrl 可读”回归。
 - **C3 拖放**：原生非编辑区无法用 Shift+方向键选中文本，按要求不再为键盘选中做适配，也不提供“整段引用”按钮；保留鼠标选区的浮动引用菜单。拖入非纯文本文件时显示“只能拖入纯文本”提示，并补 `onDragOver` 防止浏览器默认处理。
 - **托盘卡顿**：`Get-BackendState` 先做 50ms TCP 预检，端口关闭立即判定 `down`，不再先等 2 秒 HTTP 超时；端口可连接后再用 1 秒 HTTP 区分 `up`/`foreign`。
+- **托盘误报恢复**：50ms 预检会捕捉到重启时的短暂端口关闭；`WasDown` 改为在连续 down 8 秒后才置位，快速重启不再弹“后端已恢复”。
+- **设置页测试连接**：移除“更换 Base URL 必须重填 Key”的限制，测试仍使用已保存的 Key；这是按用户要求对本地个人使用边界的调整。
 - **C5**：Edge 按扩展名决定是否进入 PDF 查看器，后端拿到的是 HTML 却以 `.pdf` 命名时页面根本不会交给扩展，面板侧无法修复；记录为环境限制。
 - **B1/C2/D**：B1 的“超大上游错误体”已有 `test-upstream-error-cap.mjs` 自动覆盖，人工 fake upstream 项仍可补跑；C2/D 未在本轮执行。
 
-验证：`pnpm verify` 退出码 0（31 个后端回归、70 个 `.mjs`/6 个 PowerShell、`wxt build` 全部通过）；`test-pdf-auth.mjs` 的新增本地路径用例通过。
+验证：`pnpm verify` 退出码 0（32 个后端回归、72 个 `.mjs`/6 个 PowerShell、`wxt build` 全部通过）；`test-pdf-auth.mjs` 的新增本地路径用例通过。
