@@ -144,6 +144,20 @@ closeDb();
 
 const port = await freePort();
 let child = startServer(port);
+// A failed assertion throws past the happy-path teardown; still stop the backend and remove the
+// temp tree so a red run cannot leave a process or WAL files behind.
+process.on('exit', () => {
+  try {
+    child?.kill();
+  } catch {
+    /* already gone */
+  }
+  try {
+    rmSync(temp, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+  } catch {
+    /* Windows may still hold the DB */
+  }
+});
 assert.equal(await waitFor(async () => (await fetch(`http://127.0.0.1:${port}/health/live`)).ok), true);
 
 const first = await getJson(port, '/health');

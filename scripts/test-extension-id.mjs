@@ -41,7 +41,7 @@ check('missing file fails closed', missing.id === '' && missing.source === 'miss
 
 const brokenFile = join(tmp, 'broken.json');
 writeFileSync(brokenFile, '{ not json', 'utf8');
-check('unparsable file fails closed', resolveExtensionId(brokenFile).source === 'missing');
+check('unparsable file is reported invalid, not missing', resolveExtensionId(brokenFile).source === 'invalid');
 
 const badKeyFile = join(tmp, 'bad-key.json');
 writeFileSync(badKeyFile, JSON.stringify({ key: '!!!' }), 'utf8');

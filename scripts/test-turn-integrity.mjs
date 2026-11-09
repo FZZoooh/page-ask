@@ -12,7 +12,7 @@ import { makeTestConfig } from './temp-config.mjs';
 // vars anymore: makeTestConfig writes a throw-away home first, so it must run before the import.
 const { cleanup, dataDir } = makeTestConfig({ port: 8787 });
 
-const { addTurn, createConversation, getConversation, historyItems } = await import('../server/db.mjs');
+const { addTurn, closeDb, createConversation, getConversation, historyItems } = await import('../server/db.mjs');
 
 let failed = 0;
 function check(name, fn) {
@@ -120,6 +120,11 @@ try {
     assert.equal(assistant.aborted, true);
   });
 } finally {
+  try {
+    closeDb();
+  } catch {
+    /* the db may already be closed on an early failure */
+  }
   try {
     cleanup();
   } catch {

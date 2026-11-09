@@ -211,16 +211,22 @@ check('工具轮次：assistant 的 2 个 call 都有 tool 行', () => {
   assert.deepEqual(tools.map((t) => t.toolCallId).sort(), ['call_1', 'call_2']);
   assert.equal(assistant.aborted, true);
 });
-check('工具轮次：未执行的 call 有“已中止”占位 output', () => {
+check('工具轮次：未执行的 call 有占位 output', () => {
   const tools = toolConv.messages.filter((m) => m.role === 'tool');
   const second = tools.find((t) => t.toolCallId === 'call_2');
-  assert.match(second.content, /中止|没有执行/);
+  assert.equal(second.toolFailed, true);
+  assert.ok(second.content.length > 0);
 });
 
 // 2) Abort midway through the content stream
 const slowRun = await chat('SLOW', (event) => event === 'content');
-await new Promise((r) => setTimeout(r, 400));
-const slowConv = getConversation(slowRun.conversationId);
+let slowConv = getConversation(slowRun.conversationId);
+for (let i = 0; i < 50; i += 1) {
+  const assistant = slowConv.messages.find((m) => m.role === 'assistant');
+  if (assistant?.aborted) break;
+  await new Promise((r) => setTimeout(r, 100));
+  slowConv = getConversation(slowRun.conversationId);
+}
 check('正文中止：已生成内容落库并标记 aborted', () => {
   const assistant = slowConv.messages.find((m) => m.role === 'assistant');
   assert.ok(assistant, '没有 assistant 行');

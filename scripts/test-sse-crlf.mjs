@@ -119,8 +119,12 @@ try {
   });
   upstream.closeAllConnections?.();
   await new Promise((r) => upstream.close(r));
-  rmSync(home, { recursive: true, force: true });
-  rmSync(data, { recursive: true, force: true });
+  try {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(data, { recursive: true, force: true });
+  } catch {
+    // Windows may still hold a WAL handle; temp cleanup will get it
+  }
 }
 
 process.exitCode = failures ? 1 : 0;

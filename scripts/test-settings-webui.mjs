@@ -197,6 +197,16 @@ try {
   check('测试连接使用已保存的 Key', () => assert.equal(draftTest.body?.ok, true));
   check('测试连接带状态码', () => assert.equal(draftTest.body?.status, 200));
 
+  const changedUrlNoKey = await postJson(
+    '/api/settings/test',
+    { baseUrl: 'http://127.0.0.1:9' },
+    { Origin: sameOrigin },
+  );
+  check('更换 Base URL 但未填 Key 时拒绝', () => assert.equal(changedUrlNoKey.status, 400));
+  check('拒绝时带 settings.key_required_for_url', () =>
+    assert.equal(changedUrlNoKey.body?.code, 'settings.key_required_for_url'),
+  );
+
   const wrongKey = await postJson(
     '/api/settings/test',
     { baseUrl: upstreamBase, apiKey: 'sk-wrong-key-000' },

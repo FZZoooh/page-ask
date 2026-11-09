@@ -2,14 +2,20 @@
 // keeps only the newest screenshots so a long chat cannot resend every past viewport.
 // Run: node scripts/test-history-page.mjs
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeTestConfig } from './temp-config.mjs';
 
 const { dataDir, cleanup } = makeTestConfig({ port: 8787 });
-const { addTurn, closeDb, createConversation, getConversation, historyItems, shotsDir } = await import(
-  '../server/db.mjs'
-);
+const {
+  addTurn,
+  closeDb,
+  createConversation,
+  getConversation,
+  historyItems,
+  shotsDir,
+  trimShotBudget,
+} = await import('../server/db.mjs');
 
 let failed = 0;
 function check(name, fn) {
@@ -85,6 +91,40 @@ try {
   });
   check('test data lives in the temp dir', () => {
     assert.ok(dataDir.includes('pageask-test-'));
+  });
+
+  // Screenshot files are content-addressed, so two rows can share one file. The budget must count
+  // it once and must not unlink it while a kept row still points at it (oldest row below is dropped).
+  const budgetConv = createConversation({ url: 'https://example.com/budget', title: 'budget' });
+  writeFileSync(join(shotsDir, 'shared.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+  writeFileSync(join(shotsDir, 'other.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+  addTurn({
+    conversationId: budgetConv.id,
+    assistant: { content: '', toolCalls: [{ id: 'call_other', name: 'screenshot', arguments: '{}' }] },
+    tools: [{ content: 'other', toolCallId: 'call_other', toolName: 'screenshot', imagePath: 'other.jpg' }],
+  });
+  for (let i = 0; i < 2; i += 1) {
+    addTurn({
+      conversationId: budgetConv.id,
+      assistant: { content: '', toolCalls: [{ id: `call_shared_${i}`, name: 'screenshot', arguments: '{}' }] },
+      tools: [
+        {
+          content: `shared-${i}`,
+          toolCallId: `call_shared_${i}`,
+          toolName: 'screenshot',
+          imagePath: 'shared.jpg',
+        },
+      ],
+    });
+  }
+  trimShotBudget({ maxBytes: 6 });
+  const budgetTools = getConversation(budgetConv.id).messages.filter((m) => m.role === 'tool');
+  check('shot budget counts a shared file once and keeps its live reference', () => {
+    const shared = budgetTools.filter((m) => m.imagePath === 'shared.jpg');
+    assert.equal(shared.length, 2);
+    assert.equal(budgetTools.find((m) => m.toolCallId === 'call_other').imagePath, null);
+    assert.ok(existsSync(join(shotsDir, 'shared.jpg')));
+    assert.ok(!existsSync(join(shotsDir, 'other.jpg')));
   });
 } finally {
   closeDb();
