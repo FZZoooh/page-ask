@@ -1,4 +1,5 @@
-import Defuddle from 'defuddle';
+import Defuddle from 'defuddle/full';
+import { normalizeTableSpans } from '@/lib/table-markdown.mjs';
 import { t } from '@/lib/i18n';
 import { looksLikePdfUrl, PdfReadError, readPdfFromTab } from '@/lib/pdf';
 import { sameDocumentUrl } from '@/lib/settings';
@@ -121,25 +122,95 @@ function htmlToText(html: string): string {
   return (doc.body?.textContent ?? '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+function plainHeading(text: string): string {
+  return text
+    .replace(/\s+/g, ' ')
+    .replace(/^#{1,6}\s*/, '')
+    .replace(/\s*#+$/, '')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Defuddle's standardizeHeadings() turns every h1 into h2 and then deletes the first h2 when its
+ * text equals the page title, so contentMarkdown never starts with the title. Put it back: the
+ * page title is usually the one line that tells the model what the document is about, and
+ * read_page only returns slices of this Markdown (the title metadata is easy to overlook).
+ */
+export function withTitleHeading(markdown: string, title: string): string {
+  const clean = title.replace(/\s+/g, ' ').replace(/^#{1,6}\s*/, '').trim();
+  if (!clean || !markdown.trim()) return markdown;
+
+  // A page can keep its own title heading when it differs slightly from metadata.title; only
+  // compare the top of the document so a later section with the same name does not suppress it.
+  const head = markdown.slice(0, 1000);
+  const headingRe = /^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/gm;
+  for (const match of head.matchAll(headingRe)) {
+    if (plainHeading(match[1] ?? '') === plainHeading(clean)) return markdown;
+  }
+  return `# ${clean}\n\n${markdown}`;
+}
+
+/** Rough text mass of the page, used only to tell whether the extraction lost most of it. */
+function bodyTextChars(doc: Document): number {
+  return (doc.body?.textContent ?? '').replace(/\s+/g, ' ').trim().length;
+}
+
+function looksLowYield(markdown: string, bodyChars: number): boolean {
+  if (bodyChars < 800) return false;
+  if (markdown.length < 500) return true;
+  return bodyChars > 4000 && markdown.length < bodyChars * 0.1;
+}
+
 /** Pure function: raw HTML in, Markdown the model can be fed out. */
 export function extract(raw: RawPage): ExtractedPage {
   const started = performance.now();
   const doc = new DOMParser().parseFromString(raw.html, 'text/html');
+  normalizeTableSpans(doc);
 
   let markdown = '';
   let title = raw.title;
   let site = '';
+  // Defuddle may hit third-party APIs when useAsync is left on (YouTube transcripts, Reddit, …).
+  // In a side panel that would mean hidden requests and unpredictable latency; keep it local.
+  // `separateMarkdown` is required: the core `defuddle` entry never converts HTML to Markdown
+  // (`contentMarkdown` only exists in the full build), and `markdown: true` would overwrite the
+  // HTML that the fallback below needs.
+  const options = { url: raw.url, separateMarkdown: true, useAsync: false };
 
   try {
-    const res = new Defuddle(doc, { url: raw.url, markdown: true }).parse();
+    const res = new Defuddle(doc, options).parse();
     markdown = (res.contentMarkdown ?? '').trim();
     if (!markdown && res.content) markdown = htmlToText(res.content);
     title = res.title?.trim() || title;
     site = res.site || res.domain || '';
+
+    // Scoring and content-pattern removal are tuned for news articles. On documentation, forums
+    // and Q&A pages they can delete code blocks, short sections or whole answers, leaving a few
+    // hundred characters. Retry once with the aggressive filters off and keep the longer body.
+    if (looksLowYield(markdown, bodyTextChars(doc))) {
+      try {
+        const relaxed = new Defuddle(doc, {
+          ...options,
+          removeLowScoring: false,
+          removeHiddenElements: false,
+          removeContentPatterns: false,
+        }).parse();
+        let relaxedMarkdown = (relaxed.contentMarkdown ?? '').trim();
+        if (!relaxedMarkdown && relaxed.content) relaxedMarkdown = htmlToText(relaxed.content);
+        if (relaxedMarkdown.length > markdown.length) markdown = relaxedMarkdown;
+        title = relaxed.title?.trim() || title;
+        site = site || relaxed.site || relaxed.domain || '';
+      } catch (err) {
+        console.warn('[pageask] relaxed Defuddle parse failed; keeping first result', err);
+      }
+    }
   } catch (err) {
     console.warn('[pageask] Defuddle parse failed; falling back to plain text', err);
     markdown = doc.body ? htmlToText(doc.body.innerHTML) : '';
   }
+
+  markdown = withTitleHeading(markdown, title);
 
   if (!site) {
     try {
