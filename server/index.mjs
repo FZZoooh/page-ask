@@ -636,7 +636,7 @@ function cleanTitle(raw) {
   s = s.replace(/^(?:Title|\u6807\u9898)[:：]\s*/i, '');
   s = s.replace(/^[「『“"'《【]+|[」』”"'》】]+$/g, '');
   s = s.replace(/[。.!！?？]+$/, '');
-  return s.trim().slice(0, 30);
+  return s.trim().slice(0, 60);
 }
 
 /* ---------------- /chat ---------------- */
