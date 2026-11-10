@@ -129,7 +129,7 @@ const metaOf = (sse) => {
 const getConv = (id) => fetch(`${base}/conversations/${encodeURIComponent(id)}`).then((r) => r.json());
 
 try {
-  check('后端启动', await waitUp());
+  check('backend started', await waitUp());
   const created = await fetch(`${base}/conversations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -139,51 +139,51 @@ try {
   // Two complete turns: the edit must overwrite the second one, not just the last answer.
   const first = await postChat(created.id, '第一问');
   const firstSse = await first.text();
-  check('第一轮完成', first.status === 200 && firstSse.includes('event: done'), firstSse.slice(-200));
-  check('第一轮 meta 带用户消息 id', Boolean(metaOf(firstSse)?.messageId), firstSse.slice(0, 200));
+  check('first turn completes', first.status === 200 && firstSse.includes('event: done'), firstSse.slice(-200));
+  check('first turn meta carries the user message id', Boolean(metaOf(firstSse)?.messageId), firstSse.slice(0, 200));
 
   const second = await postChat(created.id, '第二问');
   const secondSse = await second.text();
-  check('第二轮完成', second.status === 200 && secondSse.includes('event: done'), secondSse.slice(-200));
+  check('second turn completes', second.status === 200 && secondSse.includes('event: done'), secondSse.slice(-200));
 
   const before = await getConv(created.id);
-  check('编辑前有四个消息', before.messages?.length === 4, JSON.stringify(before.messages?.map((m) => m.role)));
+  check('four messages before editing', before.messages?.length === 4, JSON.stringify(before.messages?.map((m) => m.role)));
   const firstUser = before.messages?.[0];
   const firstUserSseId = metaOf(firstSse)?.messageId;
-  check('第一条是用户消息', firstUser?.role === 'user' && firstUser?.content === '第一问');
-  check('meta 的用户 id 与库里一致', firstUser?.id === firstUserSseId, `${firstUser?.id} != ${firstUserSseId}`);
+  check('first message is the user message', firstUser?.role === 'user' && firstUser?.content === '第一问');
+  check('meta user id matches the stored one', firstUser?.id === firstUserSseId, `${firstUser?.id} != ${firstUserSseId}`);
 
   const edited = await postChat(created.id, '第一问（改）', { editMessageId: firstUser.id });
   const editedText = await edited.text();
-  check('编辑请求返回 200', edited.status === 200, editedText.slice(0, 300));
-  check('编辑轮正常完成', editedText.includes('event: done') && !editedText.includes('event: error'));
-  check('编辑轮 meta 仍是同一条用户消息', metaOf(editedText)?.messageId === firstUser.id, editedText.slice(0, 200));
+  check('edit request returns 200', edited.status === 200, editedText.slice(0, 300));
+  check('edit turn completes', editedText.includes('event: done') && !editedText.includes('event: error'));
+  check('edit turn meta keeps the same user message', metaOf(editedText)?.messageId === firstUser.id, editedText.slice(0, 200));
 
   const after = await getConv(created.id);
-  check('编辑后只剩两条消息', after.messages?.length === 2, JSON.stringify(after.messages?.map((m) => m.role)));
-  check('用户消息文本已改写', after.messages?.[0]?.content === '第一问（改）', after.messages?.[0]?.content);
-  check('用户消息 id 未变', after.messages?.[0]?.id === firstUser.id);
-  check('后面的回答已重新生成', after.messages?.[1]?.role === 'assistant' && after.messages?.[1]?.content === '回答3');
-  check('发送给上游的历史不含被覆盖的第二问', !JSON.stringify(lastStreamBody).includes('第二问'));
-  check('发送给上游的历史包含改写后的第一问', JSON.stringify(lastStreamBody).includes('第一问（改）'));
+  check('only two messages remain after editing', after.messages?.length === 2, JSON.stringify(after.messages?.map((m) => m.role)));
+  check('user message text is rewritten', after.messages?.[0]?.content === '第一问（改）', after.messages?.[0]?.content);
+  check('user message id is unchanged', after.messages?.[0]?.id === firstUser.id);
+  check('the answer after it is regenerated', after.messages?.[1]?.role === 'assistant' && after.messages?.[1]?.content === '回答3');
+  check('upstream history drops the overwritten second question', !JSON.stringify(lastStreamBody).includes('第二问'));
+  check('upstream history has the rewritten first question', JSON.stringify(lastStreamBody).includes('第一问（改）'));
 
   // A bad target must fail without touching the conversation, including an assistant row id.
   const unknown = await postChat(created.id, 'x', { editMessageId: 'not-a-message' });
   const unknownBody = await unknown.json();
-  check('不存在的消息返回 400', unknown.status === 400, JSON.stringify(unknownBody));
-  check('错误码是 chat.message_not_found', unknownBody.code === 'chat.message_not_found', JSON.stringify(unknownBody));
+  check('unknown message returns 400', unknown.status === 400, JSON.stringify(unknownBody));
+  check('code is chat.message_not_found', unknownBody.code === 'chat.message_not_found', JSON.stringify(unknownBody));
 
   const assistantId = after.messages?.[1]?.id;
   const wrongRole = await postChat(created.id, 'x', { editMessageId: assistantId });
   const wrongRoleBody = await wrongRole.json();
-  check('不能编辑回答行', wrongRole.status === 400 && wrongRoleBody.code === 'chat.message_not_found');
+  check('an assistant row cannot be edited', wrongRole.status === 400 && wrongRoleBody.code === 'chat.message_not_found');
 
   const both = await postChat(created.id, 'x', { editMessageId: after.messages?.[0]?.id, regenerate: true });
   const bothBody = await both.json();
-  check('编辑与重新生成互斥', both.status === 400 && bothBody.code === 'chat.invalid_edit', JSON.stringify(bothBody));
+  check('edit and regenerate are mutually exclusive', both.status === 400 && bothBody.code === 'chat.invalid_edit', JSON.stringify(bothBody));
 
   const unchanged = await getConv(created.id);
-  check('失败的编辑没有改动会话', unchanged.messages?.length === 2 && unchanged.messages?.[0]?.content === '第一问（改）');
+  check('a failed edit leaves the conversation untouched', unchanged.messages?.length === 2 && unchanged.messages?.[0]?.content === '第一问（改）');
 } finally {
   child.kill();
   await new Promise((r) => {
@@ -201,5 +201,5 @@ try {
   }
 }
 
-console.log(failures ? `\n${failures} 项失败` : '\n全部通过');
+console.log(failures ? `\n${failures} failure(s)` : '\nall good');
 process.exitCode = failures ? 1 : 0;

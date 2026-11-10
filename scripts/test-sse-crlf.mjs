@@ -85,7 +85,7 @@ const waitUp = async () => {
 };
 
 try {
-  check('后端启动', await waitUp());
+  check('backend started', await waitUp());
   const res = await fetch(`${base}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -95,17 +95,17 @@ try {
     }),
   });
   const sse = await res.text();
-  check('返回 SSE', res.status === 200, `status ${res.status}`);
-  check('CRLF 流仍产生 content', sse.includes('event: content') && sse.includes('CRLF 正常'), sse.slice(0, 300));
-  check('CRLF 流仍产生 done', sse.includes('event: done'), sse.slice(0, 300));
+  check('returns SSE', res.status === 200, `status ${res.status}`);
+  check('a CRLF stream still yields content', sse.includes('event: content') && sse.includes('CRLF 正常'), sse.slice(0, 300));
+  check('a CRLF stream still yields done', sse.includes('event: done'), sse.slice(0, 300));
 
   const meta = sse.match(/event: meta\ndata: (.+)\n\n/);
   const conversationId = meta ? JSON.parse(meta[1]).conversationId : null;
-  check('meta 带 conversationId', Boolean(conversationId));
+  check('meta carries conversationId', Boolean(conversationId));
   if (conversationId) {
     const stored = await (await fetch(`${base}/conversations/${conversationId}`)).json();
     const answer = stored.messages.filter((m) => m.role === 'assistant').at(-1);
-    check('答案已落库', answer?.content === 'CRLF 正常', JSON.stringify(answer?.content));
+    check('the answer is stored', answer?.content === 'CRLF 正常', JSON.stringify(answer?.content));
   }
 } finally {
   child.kill();

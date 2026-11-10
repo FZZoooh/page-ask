@@ -58,5 +58,5 @@ while (true) {
     }
   }
 }
-console.log(`\nreasoning 事件 ${counts.reasoning} 个 / content 事件 ${counts.content} 个`);
-console.log('--- 正文 ---\n' + answer.slice(0, 600));
+console.log(`\nreasoning events: ${counts.reasoning} / content events: ${counts.content}`);
+console.log('--- answer ---\n' + answer.slice(0, 600));

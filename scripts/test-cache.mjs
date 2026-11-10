@@ -105,8 +105,8 @@ async function turn(conversationId, text) {
 }
 
 // Solid-colour JPEG as the "screenshot": identical bytes every turn, else the prefix necessarily differs
-console.log(`截图素材：${shotPath}（${shotB64.length} base64 字符）`);
-console.log(`轮数：${TURNS.length}\n`);
+console.log(`screenshot fixture: ${shotPath} (${shotB64.length} base64 chars)`);
+console.log(`turns: ${TURNS.length}\n`);
 
 let convId = null;
 const rows = [];
@@ -116,16 +116,16 @@ for (let i = 0; i < TURNS.length; i++) {
   const last = t.usages.at(-1);
   const steps = t.done?.steps ?? t.usages.length;
   rows.push({ i: i + 1, steps, tools: t.tools, usage: last, totals: t.done?.totals });
-  console.log(`第 ${i + 1} 轮  步数=${steps}  工具=${t.tools.join(' / ') || '无'}`);
+  console.log(`turn ${i + 1}  steps=${steps}  tools=${t.tools.join(' / ') || 'none'}`);
   for (const u of t.usages) console.log(`        usage ${fmtUsage(u)}`);
   if (t.error) console.log(`        [error] ${t.error.message}`);
   const answer = t.done?.message?.content ?? '';
-  console.log(`        回答 ${answer.replace(/\s+/g, ' ').slice(0, 70)}`);
+  console.log(`        answer ${answer.replace(/\s+/g, ' ').slice(0, 70)}`);
   console.log('');
 }
 
-console.log('汇总：');
-console.log('轮次\t步数\t输入\t命中缓存\t命中率');
+console.log('summary:');
+console.log('turn\tsteps\tinput\tcached\thit rate');
 for (const r of rows) {
   const u = r.usage ?? {};
   const d = u.input_tokens_details ?? {};
@@ -137,5 +137,5 @@ for (const r of rows) {
 
 if (convId) {
   const detail = await (await fetch(`${BASE}/conversations/${convId}`)).json();
-  console.log(`\n会话 ${convId}：${detail.messages.length} 条消息，标题「${detail.title}」`);
+  console.log(`\nconversation ${convId}: ${detail.messages.length} messages, title "${detail.title}"`);
 }

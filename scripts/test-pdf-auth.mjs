@@ -80,25 +80,25 @@ const postPdf = async (headers = {}, payload = { base64: pdf }) => {
 };
 
 try {
-  check('后端启动', await waitUp());
+  check('backend started', await waitUp());
 
   const noToken = await postPdf();
-  check('无 token 的 /pdf 返回 401', noToken.res.status === 401, String(noToken.res.status));
-  check('无 token 的错误码是 auth.bad_token', noToken.body?.code === 'auth.bad_token', JSON.stringify(noToken.body));
+  check('/pdf without a token returns 401', noToken.res.status === 401, String(noToken.res.status));
+  check('the missing-token code is auth.bad_token', noToken.body?.code === 'auth.bad_token', JSON.stringify(noToken.body));
 
   const wrong = await postPdf({ Authorization: 'Bearer wrong-token' });
-  check('错误 token 的 /pdf 返回 401', wrong.res.status === 401, String(wrong.res.status));
+  check('/pdf with a wrong token returns 401', wrong.res.status === 401, String(wrong.res.status));
 
   const good = await postPdf({ Authorization: `Bearer ${TOKEN}` });
-  check('正确 token 的 /pdf 返回 200', good.res.status === 200, `${good.res.status} ${JSON.stringify(good.body).slice(0, 200)}`);
-  check('提取出至少一页', (good.body?.pageCount ?? 0) >= 1, JSON.stringify(good.body).slice(0, 200));
-  check('提取出正文', typeof good.body?.text === 'string' && good.body.text.trim().length > 0, JSON.stringify(good.body).slice(0, 200));
+  check('/pdf with the right token returns 200', good.res.status === 200, `${good.res.status} ${JSON.stringify(good.body).slice(0, 200)}`);
+  check('at least one page is extracted', (good.body?.pageCount ?? 0) >= 1, JSON.stringify(good.body).slice(0, 200));
+  check('text is extracted', typeof good.body?.text === 'string' && good.body.text.trim().length > 0, JSON.stringify(good.body).slice(0, 200));
 
   // Acceptance C1: local file URLs are not limited to the user profile / temp directory.
   const localPdf = join(root, 'test', 'marker.pdf');
   const local = await postPdf({ Authorization: `Bearer ${TOKEN}` }, { fileUrl: pathToFileURL(localPdf).href });
-  check('本地 PDF 可以位于用户目录之外', local.res.status === 200, `${local.res.status} ${JSON.stringify(local.body).slice(0, 200)}`);
-  check('本地 PDF 位于仓库测试目录', !localPdf.toLowerCase().startsWith(home.toLowerCase()), localPdf);
+  check('a local PDF outside the home directory is allowed', local.res.status === 200, `${local.res.status} ${JSON.stringify(local.body).slice(0, 200)}`);
+  check('the local PDF sits in the repository test directory', !localPdf.toLowerCase().startsWith(home.toLowerCase()), localPdf);
 } finally {
   child.kill();
   await new Promise((r) => {
@@ -114,5 +114,5 @@ try {
   }
 }
 
-console.log(failures ? `\n${failures} 项失败` : '\n全部通过');
+console.log(failures ? `\n${failures} failure(s)` : '\nall good');
 process.exitCode = failures ? 1 : 0;

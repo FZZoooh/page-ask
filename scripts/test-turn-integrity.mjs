@@ -44,7 +44,7 @@ try {
       { content: 'B', toolCallId: 'call_b', toolName: 'read_page' },
     ],
   });
-  check('完整轮次：2 个 call + 2 个 output', () => {
+  check('complete round: 2 calls + 2 outputs', () => {
     const items = historyItems(conv.id);
     assert.equal(items.filter((i) => i.type === 'function_call').length, 2);
     assert.equal(items.filter((i) => i.type === 'function_call_output').length, 2);
@@ -53,19 +53,19 @@ try {
     assert.deepEqual(calls, outs);
   });
 
-  check('reasoning 回放：正文保留且位于 function_call 之前', () => {
+  check('reasoning replay: text preserved and placed before the function_call', () => {
     const items = historyItems(conv.id);
     const reasoning = items.find((item) => item.type === 'reasoning');
-    assert.ok(reasoning, 'historyItems 必须包含 reasoning 项');
+    assert.ok(reasoning, 'historyItems must include the reasoning item');
     assert.equal(reasoning.content?.[0]?.text, '想想');
-    assert.ok(!('encrypted_content' in reasoning), '不能回传 encrypted_content');
-    assert.ok(Array.isArray(reasoning.summary) && reasoning.summary.length === 0, 'summary 只能是空占位');
+    assert.ok(!('encrypted_content' in reasoning), 'encrypted_content must not be replayed');
+    assert.ok(Array.isArray(reasoning.summary) && reasoning.summary.length === 0, 'summary may only be an empty placeholder');
     const reasoningIndex = items.indexOf(reasoning);
     const firstCallIndex = items.findIndex((item) => item.type === 'function_call');
-    assert.ok(reasoningIndex >= 0 && firstCallIndex > reasoningIndex, 'reasoning 必须在 function_call 之前');
+    assert.ok(reasoningIndex >= 0 && firstCallIndex > reasoningIndex, 'reasoning must precede the function_call');
   });
 
-  check('addTurn 一次事务写入：assistant 与 tool 的 rowid 连续', () => {
+  check('addTurn writes in one transaction: assistant and tool rowids are consecutive', () => {
     const convDb = getConversation(conv.id);
     assert.ok(convDb && convDb.messages.length === 3);
     assert.equal(convDb.messages[0].role, 'assistant');
@@ -98,7 +98,7 @@ try {
     },
     tools: [{ content: 'C', toolCallId: 'call_c', toolName: 'read_page' }],
   });
-  check('悬空 call 回放兜底：只发有 output 的 call', () => {
+  check('dangling call replay: only calls with output are sent', () => {
     const items = historyItems(legacy.id);
     assert.deepEqual(
       items.filter((i) => i.type === 'function_call').map((i) => i.call_id),
@@ -113,7 +113,7 @@ try {
     conversationId: stopped.id,
     assistant: { content: '半截回答', aborted: true },
   });
-  check('aborted 标记落库', () => {
+  check('the aborted flag is stored', () => {
     const convDb = getConversation(stopped.id);
     const assistant = convDb.messages.find((m) => m.role === 'assistant');
     assert.equal(assistant.content, '半截回答');
@@ -133,7 +133,7 @@ try {
 }
 
 if (failed) {
-  console.error(`\n${failed} 项失败`);
+  console.error(`\n${failed} failure(s)`);
   process.exit(1);
 }
-console.log('\n全部通过');
+console.log('\nall good');

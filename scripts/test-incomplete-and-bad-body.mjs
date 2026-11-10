@@ -105,7 +105,7 @@ const postJson = (path, body) =>
   });
 
 try {
-  check('后端启动', await waitUp());
+  check('backend started', await waitUp());
 
   const res = await postJson(
     '/chat',
@@ -115,20 +115,20 @@ try {
     }),
   );
   const sse = await res.text();
-  check('截断仍返回 SSE', res.status === 200 && sse.includes('event: done'), sse.slice(0, 200));
-  check('done 标记 aborted', /"aborted":true/.test(sse), sse.slice(-400));
-  check('截断前正文保留', sse.includes('半截'), sse.slice(0, 300));
-  check('截断轮次不起标题', !sse.includes('event: title'));
+  check('truncated stream still returns SSE', res.status === 200 && sse.includes('event: done'), sse.slice(0, 200));
+  check('done marks aborted', /"aborted":true/.test(sse), sse.slice(-400));
+  check('text before the truncation is kept', sse.includes('半截'), sse.slice(0, 300));
+  check('truncated turn generates no title', !sse.includes('event: title'));
 
   const badChat = await postJson('/chat', '{ not json');
   const badChatBody = await badChat.text();
-  check('非法 /chat JSON 返回 400', badChat.status === 400, `${badChat.status} ${badChatBody.slice(0, 120)}`);
-  check('400 带错误码', badChatBody.includes('"code":"request.bad_body"'), badChatBody.slice(0, 120));
+  check('bad /chat JSON returns 400', badChat.status === 400, `${badChat.status} ${badChatBody.slice(0, 120)}`);
+  check('400 carries an error code', badChatBody.includes('"code":"request.bad_body"'), badChatBody.slice(0, 120));
 
   const badConv = await postJson('/conversations', '{ not json');
   const badConvBody = await badConv.text();
-  check('非法 /conversations JSON 返回 400', badConv.status === 400, `${badConv.status} ${badConvBody.slice(0, 120)}`);
-  check('错误码一致', badConvBody.includes('"code":"request.bad_body"'), badConvBody.slice(0, 120));
+  check('bad /conversations JSON returns 400', badConv.status === 400, `${badConv.status} ${badConvBody.slice(0, 120)}`);
+  check('error code matches', badConvBody.includes('"code":"request.bad_body"'), badConvBody.slice(0, 120));
 } finally {
   child.kill();
   await new Promise((r) => {
@@ -145,11 +145,11 @@ try {
     const row = db
       .prepare("SELECT aborted, content FROM messages WHERE role = 'assistant' ORDER BY rowid DESC LIMIT 1")
       .get();
-    check('数据库标记 aborted', row?.aborted === 1, JSON.stringify(row));
-    check('数据库保留正文', row?.content === '半截', JSON.stringify(row));
+    check('database marks aborted', row?.aborted === 1, JSON.stringify(row));
+    check('database keeps the text', row?.content === '半截', JSON.stringify(row));
     db.close();
   } catch (err) {
-    check('读取数据库', false, err.message);
+    check('read the database', false, err.message);
   }
 
   try {
@@ -160,5 +160,5 @@ try {
   }
 }
 
-console.log(failures ? `\n${failures} 项失败` : '\n全部通过');
+console.log(failures ? `\n${failures} failure(s)` : '\nall good');
 process.exitCode = failures ? 1 : 0;

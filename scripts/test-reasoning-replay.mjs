@@ -190,7 +190,7 @@ if (!up) {
 const base = `http://127.0.0.1:${port}`;
 
 try {
-  check('后端启动', up, `exit=${child.exitCode}\n${readLog(outLog)}\n${readLog(errLog)}`);
+  check('backend started', up, `exit=${child.exitCode}\n${readLog(outLog)}\n${readLog(errLog)}`);
   const created = await fetch(`${base}/conversations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -208,20 +208,20 @@ try {
   });
   const sse = await response.text();
 
-  check('两次上游请求', streamBodies.length === 2, String(streamBodies.length));
+  check('two upstream requests', streamBodies.length === 2, String(streamBodies.length));
   const input = streamBodies[1]?.input;
-  check('第二次请求是数组输入', Array.isArray(input), JSON.stringify(input)?.slice(0, 200));
+  check('the second request sends array input', Array.isArray(input), JSON.stringify(input)?.slice(0, 200));
   const reasoning = Array.isArray(input) ? input.find((item) => item.type === 'reasoning') : null;
-  check('回传 reasoning 项', Boolean(reasoning), JSON.stringify(input)?.slice(0, 300));
-  check('reasoning 正文完整', reasoning?.content?.[0]?.text === '先想一下', JSON.stringify(reasoning));
-  check('不带 encrypted_content', reasoning && !('encrypted_content' in reasoning));
-  check('summary 只是空占位', Array.isArray(reasoning?.summary) && reasoning.summary.length === 0);
+  check('the reasoning item is replayed', Boolean(reasoning), JSON.stringify(input)?.slice(0, 300));
+  check('the reasoning text round-trips intact', reasoning?.content?.[0]?.text === '先想一下', JSON.stringify(reasoning));
+  check('encrypted_content is absent', reasoning && !('encrypted_content' in reasoning));
+  check('summary is only an empty placeholder', Array.isArray(reasoning?.summary) && reasoning.summary.length === 0);
   const reasoningIndex = Array.isArray(input) ? input.indexOf(reasoning) : -1;
   const callIndex = Array.isArray(input) ? input.findIndex((item) => item.type === 'function_call') : -1;
   const outputIndex = Array.isArray(input) ? input.findIndex((item) => item.type === 'function_call_output') : -1;
-  check('reasoning 在 function_call 之前', reasoningIndex >= 0 && callIndex > reasoningIndex, `${reasoningIndex}/${callIndex}`);
-  check('function_call 有配对的 output', callIndex >= 0 && outputIndex > callIndex, `${callIndex}/${outputIndex}`);
-  check('SSE 正常完成', sse.includes('event: content') && sse.includes('event: done'));
+  check('reasoning precedes the function_call', reasoningIndex >= 0 && callIndex > reasoningIndex, `${reasoningIndex}/${callIndex}`);
+  check('the function_call has a matching output', callIndex >= 0 && outputIndex > callIndex, `${callIndex}/${outputIndex}`);
+  check('SSE completes', sse.includes('event: content') && sse.includes('event: done'));
 } finally {
   child.kill();
   await new Promise((resolve) => {
@@ -239,5 +239,5 @@ try {
   }
 }
 
-console.log(failures ? `\n${failures} 项失败` : '\n全部通过');
+console.log(failures ? `\n${failures} failure(s)` : '\nall good');
 process.exitCode = failures ? 1 : 0;

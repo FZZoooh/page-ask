@@ -103,7 +103,7 @@ function verdict(r) {
 const withCtx = await run(true);
 const without = await run(false);
 
-console.log('== 带上下文 ==');
+console.log('== with context ==');
 console.log(JSON.stringify(verdict(withCtx), null, 2));
-console.log('== 不带上下文 ==');
+console.log('== without context ==');
 console.log(JSON.stringify(verdict(without), null, 2));

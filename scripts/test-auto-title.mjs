@@ -113,7 +113,7 @@ const waitUp = async () => {
 };
 
 try {
-  check('后端启动', await waitUp());
+  check('backend started', await waitUp());
   const res = await fetch(`${base}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -127,18 +127,18 @@ try {
   const meta = sse.match(/event: meta\ndata: (.+)\n\n/);
   const conversationId = meta ? JSON.parse(meta[1]).conversationId : null;
 
-  check('返回标题事件', Boolean(titleEvent), sse.slice(-300));
-  check('标题内容正确', titleEvent && JSON.parse(titleEvent[1]).title === '自动标题', sse.slice(-300));
+  check('title event emitted', Boolean(titleEvent), sse.slice(-300));
+  check('title content matches', titleEvent && JSON.parse(titleEvent[1]).title === '自动标题', sse.slice(-300));
 
-  check('对话与标题都走 /v1/responses', requests.length === 2 && requests.every((r) => r.path === '/v1/responses'), JSON.stringify(requests.map((r) => r.path)));
+  check('chat and title both use /v1/responses', requests.length === 2 && requests.every((r) => r.path === '/v1/responses'), JSON.stringify(requests.map((r) => r.path)));
   const answerReq = requests.find((r) => r.body.stream);
   const titleReq = requests.find((r) => !r.body.stream);
-  check('state=off 时回答请求显式 store:false', answerReq?.body.store === false, JSON.stringify(answerReq?.body));
-  check('标题请求显式 store:false', titleReq?.body.store === false, JSON.stringify(titleReq?.body));
+  check('answer request sets store:false when state=off', answerReq?.body.store === false, JSON.stringify(answerReq?.body));
+  check('title request sets store:false', titleReq?.body.store === false, JSON.stringify(titleReq?.body));
 
   const stored = await fetch(`${base}/conversations/${encodeURIComponent(conversationId)}`);
   const conversation = await stored.json();
-  check('标题已写入会话', conversation.title === '自动标题', conversation.title);
+  check('title persisted on the conversation', conversation.title === '自动标题', conversation.title);
 } finally {
   child.kill();
   await new Promise((r) => {
@@ -156,5 +156,5 @@ try {
   }
 }
 
-console.log(failures ? `\n${failures} 项失败` : '\n全部通过');
+console.log(failures ? `\n${failures} failure(s)` : '\nall good');
 process.exitCode = failures ? 1 : 0;

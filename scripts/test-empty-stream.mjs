@@ -79,7 +79,7 @@ const waitUp = async () => {
 };
 
 try {
-  check('后端启动', await waitUp());
+  check('backend started', await waitUp());
   const res = await fetch(`${base}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -89,12 +89,12 @@ try {
     }),
   });
   const sse = await res.text();
-  check('返回 SSE', res.status === 200 && sse.includes('event: error'), sse.slice(0, 200));
+  check('returns SSE', res.status === 200 && sse.includes('event: error'), sse.slice(0, 200));
   const errorEvent = sse.match(/event: error\ndata: (.+)\n\n/);
   const errorData = errorEvent ? JSON.parse(errorEvent[1]) : null;
-  check('报错文案非空', typeof errorData?.message === 'string' && errorData.message.length > 0, sse.slice(0, 300));
-  check('报错带错误码', sse.includes('"code":"upstream.empty"'), sse.slice(0, 300));
-  check('没有假成功 done', !sse.includes('event: done'));
+  check('error message is non-empty', typeof errorData?.message === 'string' && errorData.message.length > 0, sse.slice(0, 300));
+  check('error carries a code', sse.includes('"code":"upstream.empty"'), sse.slice(0, 300));
+  check('no fake done event', !sse.includes('event: done'));
 } finally {
   child.kill();
   await new Promise((r) => {
@@ -112,5 +112,5 @@ try {
   }
 }
 
-console.log(failures ? `\n${failures} 项失败` : '\n全部通过');
+console.log(failures ? `\n${failures} failure(s)` : '\nall good');
 process.exitCode = failures ? 1 : 0;

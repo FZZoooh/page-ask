@@ -132,7 +132,7 @@ const postChat = (conversationId) =>
   }).then((r) => r.text());
 
 try {
-  check('后端启动', await waitUp());
+  check('backend started', await waitUp());
   const created = await fetch(`${base}/conversations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -143,12 +143,12 @@ try {
   await postChat(created.id);
   await postChat(created.id);
 
-  check('共四次回答请求', streamBodies.length === 4, JSON.stringify(streamBodies.map((b) => b.previous_response_id)));
-  check('首轮无 anchor 且 store:true', !streamBodies[0].previous_response_id && streamBodies[0].store === true, JSON.stringify(streamBodies[0]));
-  check('第二轮先带 previous_response_id', streamBodies[1].previous_response_id === 'resp_1', JSON.stringify(streamBodies[1]));
-  check('回退请求不再带 anchor', !streamBodies[2].previous_response_id, JSON.stringify(streamBodies[2]));
-  check('回退请求显式 store:false', streamBodies[2].store === false, JSON.stringify(streamBodies[2]));
-  check('第三轮不再尝试有状态', !streamBodies[3].previous_response_id, JSON.stringify(streamBodies[3]));
+  check('four answer requests in total', streamBodies.length === 4, JSON.stringify(streamBodies.map((b) => b.previous_response_id)));
+  check('the first turn has no anchor and sets store:true', !streamBodies[0].previous_response_id && streamBodies[0].store === true, JSON.stringify(streamBodies[0]));
+  check('the second turn starts with previous_response_id', streamBodies[1].previous_response_id === 'resp_1', JSON.stringify(streamBodies[1]));
+  check('the fallback request carries no anchor', !streamBodies[2].previous_response_id, JSON.stringify(streamBodies[2]));
+  check('the fallback request sets store:false', streamBodies[2].store === false, JSON.stringify(streamBodies[2]));
+  check('the third turn no longer tries stateful', !streamBodies[3].previous_response_id, JSON.stringify(streamBodies[3]));
 } finally {
   child.kill();
   await new Promise((r) => {
@@ -166,5 +166,5 @@ try {
   }
 }
 
-console.log(failures ? `\n${failures} 项失败` : '\n全部通过');
+console.log(failures ? `\n${failures} failure(s)` : '\nall good');
 process.exitCode = failures ? 1 : 0;

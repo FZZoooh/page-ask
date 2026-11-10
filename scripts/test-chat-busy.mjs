@@ -126,7 +126,7 @@ const postChat = (conversationId) =>
   });
 
 try {
-  check('后端启动', await waitUp());
+  check('backend started', await waitUp());
   const created = await fetch(`${base}/conversations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -134,23 +134,23 @@ try {
   }).then((r) => r.json());
 
   const first = await postChat(created.id);
-  check('第一轮开始', first.status === 200);
+  check('first turn starts', first.status === 200);
   await new Promise((r) => setTimeout(r, 150));
 
   const second = await postChat(created.id);
   const secondBody = await second.json();
-  check('同对话第二轮返回 409', second.status === 409, JSON.stringify(secondBody));
-  check('409 错误码是 conversation.busy', secondBody.code === 'conversation.busy', JSON.stringify(secondBody));
+  check('second turn on the same conversation returns 409', second.status === 409, JSON.stringify(secondBody));
+  check('409 carries code conversation.busy', secondBody.code === 'conversation.busy', JSON.stringify(secondBody));
 
   const delBusy = await fetch(`${base}/conversations/${encodeURIComponent(created.id)}`, { method: 'DELETE' });
-  check('流式期间删除返回 409', delBusy.status === 409);
+  check('delete during streaming returns 409', delBusy.status === 409);
 
   releaseFirst();
   const firstText = await first.text();
-  check('第一轮正常完成', firstText.includes('event: done') && !firstText.includes('event: error'), firstText.slice(-300));
+  check('first turn completes', firstText.includes('event: done') && !firstText.includes('event: error'), firstText.slice(-300));
 
   const del = await fetch(`${base}/conversations/${encodeURIComponent(created.id)}`, { method: 'DELETE' });
-  check('结束后删除成功', del.status === 200);
+  check('delete succeeds after the turn', del.status === 200);
 } finally {
   releaseFirst();
   child.kill();
@@ -169,5 +169,5 @@ try {
   }
 }
 
-console.log(failures ? `\n${failures} 项失败` : '\n全部通过');
+console.log(failures ? `\n${failures} failure(s)` : '\nall good');
 process.exitCode = failures ? 1 : 0;

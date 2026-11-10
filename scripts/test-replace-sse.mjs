@@ -83,7 +83,7 @@ const parseSse = (text) => {
 };
 
 try {
-  check('后端启动', await waitUp());
+  check('backend started', await waitUp());
 
   const res = await fetch(`${base}/chat`, {
     method: 'POST',
@@ -99,23 +99,23 @@ try {
   const replaces = events.filter((e) => e.event === 'replace');
   const done = events.find((e) => e.event === 'done')?.data;
 
-  check('流式 delta 是 AB', content === 'AB', content);
+  check('streamed deltas spell AB', content === 'AB', content);
   check(
-    '每个 content 帧都带服务端 processMs',
+    'every content frame carries a server processMs',
     events.filter((e) => e.event === 'content').every((e) => typeof e.data.processMs === 'number'),
     JSON.stringify(events.filter((e) => e.event === 'content').map((e) => e.data.processMs)),
   );
-  check('只发一个 replace', replaces.length === 1, String(replaces.length));
-  check('replace 携带最终文本 XY', replaces[0]?.data.text === 'XY', JSON.stringify(replaces[0]?.data));
-  check('replace 携带服务端 processMs', typeof replaces[0]?.data.processMs === 'number', JSON.stringify(replaces[0]?.data));
-  check('最终文本没有走 content 追加', !content.includes('XY'), content);
-  check('done.message 是最终文本', done?.message?.content === 'XY', JSON.stringify(done?.message));
-  check('done.message 带 processMs', typeof done?.message?.processMs === 'number', JSON.stringify(done?.message));
-  check('fake upstream 只收到一次流式请求', upstream.streamRequests === 1, String(upstream.streamRequests));
+  check('exactly one replace is sent', replaces.length === 1, String(replaces.length));
+  check('replace carries the final text XY', replaces[0]?.data.text === 'XY', JSON.stringify(replaces[0]?.data));
+  check('replace carries a server processMs', typeof replaces[0]?.data.processMs === 'number', JSON.stringify(replaces[0]?.data));
+  check('the final text never arrives as content', !content.includes('XY'), content);
+  check('done.message is the final text', done?.message?.content === 'XY', JSON.stringify(done?.message));
+  check('done.message carries processMs', typeof done?.message?.processMs === 'number', JSON.stringify(done?.message));
+  check('the fake upstream sees one streaming request', upstream.streamRequests === 1, String(upstream.streamRequests));
 
   const stored = await fetch(`${base}/conversations/${done?.conversationId}`).then((r) => r.json());
   const last = stored.messages?.at(-1);
-  check('数据库保存最终文本', last?.content === 'XY', JSON.stringify(last));
+  check('the database stores the final text', last?.content === 'XY', JSON.stringify(last));
 } finally {
   child.kill();
   await new Promise((r) => {
@@ -132,5 +132,5 @@ try {
   }
 }
 
-console.log(failures ? `\n${failures} 项失败` : '\n全部通过');
+console.log(failures ? `\n${failures} failure(s)` : '\nall good');
 process.exitCode = failures ? 1 : 0;

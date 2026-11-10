@@ -84,5 +84,5 @@ check(
   fallback.stdout?.trim() ?? '',
 );
 
-console.log(failures ? `\n${failures} 项失败` : '\n全部通过');
+console.log(failures ? `\n${failures} failure(s)` : '\nall good');
 process.exitCode = failures ? 1 : 0;

@@ -122,13 +122,13 @@ addMessage({
   imagePath: 'kept.jpg',
 });
 
-check('cleanupOrphanShots 只删未被引用的旧截图', () => {
+check('cleanupOrphanShots removes only unreferenced old shots', () => {
   assert.equal(cleanupOrphanShots({ maxAgeMs: 60 * 1000 }), 1);
   assert.equal(existsSync(orphan), false);
   assert.equal(existsSync(kept), true);
 });
 
-check('最后一条是 user 时取回并删除', () => {
+check('takes back and deletes a trailing user message', () => {
   const got = recoverLastUserMessage(conv.id);
   assert.equal(got.content.includes('这条提问被进程中断了'), true);
   assert.equal(existsSync(join(dataDir, 'righthandman.db')), true);
@@ -161,24 +161,24 @@ process.on('exit', () => {
 assert.equal(await waitFor(async () => (await fetch(`http://127.0.0.1:${port}/health/live`)).ok), true);
 
 const first = await getJson(port, '/health');
-check('首次启动 lifecycle 正常', () => {
+check('first start reports a clean lifecycle', () => {
   assert.equal(first.body.lifecycle.abnormalPreviousExit, false);
-  assert.ok(existsSync(join(dataDir, 'run.json')), 'run.json 应存在');
+  assert.ok(existsSync(join(dataDir, 'run.json')), 'run.json should exist');
 });
 
 const before = await getJson(port, `/conversations/${conv2.id}/recover`, { method: 'POST' });
-check('最后一条已是 assistant 时不恢复', () => assert.equal(before.status, 409));
+check('no recovery when the last row is already assistant', () => assert.equal(before.status, 409));
 
 // A second process on the same dataDir must step aside without deleting the live marker.
 const duplicate = startServer(port);
 const duplicateExited = await waitFor(() => duplicate.exitCode !== null, 5000);
-check('同 dataDir 的第二个实例以退出码 1 结束', () => {
+check('a second instance on the same dataDir exits with code 1', () => {
   assert.equal(duplicateExited, true);
   assert.equal(duplicate.exitCode, 1);
 });
 const stillLive = await fetch(`http://127.0.0.1:${port}/health/live`);
-check('第二个实例退出后第一个仍在运行', () => assert.equal(stillLive.ok, true));
-check('第二个实例未删除 run.json', () => assert.ok(existsSync(join(dataDir, 'run.json'))));
+check('the first instance is still running after the second exits', () => assert.equal(stillLive.ok, true));
+check('the second instance leaves run.json in place', () => assert.ok(existsSync(join(dataDir, 'run.json'))));
 
 await stopServer(child);
 await new Promise((r) => setTimeout(r, 500));
@@ -188,22 +188,22 @@ child = startServer(port2);
 assert.equal(await waitFor(async () => (await fetch(`http://127.0.0.1:${port2}/health/live`)).ok), true);
 
 const second = await getJson(port2, '/health');
-check('强杀后重启标记为异常退出', () => {
+check('restart after a hard kill reports an abnormal exit', () => {
   assert.equal(second.body.lifecycle.abnormalPreviousExit, true);
   assert.equal(typeof second.body.lifecycle.previousPid, 'number');
 });
 
 // Leave conv3's last row an unanswered user message
 const got = await getJson(port2, `/conversations/${conv3.id}/recover`, { method: 'POST' });
-check('HTTP 恢复接口返回文本并删除', () => {
+check('the HTTP recover endpoint returns the text and deletes it', () => {
   assert.equal(got.status, 200);
   assert.equal(got.body.text, '崩溃前的提问 <q>引文</q>');
   assert.equal(typeof got.body.messageId, 'string');
 });
 const again = await getJson(port2, `/conversations/${conv3.id}/recover`, { method: 'POST' });
-check('再次恢复返回 409', () => assert.equal(again.status, 409));
+check('recovering again returns 409', () => assert.equal(again.status, 409));
 const convAfter = await getJson(port2, `/conversations/${conv3.id}`);
-check('历史里那条 user 已被删除', () => {
+check('that user row is gone from history', () => {
   assert.equal(convAfter.body.messages.length, 0);
 });
 
@@ -211,17 +211,17 @@ const shutdown = await fetch(`http://127.0.0.1:${port2}/api/shutdown`, {
   method: 'POST',
   headers: { Origin: `http://127.0.0.1:${port2}` },
 });
-check('优雅停止返回 202', () => assert.equal(shutdown.status, 202));
+check('graceful shutdown returns 202', () => assert.equal(shutdown.status, 202));
 assert.equal(
   await waitFor(() => !existsSync(join(dataDir, 'run.json')), 5000),
   true,
-  '优雅退出后 run.json 应删除',
+  'run.json should be removed after a clean exit',
 );
 await stopServer(child);
 
 // After the WAL checkpoint the main DB should hold recent writes (a leftover -wal is allowed)
-check('退出后主库文件存在且已关闭', () => assert.equal(statSync(join(dataDir, 'righthandman.db')).isFile(), true));
-check('关闭后的数据库通过 integrity_check', () => {
+check('the main database file exists and is closed after exit', () => assert.equal(statSync(join(dataDir, 'righthandman.db')).isFile(), true));
+check('the closed database passes integrity_check', () => {
   const db = new DatabaseSync(join(dataDir, 'righthandman.db'), { readOnly: true });
   try {
     assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
@@ -230,5 +230,5 @@ check('关闭后的数据库通过 integrity_check', () => {
   }
 });
 
-console.log('全部通过');
+console.log('all good');
 rmSync(temp, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });

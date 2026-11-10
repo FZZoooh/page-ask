@@ -83,7 +83,7 @@ const waitUp = async () => {
 };
 
 try {
-  check('后端启动', await waitUp());
+  check('backend started', await waitUp());
   const res = await fetch(`${base}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -93,20 +93,20 @@ try {
     }),
   });
   const sse = await res.text();
-  check('返回 SSE', res.status === 200 && sse.includes('event: content'), sse.slice(0, 300));
-  check('收到半截正文', sse.includes('半截回答'), sse.slice(0, 300));
-  check('收到 error 而不是 done', sse.includes('event: error') && !sse.includes('event: done'), sse.slice(-300));
+  check('returns SSE', res.status === 200 && sse.includes('event: content'), sse.slice(0, 300));
+  check('partial text is received', sse.includes('半截回答'), sse.slice(0, 300));
+  check('an error arrives instead of done', sse.includes('event: error') && !sse.includes('event: done'), sse.slice(-300));
 
   const meta = sse.match(/event: meta\ndata: (.+)\n\n/);
   const conversationId = meta ? JSON.parse(meta[1]).conversationId : null;
-  check('meta 带 conversationId', Boolean(conversationId), sse.slice(0, 200));
+  check('meta carries conversationId', Boolean(conversationId), sse.slice(0, 200));
 
   const stored = await fetch(`${base}/conversations/${encodeURIComponent(conversationId)}`);
   const body = await stored.json();
   const assistant = body.messages?.filter((m) => m.role === 'assistant') ?? [];
-  check('历史里有 assistant 行', assistant.length === 1, JSON.stringify(assistant).slice(0, 300));
-  check('保存的是已显示正文', assistant[0]?.content === '半截回答', JSON.stringify(assistant[0]).slice(0, 300));
-  check('标记为 aborted', assistant[0]?.aborted === true, JSON.stringify(assistant[0]).slice(0, 300));
+  check('history has one assistant row', assistant.length === 1, JSON.stringify(assistant).slice(0, 300));
+  check('the stored text is what was shown', assistant[0]?.content === '半截回答', JSON.stringify(assistant[0]).slice(0, 300));
+  check('marked aborted', assistant[0]?.aborted === true, JSON.stringify(assistant[0]).slice(0, 300));
 } finally {
   child.kill();
   await new Promise((r) => {
@@ -124,5 +124,5 @@ try {
   }
 }
 
-console.log(failures ? `\n${failures} 项失败` : '\n全部通过');
+console.log(failures ? `\n${failures} failure(s)` : '\nall good');
 process.exitCode = failures ? 1 : 0;

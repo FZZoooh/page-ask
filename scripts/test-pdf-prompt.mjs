@@ -61,7 +61,7 @@ for await (const chunk of res.body) {
     if (ev === 'tool') {
       const mark = data.phase === 'start' ? '→' : data.ok === false ? '✗' : '✓';
       if (data.phase !== 'start') out.push(`${mark} ${data.label ?? data.name}${data.detail ? ' · ' + data.detail : ''}`);
-      else out.push(`→ ${data.label ?? data.name} 开始`);
+      else out.push(`→ ${data.label ?? data.name} started`);
     } else if (ev === 'content') {
       answer += data.delta ?? '';
     } else if (ev === 'done') {
@@ -69,7 +69,7 @@ for await (const chunk of res.body) {
     }
   }
 }
-console.log(out.length ? out.join('\n') : '(没有工具调用)');
-console.log('--- 回答前 200 字 ---');
+console.log(out.length ? out.join('\n') : '(no tool calls)');
+console.log('--- first 200 characters of the answer ---');
 console.log(answer.slice(0, 200).replace(/\n+/g, ' '));
 

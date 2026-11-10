@@ -203,7 +203,7 @@ for (let i = 0; i < 30; i += 1) {
   if (assistant?.toolCalls?.length === 2 && tools.length === 2) break;
   await new Promise((r) => setTimeout(r, 100));
 }
-check('工具轮次：assistant 的 2 个 call 都有 tool 行', () => {
+check('tool round: both assistant calls get a tool row', () => {
   const assistant = toolConv.messages.find((m) => m.role === 'assistant');
   const tools = toolConv.messages.filter((m) => m.role === 'tool');
   assert.equal(assistant.toolCalls.length, 2);
@@ -211,7 +211,7 @@ check('工具轮次：assistant 的 2 个 call 都有 tool 行', () => {
   assert.deepEqual(tools.map((t) => t.toolCallId).sort(), ['call_1', 'call_2']);
   assert.equal(assistant.aborted, true);
 });
-check('工具轮次：未执行的 call 有占位 output', () => {
+check('tool round: unexecuted calls get a placeholder output', () => {
   const tools = toolConv.messages.filter((m) => m.role === 'tool');
   const second = tools.find((t) => t.toolCallId === 'call_2');
   assert.equal(second.toolFailed, true);
@@ -227,16 +227,16 @@ for (let i = 0; i < 50; i += 1) {
   await new Promise((r) => setTimeout(r, 100));
   slowConv = getConversation(slowRun.conversationId);
 }
-check('正文中止：已生成内容落库并标记 aborted', () => {
+check('answer abort: emitted text is stored and marked aborted', () => {
   const assistant = slowConv.messages.find((m) => m.role === 'assistant');
-  assert.ok(assistant, '没有 assistant 行');
+  assert.ok(assistant, 'no assistant row');
   assert.equal(assistant.content, '第一段');
   assert.equal(assistant.aborted, true);
 });
 
 // 3) An aborted conversation can still be continued (replay does not 400)
 const follow = await chat('OK', (event) => event === 'done', slowRun.conversationId);
-check('中止后继续对话不报错', () => {
+check('the conversation continues after an abort', () => {
   const errors = follow.events.filter((e) => e.event === 'error');
   assert.equal(errors.length, 0, errors.map((e) => e.data.message).join('; '));
   assert.ok(follow.events.some((e) => e.event === 'done'));
@@ -244,8 +244,8 @@ check('中止后继续对话不报错', () => {
 
 upstream.close();
 if (failed) {
-  console.error(`\n${failed} 项失败`);
+  console.error(`\n${failed} failure(s)`);
   process.exit(1);
 }
-console.log('\n全部通过');
+console.log('\nall good');
 process.exit(0);

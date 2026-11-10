@@ -17,11 +17,11 @@ const page = {
 };
 
 const out = await runTool('read_page', { limit: 8000 }, { page });
-check('结果仍是 untrusted 信封', out.text.startsWith('<untrusted_content '), out.text.slice(0, 120));
-check('信封正确闭合', out.text.endsWith('</untrusted_content>'), out.text.slice(-80));
-check('最终长度不超过 RESULT_CAP', out.text.length <= 8000, String(out.text.length));
-check('截断标记在信封内', out.text.includes('[Truncated: output limited to 8000 chars'), String(out.text.length));
-check('关闭标签没有出现在正文中', out.text.indexOf('</untrusted_content>') === out.text.length - '</untrusted_content>'.length, String(out.text.indexOf('</untrusted_content>')));
+check('the result is still an untrusted envelope', out.text.startsWith('<untrusted_content '), out.text.slice(0, 120));
+check('the envelope closes properly', out.text.endsWith('</untrusted_content>'), out.text.slice(-80));
+check('the final length stays within RESULT_CAP', out.text.length <= 8000, String(out.text.length));
+check('the truncation marker sits inside the envelope', out.text.includes('[Truncated: output limited to 8000 chars'), String(out.text.length));
+check('the closing tag never appears in the body', out.text.indexOf('</untrusted_content>') === out.text.length - '</untrusted_content>'.length, String(out.text.indexOf('</untrusted_content>')));
 
-console.log(failures ? `\n${failures} 项失败` : '\n全部通过');
+console.log(failures ? `\n${failures} failure(s)` : '\nall good');
 process.exitCode = failures ? 1 : 0;

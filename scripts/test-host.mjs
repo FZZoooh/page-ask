@@ -74,21 +74,21 @@ const waitUp = async () => {
 };
 
 try {
-  check('后端启动', await waitUp());
+  check('backend started', await waitUp());
 
   const evil = await get('rebind.example', '/health/live');
-  check('陌生 Host 返回 403', evil.status === 403, `${evil.status} ${evil.body}`);
-  check('陌生 Host 错误码为 request.bad_host', JSON.parse(evil.body).code === 'request.bad_host', evil.body);
+  check('unknown Host returns 403', evil.status === 403, `${evil.status} ${evil.body}`);
+  check('unknown Host carries code request.bad_host', JSON.parse(evil.body).code === 'request.bad_host', evil.body);
 
   const loop = await get(`127.0.0.1:${port}`, '/health/live');
-  check('127.0.0.1 Host 允许', loop.status === 200, `${loop.status} ${loop.body}`);
+  check('127.0.0.1 Host is allowed', loop.status === 200, `${loop.status} ${loop.body}`);
 
   const local = await get(`localhost:${port}`, '/health/live');
-  check('localhost Host 允许', local.status === 200, `${local.status} ${local.body}`);
+  check('localhost Host is allowed', local.status === 200, `${local.status} ${local.body}`);
 
   const badId = await get(`127.0.0.1:${port}`, '/conversations/%E0%A4%A');
-  check('畸形会话 ID 返回 400', badId.status === 400, `${badId.status} ${badId.body}`);
-  check('畸形会话 ID 错误码为 request.bad_id', JSON.parse(badId.body).code === 'request.bad_id', badId.body);
+  check('malformed conversation id returns 400', badId.status === 400, `${badId.status} ${badId.body}`);
+  check('malformed conversation id carries code request.bad_id', JSON.parse(badId.body).code === 'request.bad_id', badId.body);
 } finally {
   child.kill();
   await new Promise((r) => {
@@ -104,5 +104,5 @@ try {
   }
 }
 
-console.log(failures ? `\n${failures} 项失败` : '\n全部通过');
+console.log(failures ? `\n${failures} failure(s)` : '\nall good');
 process.exitCode = failures ? 1 : 0;

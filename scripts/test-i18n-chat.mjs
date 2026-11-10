@@ -126,25 +126,25 @@ const send = async (locale) => {
 };
 
 try {
-  check('后端启动', await waitUp());
+  check('backend started', await waitUp());
 
   const zh = await send('zh-CN');
   const zhAnswer = zh.find((r) => r.body.stream);
   const zhTitle = zh.find((r) => !r.body.stream);
   const zhDev = zhAnswer?.body.input?.find((item) => item?.role === 'developer');
-  check('zh-CN 标题指令要求中文', zhTitle?.body.instructions.includes('Write the title in Simplified Chinese'));
-  check('zh-CN 系统提示不再含中文', !/[\u4e00-\u9fff]/.test(zhAnswer?.body.instructions ?? ''));
-  check('zh-CN 页面信息在 developer 消息', Boolean(zhDev) && zhDev.content?.[0]?.text?.includes('source="page-metadata"'));
-  check('回答指令不再固定语言', !/Answer in (English|Simplified Chinese)/.test(zhAnswer?.body.instructions ?? ''));
+  check('zh-CN title instruction asks for Chinese', zhTitle?.body.instructions.includes('Write the title in Simplified Chinese'));
+  check('zh-CN instructions contain no Chinese', !/[\u4e00-\u9fff]/.test(zhAnswer?.body.instructions ?? ''));
+  check('zh-CN page info rides in the developer message', Boolean(zhDev) && zhDev.content?.[0]?.text?.includes('source="page-metadata"'));
+  check('answer instruction no longer fixes a language', !/Answer in (English|Simplified Chinese)/.test(zhAnswer?.body.instructions ?? ''));
 
   const en = await send('en-US');
   const enAnswer = en.find((r) => r.body.stream);
   const enTitle = en.find((r) => !r.body.stream);
   const enDev = enAnswer?.body.input?.find((item) => item?.role === 'developer');
-  check('en-US 标题指令要求英文', enTitle?.body.instructions.includes('Write the title in English'));
-  check('en-US 系统提示不含中文', !/[\u4e00-\u9fff]/.test(enAnswer?.body.instructions ?? ''));
-  check('en-US 页面信息在 developer 消息', Boolean(enDev) && enDev.content?.[0]?.text?.includes('source="page-metadata"'));
-  check('两种 locale 的回答提示完全一致', zhAnswer?.body.instructions === enAnswer?.body.instructions);
+  check('en-US title instruction asks for English', enTitle?.body.instructions.includes('Write the title in English'));
+  check('en-US instructions contain no Chinese', !/[\u4e00-\u9fff]/.test(enAnswer?.body.instructions ?? ''));
+  check('en-US page info rides in the developer message', Boolean(enDev) && enDev.content?.[0]?.text?.includes('source="page-metadata"'));
+  check('both locales share identical answer instructions', zhAnswer?.body.instructions === enAnswer?.body.instructions);
 } finally {
   child.kill();
   await new Promise((r) => {
@@ -162,5 +162,5 @@ try {
   }
 }
 
-console.log(failures ? `\n${failures} 项失败` : '\n全部通过');
+console.log(failures ? `\n${failures} failure(s)` : '\nall good');
 process.exitCode = failures ? 1 : 0;

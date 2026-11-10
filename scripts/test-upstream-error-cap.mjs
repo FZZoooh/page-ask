@@ -72,7 +72,7 @@ const waitUp = async () => {
 };
 
 try {
-  check('后端启动', await waitUp());
+  check('backend started', await waitUp());
 
   const res = await fetch(`${base}/chat`, {
     method: 'POST',
@@ -84,15 +84,15 @@ try {
   });
   const sse = await res.text();
   const error = sse.match(/event: error\ndata: (.+)\n\n/);
-  check('有 error 事件', Boolean(error), sse.slice(-300));
+  check('an error event arrives', Boolean(error), sse.slice(-300));
   const payload = error ? JSON.parse(error[1]) : {};
-  check('错误码是 upstream.status', payload.code === 'upstream.status', payload.code);
-  check('错误文案被截短', typeof payload.message === 'string' && payload.message.length < 500,
+  check('the code is upstream.status', payload.code === 'upstream.status', payload.code);
+  check('the error message is truncated', typeof payload.message === 'string' && payload.message.length < 500,
     `message length=${payload.message?.length}`);
-  check('错误文案没有塞入响应体', !payload.message?.includes('x'.repeat(1000)));
+  check('the error message does not include the response body', !payload.message?.includes('x'.repeat(1000)));
 
   const live = await fetch(`${base}/health/live`);
-  check('后端仍存活', live.ok, String(live.status));
+  check('the backend is still alive', live.ok, String(live.status));
 } finally {
   child.kill();
   await new Promise((r) => {
@@ -110,5 +110,5 @@ try {
   }
 }
 
-console.log(failures ? `\n${failures} 项失败` : '\n全部通过');
+console.log(failures ? `\n${failures} failure(s)` : '\nall good');
 process.exitCode = failures ? 1 : 0;

@@ -75,7 +75,7 @@ const waitUp = async () => {
 };
 
 try {
-  check('后端启动', await waitUp());
+  check('backend started', await waitUp());
   const res = await fetch(`${base}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -87,16 +87,16 @@ try {
   const sse = await res.text();
   const done = sse.match(/event: done\ndata: (.+)\n\n/);
   const meta = sse.match(/event: meta\ndata: (.+)\n\n/);
-  check('有 done 事件', Boolean(done), sse.slice(-300));
-  check('done 标记 aborted', done && JSON.parse(done[1]).aborted === true, done?.[1]);
-  check('没有生成标题', !sse.includes('event: title'), sse.slice(-300));
+  check('a done event arrives', Boolean(done), sse.slice(-300));
+  check('done marks aborted', done && JSON.parse(done[1]).aborted === true, done?.[1]);
+  check('no title is generated', !sse.includes('event: title'), sse.slice(-300));
 
   const conversationId = meta ? JSON.parse(meta[1]).conversationId : null;
   const stored = await fetch(`${base}/conversations/${encodeURIComponent(conversationId)}`);
   const body = await stored.json();
   const assistant = body.messages?.find((m) => m.role === 'assistant');
-  check('半截正文已落库', assistant?.content === '被截断的回答', JSON.stringify(assistant).slice(0, 300));
-  check('历史标记 aborted', assistant?.aborted === true, JSON.stringify(assistant).slice(0, 300));
+  check('the partial text is stored', assistant?.content === '被截断的回答', JSON.stringify(assistant).slice(0, 300));
+  check('history marks aborted', assistant?.aborted === true, JSON.stringify(assistant).slice(0, 300));
 } finally {
   child.kill();
   await new Promise((r) => {
@@ -114,5 +114,5 @@ try {
   }
 }
 
-console.log(failures ? `\n${failures} 项失败` : '\n全部通过');
+console.log(failures ? `\n${failures} failure(s)` : '\nall good');
 process.exitCode = failures ? 1 : 0;

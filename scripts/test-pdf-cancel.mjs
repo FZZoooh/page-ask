@@ -52,5 +52,5 @@ await check('abort during page loop stops before the next page', async () => {
   );
 });
 
-console.log(failed ? `\n${failed} 项失败` : '\n全部通过');
+console.log(failed ? `\n${failed} failure(s)` : '\nall good');
 process.exitCode = failed ? 1 : 0;

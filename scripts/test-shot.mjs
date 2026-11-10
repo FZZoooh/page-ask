@@ -70,17 +70,17 @@ async function turn(conversationId, text) {
   return { conversationId: meta?.conversationId, content, events };
 }
 
-console.log('第 1 轮：让它截图');
+console.log('turn 1: ask for a screenshot');
 const t1 = await turn(null, '截个图，告诉我画面里是什么颜色。');
-console.log('  回答:', t1.content.slice(0, 120));
+console.log('  answer:', t1.content.slice(0, 120));
 const convId = t1.conversationId;
 console.log('  conversationId =', convId);
 
-console.log('\n第 2 轮（历史里带图）：');
+console.log('\nturn 2 (the image is in history):');
 const t2 = await turn(convId, '刚才那张图是纯色吗？只回答「是」或「不是」。');
-console.log('  回答:', t2.content.slice(0, 120));
+console.log('  answer:', t2.content.slice(0, 120));
 
-console.log('\n会话详情：');
+console.log('\nconversation detail:');
 const conv = await (await fetch(`${BASE}/conversations/${convId}`)).json();
 for (const m of conv.messages) {
   console.log(`  ${m.role.padEnd(9)} ${m.content.slice(0, 40).replace(/\n/g, ' ')}${m.imagePath ? `  [image: ${m.imagePath}]` : ''}`);
