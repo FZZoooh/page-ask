@@ -83,7 +83,7 @@ export function baseUrl(s: Settings): string {
   }
 }
 
-/** Drop #hash and pure tracking params: an anchor or utm on the same article is not a second conversation */
+/** Tracking params are page furniture: a utm on the same article is not a second conversation */
 const TRACKING_PARAMS = new Set([
   'utm_source',
   'utm_medium',
@@ -96,6 +96,11 @@ const TRACKING_PARAMS = new Set([
   'ref',
 ]);
 
+/**
+ * Drop #hash and tracking params: an anchor or utm on the same article is not a second
+ * conversation. Everything else stays, including an explicit non-default port - `new URL()` only
+ * drops 80/443 - so `127.0.0.1:3000` and `127.0.0.1:8080` remain separate sites in the history.
+ */
 export function normalizeUrl(raw: string): string {
   try {
     const u = new URL(raw);

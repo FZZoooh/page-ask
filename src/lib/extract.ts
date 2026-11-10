@@ -162,6 +162,28 @@ function looksLowYield(markdown: string, bodyChars: number): boolean {
   return bodyChars > 4000 && markdown.length < bodyChars * 0.1;
 }
 
+/**
+ * Site label for the page card. Defuddle names a page without a real site name after its bare
+ * domain (`hostname`, `www.` stripped), and `hostname` carries no port - so `127.0.0.1:8811` and
+ * `127.0.0.1:9000` (two dev servers, two staging stacks on one host) would show the same label and
+ * become indistinguishable in the history records. Use `host` for that fallback: it keeps the
+ * explicit non-default port and still hides 80/443 (the URL parser drops default ports itself).
+ */
+function siteLabel(rawUrl: string, site: string): string {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return site;
+  }
+  const label = site.trim();
+  if (!label) return url.host;
+  // A real site name ("Example Docs") already identifies the site, and its port is noise.
+  if (!url.port) return label;
+  const bare = new Set([url.hostname.toLowerCase(), url.hostname.replace(/^www\./, '').toLowerCase()]);
+  return bare.has(label.toLowerCase()) ? url.host : label;
+}
+
 /** Pure function: raw HTML in, Markdown the model can be fed out. */
 export function extract(raw: RawPage): ExtractedPage {
   const started = performance.now();
@@ -212,13 +234,7 @@ export function extract(raw: RawPage): ExtractedPage {
 
   markdown = withTitleHeading(markdown, title);
 
-  if (!site) {
-    try {
-      site = new URL(raw.url).hostname;
-    } catch {
-      site = '';
-    }
-  }
+  site = siteLabel(raw.url, site);
 
   return {
     url: raw.url,
@@ -499,12 +515,7 @@ async function readPdfTab(
 
   try {
     const out = await readPdfFromTab(url, backendUrl, token);
-    let site = '';
-    try {
-      site = new URL(url).hostname;
-    } catch {
-      site = '';
-    }
+    const site = siteLabel(url, '');
     // The browser titles a PDF tab with the URL minus its extension, so prefer the file name
     let fileName = '';
     try {
