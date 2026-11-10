@@ -68,7 +68,7 @@ pnpm tray:bg
 
 ## 使用说明
 
-- **打开侧栏**：在任意网页或 PDF 阅读器中 **右键 → 选择“用 RightHandMan 询问本页”**，或直接点击浏览器工具栏的 RightHandMan 图标。
+- **打开侧栏**：在任意网页或 PDF 阅读器中 **右键 → 选择“询问 RightHandMan”**，或直接点击浏览器工具栏的 RightHandMan 图标。
 - **提问交互**：直接在输入框中提问即可；支持就当前视口和选中的文字（PDF 支持受限）提问，可引用回复。
 - **系统托盘**：若使用 `pnpm tray:bg` 启动，系统托盘右键菜单提供服务启停、配置修改、开机自启切换以及日志查看等功能。
 
@@ -189,7 +189,7 @@ pnpm tray:bg
 
 ### Usage
 
-- **Open the panel**: on any web page or PDF viewer, **right-click → "Ask RightHandMan about this page"**, or click the RightHandMan icon in the toolbar.
+- **Open the panel**: on any web page or PDF viewer, **right-click → "Ask RightHandMan"**, or click the RightHandMan icon in the toolbar.
 - **Asking questions**: simply type your question in the input box; supports asking about the current viewport and selected text (limited support for PDF), and quoting replies.
 - **System tray**: when started with `pnpm tray:bg`, the tray context menu offers service start/stop, configuration, start-at-login and log viewing.
 

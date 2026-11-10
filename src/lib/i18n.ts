@@ -237,7 +237,7 @@ export const zhCN = {
   'settings.fontSizeXLarge': '特大',
 
   // 右键菜单
-  'menu.askThisPage': '用 RightHandMan 询问本页',
+  'menu.askThisPage': '询问 RightHandMan',
   'action.dismiss': '关闭提示',
 } as const;
 

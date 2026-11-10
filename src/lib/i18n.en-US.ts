@@ -235,6 +235,6 @@ export const enUS = {
   'settings.fontSizeXLarge': 'Extra large',
 
   // Context menu
-  'menu.askThisPage': 'Ask RightHandMan about this page',
+  'menu.askThisPage': 'Ask RightHandMan',
   'action.dismiss': 'Dismiss',
 } satisfies Record<MessageKey, string>;
