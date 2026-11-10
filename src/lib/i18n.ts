@@ -140,6 +140,12 @@ export const zhCN = {
   'quote.action': '引用',
   'quote.action.title': '引用回答以追问',
 
+  // 回答里公式的右键菜单
+  'math.menu': '公式操作',
+  'math.copy': '复制 LaTeX',
+  'math.copied': '已复制',
+  'math.quote': '引用',
+
   // 错误
   'error.unreachable': '连接后端 {baseUrl} 失败，请先启动后端',
   'error.streamCut': '后端连接中断，这条回答可能不完整',

@@ -1,5 +1,7 @@
 /** Pure DOM helpers for contenteditable: no React state, so they stay testable and reusable */
 
+import { latexToUnicode } from '@/lib/latex-to-unicode.mjs';
+
 /** Escape quote text so a pasted `</q>` cannot terminate the serialized quote early */
 export function encodeQuote(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -73,8 +75,29 @@ export function insertTextAtCaret(el: HTMLElement, text: string, fallback: Range
   }
 }
 
+/**
+ * A formula quote carries its LaTeX between `$…$` / `$$…$$` delimiters. The chip shows Unicode, but
+ * data-quote (and therefore the message sent upstream) keeps the original source.
+ */
+export function quoteMathText(text: string): string | null {
+  const m = /^\s*(\$\$|\$)([\s\S]*?)\1\s*$/.exec(text);
+  if (!m) return null;
+  const raw = m[2] ?? '';
+  // `$5 and $6` is money, not math: real formulas never pad the inside with spaces/tabs. Newlines
+  // are allowed because a multi-line display formula legitimately starts or ends with one.
+  if (!raw.trim()) return null;
+  if (/^[ \t]|[ \t]$/.test(raw)) return null;
+  try {
+    return latexToUnicode(raw) || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Only the first line of a quote is shown; the full text stays in data-quote for sending */
-function quoteChipLabel(text: string): string {
+export function quoteChipLabel(text: string): string {
+  const math = quoteMathText(text);
+  if (math) return math;
   const nl = text.search(/[\r\n]/);
   if (nl < 0) return text;
   const head = text.slice(0, nl).replace(/[ \t]+$/, '');

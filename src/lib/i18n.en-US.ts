@@ -136,6 +136,12 @@ export const enUS = {
   'quote.action': 'Quote',
   'quote.action.title': 'Quote this answer in a follow-up',
 
+  // Right-click menu on a formula
+  'math.menu': 'Formula actions',
+  'math.copy': 'Copy LaTeX',
+  'math.copied': 'Copied',
+  'math.quote': 'Quote',
+
   // Client-side errors
   'error.unreachable': 'Could not reach the backend at {baseUrl}. Start it first.',
   'error.streamCut': 'The backend connection dropped; this answer may be incomplete',

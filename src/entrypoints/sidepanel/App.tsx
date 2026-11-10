@@ -51,6 +51,7 @@ import {
   editorHasDraft as hasDraftIn,
   fillEditor as fillDomEditor,
   insertTextAtCaret as insertTextInto,
+  quoteChipLabel,
   serializeEditor,
   syncEditorEmptyState,
 } from './editorDom';
@@ -93,15 +94,19 @@ function errText(err: unknown): string {
 
 /** Render <q>…</q> fragments in user bubbles as inline quotes; everything else stays plain text */
 function renderUserText(content: string) {
-  return content.split(/(<q>[\s\S]*?<\/q>)/g).map((part, i) =>
-    part.startsWith('<q>') && part.endsWith('</q>') ? (
-      <span className="bubble-q" key={i}>
-        {decodeQuote(part.slice(3, -4))}
-      </span>
-    ) : (
-      <span key={i}>{part}</span>
-    ),
-  );
+  return content.split(/(<q>[\s\S]*?<\/q>)/g).map((part, i) => {
+    if (part.startsWith('<q>') && part.endsWith('</q>')) {
+      const text = decodeQuote(part.slice(3, -4));
+      // Same display rule as the composer chip: first line only, Unicode for formulas. The full
+      // quote stays in the stored message; only the bubble rendering is shortened.
+      return (
+        <span className="bubble-q" key={i}>
+          <span className="bubble-q-text">{quoteChipLabel(text)}</span>
+        </span>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
 }
 export default function App() {
   const [pageState, setPageState] = useState<PageState>({ kind: 'loading' });
@@ -847,7 +852,7 @@ export default function App() {
   }, [serialize]);
 
   /** Insert a quote chip at the caret: contenteditable=false, so editing treats it as one character */
-  const insertQuoteChip = (text: string) => {
+  const insertQuoteChip = useCallback((text: string) => {
     const el = editorRef.current;
     if (!el) return;
     // The answer selection is not the insertion target: savedRange is the composer caret the user
@@ -882,7 +887,7 @@ export default function App() {
     savedRange.current = after.cloneRange();
 
     setInput(serialize());
-  };
+  }, [serialize]);
 
   /** Insert the selected answer text as a quote chip at the caret */
   const applyQuote = () => {
@@ -1988,7 +1993,12 @@ export default function App() {
                         <div className="answer" aria-live="polite" aria-busy={m.streaming || undefined}>
                           {m.content ? (
                             <div className={`md-wrap${m.streaming ? ' streaming' : ''}`}>
-                              <MarkdownView text={m.content} streaming={m.streaming} baseUrl={page?.url} />
+                              <MarkdownView
+                                text={m.content}
+                                streaming={m.streaming}
+                                baseUrl={page?.url}
+                                onQuoteMath={insertQuoteChip}
+                              />
                             </div>
                           ) : null}
                           {m.error && <p className="err">{m.error}</p>}

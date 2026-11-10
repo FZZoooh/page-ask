@@ -500,16 +500,32 @@ button.primary.save:hover:not(:disabled) {
 
 /* In the sent user bubble the quoted part keeps its inline styling */
 .bubble-q {
+  /* Same 1/3-width rule as the composer chip: a long quote must not stretch the bubble. vw is
+     used instead of % because the bubble is shrink-to-fit, so a percentage would be circular.
+     inline-flex keeps the text baseline even though the label is clipped with overflow:hidden. */
+  display: inline-flex;
+  align-items: baseline;
+  max-width: 33vw;
   padding: 0 4px;
   margin: 0 1px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--link) 13%, transparent);
   color: var(--link);
+  vertical-align: baseline;
 }
 
 .bubble-q::before {
   content: '❝ ';
+  flex: 0 0 auto;
   opacity: 0.75;
+}
+
+.bubble-q-text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bubble {
@@ -1027,6 +1043,51 @@ button.primary.save:hover:not(:disabled) {
    text; 1.1em keeps sub/superscripts legible while staying close to the surrounding line. */
 .md .katex {
   font-size: 1.1em;
+  border-radius: 4px;
+  cursor: context-menu;
+  transition:
+    background-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+/* Hover is the only hint that a formula has a right-click menu; keep it soft so reading stays calm */
+.md .katex:hover {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--fg) 16%, transparent);
+}
+
+/* Fixed and portaled to <body>: the side panel scrolls and clips its own children */
+.math-menu {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  min-width: 148px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: 0 8px 28px color-mix(in srgb, #000 24%, transparent);
+}
+
+.math-menu button {
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.math-menu button:hover,
+.math-menu button:focus-visible {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  outline: none;
 }
 
 /* ---------- composer ---------- */
