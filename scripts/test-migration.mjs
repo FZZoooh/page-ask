@@ -63,6 +63,7 @@ for (const name of [
   'image_path',
   'process_ms',
   'response_id',
+  'page_context',
 ]) {
   check(`migration adds ${name}`, columns.has(name));
 }

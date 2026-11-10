@@ -28,6 +28,7 @@ const TESTS = [
   'test-host.mjs',
   'test-tool-cap.mjs',
   'test-page-metadata.mjs',
+  'test-page-context.mjs',
   'test-i18n-chat.mjs',
   'test-sse-crlf.mjs',
   'test-pdf-limits.mjs',

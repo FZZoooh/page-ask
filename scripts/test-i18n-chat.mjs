@@ -1,6 +1,6 @@
-// Regression: the UI locale must reach the backend and pin the answer language. The system prompt is
-// written in English for both locales, so a single copy cannot drift; only the final directive changes.
-// Run: node scripts/test-i18n-chat.mjs
+// Regression: the UI locale still localizes the auto-title request, while the answer prompt is static
+// English for every locale (the model mirrors the user's language). Page metadata travels in a
+// developer message, not in the instructions. Run: node scripts/test-i18n-chat.mjs
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
@@ -131,17 +131,20 @@ try {
   const zh = await send('zh-CN');
   const zhAnswer = zh.find((r) => r.body.stream);
   const zhTitle = zh.find((r) => !r.body.stream);
-  check('zh-CN 回答指令要求中文', zhAnswer?.body.instructions.includes('Answer in Simplified Chinese'));
+  const zhDev = zhAnswer?.body.input?.find((item) => item?.role === 'developer');
   check('zh-CN 标题指令要求中文', zhTitle?.body.instructions.includes('Write the title in Simplified Chinese'));
   check('zh-CN 系统提示不再含中文', !/[\u4e00-\u9fff]/.test(zhAnswer?.body.instructions ?? ''));
-  check('zh-CN 页面元数据仍包在 untrusted_content', zhAnswer?.body.instructions.includes('source="page-metadata"'));
+  check('zh-CN 页面信息在 developer 消息', Boolean(zhDev) && zhDev.content?.[0]?.text?.includes('source="page-metadata"'));
+  check('回答指令不再固定语言', !/Answer in (English|Simplified Chinese)/.test(zhAnswer?.body.instructions ?? ''));
 
   const en = await send('en-US');
   const enAnswer = en.find((r) => r.body.stream);
   const enTitle = en.find((r) => !r.body.stream);
-  check('en-US 回答指令要求英文', enAnswer?.body.instructions.includes('Answer in English'));
+  const enDev = enAnswer?.body.input?.find((item) => item?.role === 'developer');
   check('en-US 标题指令要求英文', enTitle?.body.instructions.includes('Write the title in English'));
   check('en-US 系统提示不含中文', !/[\u4e00-\u9fff]/.test(enAnswer?.body.instructions ?? ''));
+  check('en-US 页面信息在 developer 消息', Boolean(enDev) && enDev.content?.[0]?.text?.includes('source="page-metadata"'));
+  check('两种 locale 的回答提示完全一致', zhAnswer?.body.instructions === enAnswer?.body.instructions);
 } finally {
   child.kill();
   await new Promise((r) => {

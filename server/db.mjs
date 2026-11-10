@@ -45,7 +45,8 @@ db.exec(`
     created_at      INTEGER NOT NULL,
     tokens_in       INTEGER,
     tokens_out      INTEGER,
-    ms              INTEGER
+    ms              INTEGER,
+    page_context    TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_conv_url  ON conversations (url, updated_at DESC);
   CREATE INDEX IF NOT EXISTS idx_msg_conv  ON messages (conversation_id, created_at);
@@ -64,6 +65,7 @@ db.exec(`
     ['image_path', 'TEXT'],
     ['process_ms', 'INTEGER'],
     ['response_id', 'TEXT'],
+    ['page_context', 'TEXT'],
   ];
   for (const [name, ddl] of wanted) {
     if (!have.has(name)) db.exec(`ALTER TABLE messages ADD COLUMN ${name} ${ddl}`);
@@ -184,6 +186,7 @@ export function addMessage({
   processMs = null,
   responseId = null,
   aborted = false,
+  pageContext = null,
 }) {
   const id = randomUUID();
   const ts = now();
@@ -195,8 +198,8 @@ export function addMessage({
       `INSERT INTO messages
          (id, conversation_id, role, content, reasoning, created_at,
           tokens_in, tokens_out, ms, process_ms, tool_calls, tool_call_id, tool_name, tool_args,
-          aborted, tool_failed, image_path, response_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          aborted, tool_failed, image_path, response_id, page_context)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       conversationId,
@@ -216,6 +219,7 @@ export function addMessage({
       toolFailed == null ? null : toolFailed ? 1 : 0,
       imagePath,
       responseId,
+      pageContext,
     );
     touchConversation(conversationId);
     db.exec('RELEASE add_message');
@@ -247,6 +251,7 @@ export function addMessage({
     tool_failed: toolFailed == null ? null : toolFailed ? 1 : 0,
     image_path: imagePath,
     response_id: responseId,
+    page_context: pageContext,
   });
 }
 
@@ -326,7 +331,7 @@ export function truncateAfterLastUser(conversationId) {
  * where it was); later assistant/tool rows are discarded exactly like "regenerate".
  * Returns `{ id }`, or null when the id is not a user message of this conversation.
  */
-export function editUserMessage({ conversationId, messageId, content }) {
+export function editUserMessage({ conversationId, messageId, content, pageContext = null }) {
   let doomed = [];
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -337,7 +342,11 @@ export function editUserMessage({ conversationId, messageId, content }) {
       db.exec('COMMIT');
       return null;
     }
-    db.prepare('UPDATE messages SET content = ? WHERE id = ?').run(content, messageId);
+    db.prepare('UPDATE messages SET content = ?, page_context = ? WHERE id = ?').run(
+      content,
+      pageContext,
+      messageId,
+    );
     // Read the doomed screenshots and the boundary inside the same transaction as the DELETE.
     doomed = db
       .prepare(
@@ -364,6 +373,37 @@ export function editUserMessage({ conversationId, messageId, content }) {
 
   pruneShots(doomed.map((row) => row.image_path));
   return { id: messageId };
+}
+
+/**
+ * The page_context of the user message just before `beforeMessageId` (or the newest one when omitted).
+ * Editing compares against the turn *before* the edited one, so the refreshed notice describes the page
+ * relative to what the model had already seen at that point, not relative to the message being rewritten.
+ */
+export function previousPageContext(conversationId, beforeMessageId = null) {
+  let row;
+  if (beforeMessageId) {
+    const target = db
+      .prepare('SELECT rowid FROM messages WHERE id = ? AND conversation_id = ?')
+      .get(beforeMessageId, conversationId);
+    if (!target) return null;
+    row = db
+      .prepare(
+        `SELECT page_context FROM messages
+          WHERE conversation_id = ? AND role = 'user' AND page_context IS NOT NULL AND rowid < ?
+          ORDER BY rowid DESC LIMIT 1`,
+      )
+      .get(conversationId, target.rowid);
+  } else {
+    row = db
+      .prepare(
+        `SELECT page_context FROM messages
+          WHERE conversation_id = ? AND role = 'user' AND page_context IS NOT NULL
+          ORDER BY rowid DESC LIMIT 1`,
+      )
+      .get(conversationId);
+  }
+  return row?.page_context ?? null;
 }
 
 /** Delete a set of screenshot files, but only ones no message references (content-addressed, rows may share) */
@@ -451,6 +491,7 @@ export function historyItemsSince(conversationId, anchorRowid) {
 /**
  * Row → Responses API input items (shared by stateless full replay and stateful tail-only sends)
  * - user message → {role:'user', content:[{type:'input_text'}]}
+ * - a per-turn page context notice → {role:'developer', content:[{type:'input_text'}]} before that user message
  * - that turn's reasoning → {type:'reasoning', content:[{type:'reasoning_text'}]} (before the turn's output)
  * - assistant body → {role:'assistant', content:[{type:'output_text'}]}
  * - that turn's tool_calls → one {type:'function_call', call_id, name, arguments} each
@@ -529,6 +570,14 @@ function rowsToItems(rows) {
       continue;
     }
     if (!r.content) continue;
+    if (r.role === 'user') {
+      // Replayed byte-for-byte on every later turn: prompt caching needs the developer notice to keep
+      // the same position/content in the input prefix. Keep it on the user row so an edit can refresh it.
+      const ctx = safeJson(r.page_context);
+      if (ctx && typeof ctx.notice === 'string' && ctx.notice) {
+        out.push({ role: 'developer', content: [{ type: 'input_text', text: ctx.notice }] });
+      }
+    }
     out.push({ role: r.role, content: [{ type: 'input_text', text: r.content }] });
   }
   return out;
