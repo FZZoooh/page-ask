@@ -1,5 +1,7 @@
 # PageAsk 代码质量审查报告
 
+> 历史说明：项目后来更名为 RightHandMan；本文保留当时的 PageAsk 名称、路径与截图，未做替换。
+
 - 审查日期：2026-11-09
 - 审查对象：`HEAD de5d391e363836a59b37cff8ace47eb96cca6760`（`fix: clear remaining P3 review findings`，2026-11-08 22:59:49 +0800）
 - 审查范围：`src/`、`server/`、`scripts/`、`wxt.config.ts`、`package.json`、`.github/workflows/ci.yml`、i18n 字典与测试脚本

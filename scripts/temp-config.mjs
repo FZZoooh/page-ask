@@ -3,7 +3,7 @@
 // settings.json is the backend's only config source, so a test cannot steer it with environment
 // variables anymore: it points USERPROFILE / HOME at a temporary home and writes the port, token,
 // data dir and fake upstream into that home's settings.json. Nothing from the developer's real
-// ~/.config/pageask/settings.json can leak in, and a test never touches real conversations.
+// ~/.config/righthandman/settings.json can leak in, and a test never touches real conversations.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -37,7 +37,7 @@ export function makeTestConfig(options = {}) {
   const root = mkdtempSync(join(tmpdir(), 'pageask-test-'));
   const home = join(root, 'home');
   const data = dataDir ?? join(root, 'data');
-  const configDir = join(home, '.config', 'pageask');
+  const configDir = join(home, '.config', 'righthandman');
   mkdirSync(configDir, { recursive: true });
   mkdirSync(data, { recursive: true });
 

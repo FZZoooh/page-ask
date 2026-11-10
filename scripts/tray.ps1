@@ -1,4 +1,4 @@
-﻿# PageAsk tray app (Windows)
+﻿# RightHandMan tray app (Windows)
 #
 # Run by double-click / `pnpm tray`: stays resident in the tray and
 #   1) starts the local backend (node server/index.mjs)
@@ -6,7 +6,7 @@
 #   3) menu: status, start, stop, restart, open log, open data dir, autostart, quit
 #      on quit it stops only the backend it started (an external `pnpm server` is left alone)
 #
-# The backend port and the data directory come from ~/.config/pageask/settings.json — the same file
+# The backend port and the data directory come from ~/.config/righthandman/settings.json — the same file
 # the backend and the settings page use. No switch or environment variable can override them.
 #
 # Parameters:
@@ -78,7 +78,12 @@ function Write-Tray([string]$msg) {
 function Get-PageAskSettings {
   # not `$home`: that is the read-only automatic variable (and names are case-insensitive)
   $userHome = if ($env:USERPROFILE) { $env:USERPROFILE } elseif ($env:HOME) { $env:HOME } else { return $null }
-  $file = Join-Path $userHome '.config\pageask\settings.json'
+  $file = Join-Path $userHome '.config\righthandman\settings.json'
+  if (-not (Test-Path $file)) {
+    # The tray can start before the backend has copied the old config dir: read the old path until then.
+    $legacy = Join-Path $userHome '.config\pageask\settings.json'
+    if (Test-Path $legacy) { $file = $legacy }
+  }
   if (-not (Test-Path $file)) { return $null }
   try {
     return Get-Content -Raw -Path $file | ConvertFrom-Json
@@ -219,7 +224,7 @@ function Start-Backend {
     return $false
   }
 
-  # The key lives only in ~/.config/pageask/settings.json (maintained by the settings page); no env-var fallback
+  # The key lives only in ~/.config/righthandman/settings.json (maintained by the settings page); no env-var fallback
 
   # Kill the console window on exit too: node has no window of its own, -WindowStyle Hidden is just insurance
   $script:Child = Start-Process -FilePath $node `
@@ -258,7 +263,7 @@ function Stop-Backend {
     try { Stop-Process -Id $script:Child.Id -Force -ErrorAction Stop; $killed += $script:Child.Id } catch { }
   }
 
-  # Fallback: take down the process listening on the port — but first confirm it really is the PageAsk backend;
+  # Fallback: take down the process listening on the port — but first confirm it really is the RightHandMan backend;
   # never kill blindly by port (another service may hold it).
   try {
     $pids = @(Get-NetTCPConnection -LocalPort $script:Port -State Listen -ErrorAction SilentlyContinue |
@@ -268,7 +273,7 @@ function Stop-Backend {
       $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pidToCheck" -ErrorAction SilentlyContinue
       if (-not $proc) { continue }
       if ($proc.Name -ne 'node.exe' -or $proc.CommandLine -notmatch 'server[\\/]index\.mjs') {
-        Write-Tray ("skip pid={0} ({1}): not a PageAsk backend" -f $pidToCheck, $proc.Name)
+        Write-Tray ("skip pid={0} ({1}): not a RightHandMan backend" -f $pidToCheck, $proc.Name)
         continue
       }
       try { Stop-Process -Id $pidToCheck -Force -ErrorAction Stop; $killed += $pidToCheck } catch { }

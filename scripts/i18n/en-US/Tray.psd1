@@ -1,18 +1,18 @@
 ﻿@{
-  # PageAsk tray strings (en-US).
+  # RightHandMan tray strings (en-US).
   # Only user-visible text lives here; Write-Tray logs stay English.
-  AppName                = 'PageAsk'
-  TrayTooltip            = 'PageAsk backend'
+  AppName                = 'RightHandMan'
+  TrayTooltip            = 'RightHandMan backend'
 
   StatusRunning          = 'Running · 127.0.0.1:{0}{1}'
   StatusModelSuffix      = ' · {0}'
-  NotifyRunning          = 'PageAsk backend: running'
+  NotifyRunning          = 'RightHandMan backend: running'
   StatusPortForeign      = 'Port {0} is in use by another program'
-  NotifyPortForeign      = 'PageAsk: port in use'
+  NotifyPortForeign      = 'RightHandMan: port in use'
   StatusStoppedManual    = 'Stopped (manually)'
-  NotifyStoppedManual    = 'PageAsk backend: stopped (manually)'
+  NotifyStoppedManual    = 'RightHandMan backend: stopped (manually)'
   StatusStopped          = 'Stopped'
-  NotifyStopped          = 'PageAsk backend: stopped'
+  NotifyStopped          = 'RightHandMan backend: stopped'
 
   MenuStatus             = 'Status'
   MenuStart              = 'Start backend'
@@ -28,10 +28,10 @@
   BalloonRecovered       = 'Backend recovered'
 
   AutostartShortcutName  = 'PageAsk Tray.lnk'
-  AutostartDescription   = 'PageAsk backend tray (watchdog)'
+  AutostartDescription   = 'RightHandMan backend tray (watchdog)'
   HostAutostartInstalled = 'Start with Windows enabled: {0}'
   HostAutostartRemoved   = 'Start with Windows disabled'
-  HostAlreadyRunning     = 'PageAsk tray is already running (port {0})'
+  HostAlreadyRunning     = 'RightHandMan tray is already running (port {0})'
 
   BgStarted              = 'Tray started in background: pid={0} ({1})'
   BgLog                  = 'Log: {0}'

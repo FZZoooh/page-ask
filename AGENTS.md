@@ -4,11 +4,13 @@ Project notes for AI collaborators (and humans) working in this repository. **Re
 
 ## 1. What this is
 
-PageAsk: a Chromium side-panel extension (Microsoft Edge and Google Chrome, 116+) plus a local Node backend. The panel asks an OpenAI-compatible `/responses` endpoint questions about the **current tab** (web page / PDF).
+RightHandMan: a Chromium side-panel extension (Microsoft Edge and Google Chrome, 116+) plus a local Node backend. The panel asks an OpenAI-compatible `/responses` endpoint questions about the **current tab** (web page / PDF).
+
+Display name: RightHandMan (renamed from PageAsk). The config dir (`~/.config/righthandman`) and database file (`righthandman.db`) were migrated; other identifiers still say `pageask` on purpose — `pageask.settings.v2`, `pageask.log`, the `[pageask]` log prefix, `PAGEASK_ALLOW_REAL`, `/health/live`'s `app`, the tray mutex and `PageAsk Tray.lnk`. Do not "fix" those.
 
 - Extension: WXT 0.21 + React 19 + TypeScript (strict), `src/`.
 - Backend: `node server/index.mjs`, listening on `127.0.0.1:8787` by default (the `port` field in settings.json changes it). Routing and storage use Node built-ins only (`node:http`, `node:sqlite`); only PDF parsing pulls in the third-party `pdfjs-dist` (legacy build).
-- The API key lives only in the backend at `~/.config/pageask/settings.json`; the browser side never holds the key.
+- The API key lives only in the backend at `~/.config/righthandman/settings.json`; the browser side never holds the key.
 - Deliberately built for personal use and never published; `host_permissions: ['<all_urls>']` is intentional (see the comment in `wxt.config.ts`).
 
 ## 2. Environment and commands
@@ -18,7 +20,7 @@ PageAsk: a Chromium side-panel extension (Microsoft Edge and Google Chrome, 116+
 | `pnpm install` | Install dependencies (`postinstall` runs `wxt prepare`) |
 | `pnpm dev:edge` | WXT dev server + launches Edge (`wxt -b edge`) |
 | `pnpm build` | Production build → `.output/chrome-mv3` |
-| `pnpm ext:key` | One-time: write `extension-key.json` (public, committed) + `~/.config/pageask/extension-key.pem`; **changes the extension ID** |
+| `pnpm ext:key` | One-time: write `extension-key.json` (public, committed) + `~/.config/righthandman/extension-key.pem`; **changes the extension ID** |
 | `pnpm ext:id` | Print the extension ID derived from `extension-key.json` |
 | `pnpm compile` | `tsc --noEmit` + `scripts/check-syntax.mjs` (syntax check for `server/`, `scripts/` and `src/lib/` `.mjs`, plus UTF-8 BOM + PowerShell parser check for `.ps1`/`.psd1`), **must pass after every change** |
 | `pnpm test:server` | Runs the 34 fixed backend regression scripts via `scripts/run-server-tests.mjs` (180s per script; temp dirs + fake upstream, never touches real config) |
@@ -32,7 +34,7 @@ PageAsk: a Chromium side-panel extension (Microsoft Edge and Google Chrome, 116+
 - Node **≥ 22.13** (`node:sqlite` + pdfjs-dist 6.x); package manager is pnpm, and CI installs the exact version from `packageManager` in `package.json`.
 - Windows 10 1709+ is the practical floor (Edge 116 and Node 22 both support it); the tray integration is Windows-only. `README.md` has the user-facing requirements section.
 - There is a git repository and GitHub Actions (`.github/workflows/ci.yml`, windows-latest + Node 22.13 + `pnpm verify`); the remote is `origin` (GitHub) and workflows fire on push/PR; Dependabot opens dependency-update PRs weekly.
-- After changing extension code, click "Reload" at `edge://extensions`; after changing the backend, restart the process; changing only `~/.config/pageask/settings.json` needs no restart (the backend re-reads it on every request).
+- After changing extension code, click "Reload" at `edge://extensions`; after changing the backend, restart the process; changing only `~/.config/righthandman/settings.json` needs no restart (the backend re-reads it on every request).
 - `extension-key.json` pins the extension ID: it is a build property, not a per-machine setting. Replacing the key changes the ID, so it must be a deliberate act — afterwards reload the extension and restart the backend. Because dev and prod builds embed the same key, they now share one ID: only one of `.output/chrome-mv3` / `.output/chrome-mv3-dev` can be loaded at a time.
 - The version number is maintained only in `package.json`; `wxt.config.ts` reads it through a JSON import. Never hand-write a second copy.
 

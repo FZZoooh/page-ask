@@ -20,7 +20,7 @@ const pemArg = args.indexOf('--pem');
 const pemPath =
   pemArg >= 0
     ? resolve(args[pemArg + 1] ?? '.')
-    : join(homedir(), '.config', 'pageask', 'extension-key.pem');
+    : join(homedir(), '.config', 'righthandman', 'extension-key.pem');
 
 if (existsSync(EXTENSION_KEY_FILE)) {
   console.error(`refusing to overwrite ${EXTENSION_KEY_FILE}: that would change the extension ID`);

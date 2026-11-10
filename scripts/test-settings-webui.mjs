@@ -72,9 +72,9 @@ const upstreamBase = `http://127.0.0.1:${upstreamPort}`;
 
 const port = await freePort();
 // No environment variables: the isolated home's settings.json is the only config the child sees.
-mkdirSync(join(home, '.config', 'pageask'), { recursive: true });
+mkdirSync(join(home, '.config', 'righthandman'), { recursive: true });
 writeFileSync(
-  join(home, '.config', 'pageask', 'settings.json'),
+  join(home, '.config', 'righthandman', 'settings.json'),
   JSON.stringify({
     baseUrl: upstreamBase,
     model: 'fake-model',
@@ -123,14 +123,14 @@ try {
   const enPage = await request('/settings', { headers: { 'Accept-Language': 'en-US,en;q=0.9' } });
   check('en-US 配置页 200', () => assert.equal(enPage.status, 200));
   check('Accept-Language 选 en-US', () => assert.match(enPage.raw, /<html lang="en-US">/));
-  check('英文标题来自字典', () => assert.ok(enPage.raw.includes('PageAsk Settings')));
+  check('英文标题来自字典', () => assert.ok(enPage.raw.includes('RightHandMan Settings')));
   check('英文页面没有空占位', () => assert.ok(!enPage.raw.includes('>undefined<') && !enPage.raw.includes('>null<')));
   check('英文客户端拿到整份字典', () => assert.ok(enPage.raw.includes('"webui.saved"') && enPage.raw.includes('"Saved"')));
 
   const page = await request('/settings');
   check('配置页 200', () => assert.equal(page.status, 200));
   check('默认 html lang 为 zh-CN', () => assert.match(page.raw, /<html lang="zh-CN">/));
-  check('标题来自字典', () => assert.ok(page.raw.includes('PageAsk 配置')));
+  check('标题来自字典', () => assert.ok(page.raw.includes('RightHandMan 配置')));
   check('页面没有空占位', () => assert.ok(!page.raw.includes('>undefined<') && !page.raw.includes('>null<')));
   check('客户端拿到整份字典', () => assert.ok(page.raw.includes('"webui.saved"')));
   check('客户端拿到错误码文案', () => assert.ok(page.raw.includes('"error.settings.invalid_state"')));
@@ -146,7 +146,7 @@ try {
   const pseudo = await request('/settings?lang=en-XA');
   check('en-XA 配置页 200', () => assert.equal(pseudo.status, 200));
   check('en-XA html lang', () => assert.match(pseudo.raw, /<html lang="en-XA">/));
-  check('en-XA 使用伪文案', () => assert.ok(pseudo.raw.includes('[!!') && pseudo.raw.includes('PageAsk')));
+  check('en-XA 使用伪文案', () => assert.ok(pseudo.raw.includes('[!!') && pseudo.raw.includes('RightHandMan')));
   check('en-XA 每个 key 都加长', () => {
     // Whole-page length can pass while one long dictionary value stayed untranslated.
     for (const [key, value] of Object.entries(zhCN)) {

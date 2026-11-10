@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const home = mkdtempSync(join(tmpdir(), 'pageask-pdf-auth-home-'));
 const data = mkdtempSync(join(tmpdir(), 'pageask-pdf-auth-data-'));
-mkdirSync(join(home, '.config', 'pageask'), { recursive: true });
+mkdirSync(join(home, '.config', 'righthandman'), { recursive: true });
 
 const TOKEN = 'pdf-test-token';
 const pdf = readFileSync(join(root, 'test', 'marker.pdf')).toString('base64');
@@ -33,7 +33,7 @@ const freePort = () =>
 
 const port = await freePort();
 writeFileSync(
-  join(home, '.config', 'pageask', 'settings.json'),
+  join(home, '.config', 'righthandman', 'settings.json'),
   JSON.stringify({
     baseUrl: 'http://127.0.0.1:9',
     model: 'fake',

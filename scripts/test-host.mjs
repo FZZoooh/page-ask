@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const home = mkdtempSync(join(tmpdir(), 'pageask-host-home-'));
 const data = mkdtempSync(join(tmpdir(), 'pageask-host-data-'));
-mkdirSync(join(home, '.config', 'pageask'), { recursive: true });
+mkdirSync(join(home, '.config', 'righthandman'), { recursive: true });
 
 let failures = 0;
 const check = (name, ok, extra = '') => {
@@ -30,7 +30,7 @@ const freePort = () =>
 
 const port = await freePort();
 writeFileSync(
-  join(home, '.config', 'pageask', 'settings.json'),
+  join(home, '.config', 'righthandman', 'settings.json'),
   JSON.stringify({
     baseUrl: 'http://127.0.0.1:1',
     model: 'fake',

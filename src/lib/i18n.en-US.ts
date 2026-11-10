@@ -124,7 +124,7 @@ export const enUS = {
   // Composer
   'composer.placeholder.noSettings': 'Configure settings first',
   'composer.placeholder.noPage': "This page can't be read",
-  'composer.placeholder.ready': 'Message PageAsk',
+  'composer.placeholder.ready': 'Message RightHandMan',
   'composer.send': 'Send',
   'composer.stop': 'Stop',
   'composer.inputAria': 'Message input',
@@ -235,6 +235,6 @@ export const enUS = {
   'settings.fontSizeXLarge': 'Extra large',
 
   // Context menu
-  'menu.askThisPage': 'Ask PageAsk about this page',
+  'menu.askThisPage': 'Ask RightHandMan about this page',
   'action.dismiss': 'Dismiss',
 } satisfies Record<MessageKey, string>;

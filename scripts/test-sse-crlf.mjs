@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const home = mkdtempSync(join(tmpdir(), 'pageask-crlf-home-'));
 const data = mkdtempSync(join(tmpdir(), 'pageask-crlf-data-'));
-mkdirSync(join(home, '.config', 'pageask'), { recursive: true });
+mkdirSync(join(home, '.config', 'righthandman'), { recursive: true });
 
 let failures = 0;
 const check = (name, ok, extra = '') => {
@@ -53,7 +53,7 @@ await new Promise((r) => upstream.listen(upstreamPort, '127.0.0.1', r));
 
 const port = await freePort();
 writeFileSync(
-  join(home, '.config', 'pageask', 'settings.json'),
+  join(home, '.config', 'righthandman', 'settings.json'),
   JSON.stringify({
     baseUrl: `http://127.0.0.1:${upstreamPort}`,
     model: 'fake',

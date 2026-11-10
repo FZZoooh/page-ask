@@ -22,7 +22,7 @@ export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-react'],
   manifest: {
-    name: 'PageAsk',
+    name: 'RightHandMan',
     // Pinned signing key: the extension ID follows from it, not from the install path (see above)
     key: readExtensionKey(),
     // Version lives only in package.json; the manifest follows it

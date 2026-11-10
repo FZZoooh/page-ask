@@ -1,7 +1,7 @@
 // Write extension settings into storage.local over CDP.
 //
 // Only extension preferences such as the backend URL belong here: the API key is the backend's,
-// its source of truth is ~/.config/pageask/settings.json, and it must never reach browser storage.
+// its source of truth is ~/.config/righthandman/settings.json, and it must never reach browser storage.
 //
 // Usage: node scripts/seed-settings.mjs [debugPort]
 import { readSettings } from '../server/settings.mjs';

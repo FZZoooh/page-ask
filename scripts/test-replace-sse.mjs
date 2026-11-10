@@ -12,7 +12,7 @@ import { startFakeReplaceUpstream } from './fake-replace-upstream.mjs';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const home = mkdtempSync(join(tmpdir(), 'pageask-replace-home-'));
 const data = mkdtempSync(join(tmpdir(), 'pageask-replace-data-'));
-mkdirSync(join(home, '.config', 'pageask'), { recursive: true });
+mkdirSync(join(home, '.config', 'righthandman'), { recursive: true });
 
 let failures = 0;
 const check = (name, ok, extra = '') => {
@@ -32,7 +32,7 @@ const freePort = () =>
 const upstream = await startFakeReplaceUpstream();
 const port = await freePort();
 writeFileSync(
-  join(home, '.config', 'pageask', 'settings.json'),
+  join(home, '.config', 'righthandman', 'settings.json'),
   JSON.stringify({
     baseUrl: upstream.url,
     model: 'fake',

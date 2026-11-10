@@ -11,7 +11,7 @@ import { DatabaseSync } from 'node:sqlite';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const home = mkdtempSync(join(tmpdir(), 'pageask-inc-home-'));
 const data = mkdtempSync(join(tmpdir(), 'pageask-inc-data-'));
-mkdirSync(join(home, '.config', 'pageask'), { recursive: true });
+mkdirSync(join(home, '.config', 'righthandman'), { recursive: true });
 
 let failures = 0;
 const check = (name, ok, extra = '') => {
@@ -66,7 +66,7 @@ await new Promise((r) => upstream.listen(upstreamPort, '127.0.0.1', r));
 
 const port = await freePort();
 writeFileSync(
-  join(home, '.config', 'pageask', 'settings.json'),
+  join(home, '.config', 'righthandman', 'settings.json'),
   JSON.stringify({
     baseUrl: `http://127.0.0.1:${upstreamPort}`,
     model: 'fake',
@@ -141,7 +141,7 @@ try {
 
   // DB check runs after the process is gone: the WAL is either checkpointed or still readable
   try {
-    const db = new DatabaseSync(join(data, 'pageask.db'));
+    const db = new DatabaseSync(join(data, 'righthandman.db'));
     const row = db
       .prepare("SELECT aborted, content FROM messages WHERE role = 'assistant' ORDER BY rowid DESC LIMIT 1")
       .get();

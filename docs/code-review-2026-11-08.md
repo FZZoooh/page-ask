@@ -1,5 +1,7 @@
 # PageAsk 代码质量审查报告
 
+> 历史说明：项目后来更名为 RightHandMan；本文保留当时的 PageAsk 名称、路径与截图，未做替换。
+
 - 审查日期：2026-11-08
 - 代码版本：0.1.0，commit `b9533d3`
 - 审查范围：`src/`、`server/`、`scripts/`、`test/`、`wxt.config.ts`、`package.json`、CI 与文档

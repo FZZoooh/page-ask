@@ -128,7 +128,7 @@ export const zhCN = {
   // 输入区
   'composer.placeholder.noSettings': '请先填写设置',
   'composer.placeholder.noPage': '当前页面无法读取',
-  'composer.placeholder.ready': '给 PageAsk 发送消息',
+  'composer.placeholder.ready': '给 RightHandMan 发送消息',
   'composer.send': '发送',
   'composer.stop': '停止',
   'composer.inputAria': '消息输入框',
@@ -237,7 +237,7 @@ export const zhCN = {
   'settings.fontSizeXLarge': '特大',
 
   // 右键菜单
-  'menu.askThisPage': '用 PageAsk 询问本页',
+  'menu.askThisPage': '用 RightHandMan 询问本页',
   'action.dismiss': '关闭提示',
 } as const;
 

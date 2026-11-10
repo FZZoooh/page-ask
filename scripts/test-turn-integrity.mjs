@@ -72,7 +72,7 @@ try {
     assert.equal(convDb.messages[1].role, 'tool');
     assert.equal(convDb.messages[2].role, 'tool');
     // Role counts alone would pass even if a concurrent writer slipped a row into the middle.
-    const db = new DatabaseSync(join(dataDir, 'pageask.db'), { readOnly: true });
+    const db = new DatabaseSync(join(dataDir, 'righthandman.db'), { readOnly: true });
     try {
       const rows = db
         .prepare('SELECT rowid, role FROM messages WHERE conversation_id = ? ORDER BY rowid')

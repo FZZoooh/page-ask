@@ -21,9 +21,9 @@ process.env.USERPROFILE = home;
 // The backend reads port / data dir / key from settings.json only, so every (re)start rewrites
 // this file instead of passing environment variables.
 function writeConfig(port) {
-  mkdirSync(join(home, '.config', 'pageask'), { recursive: true });
+  mkdirSync(join(home, '.config', 'righthandman'), { recursive: true });
   writeFileSync(
-    join(home, '.config', 'pageask', 'settings.json'),
+    join(home, '.config', 'righthandman', 'settings.json'),
     JSON.stringify({
       baseUrl: 'http://127.0.0.1:1',
       model: 'test-model',
@@ -131,7 +131,7 @@ check('cleanupOrphanShots 只删未被引用的旧截图', () => {
 check('最后一条是 user 时取回并删除', () => {
   const got = recoverLastUserMessage(conv.id);
   assert.equal(got.content.includes('这条提问被进程中断了'), true);
-  assert.equal(existsSync(join(dataDir, 'pageask.db')), true);
+  assert.equal(existsSync(join(dataDir, 'righthandman.db')), true);
   assert.equal(recoverLastUserMessage(conv.id), null);
 });
 
@@ -220,9 +220,9 @@ assert.equal(
 await stopServer(child);
 
 // After the WAL checkpoint the main DB should hold recent writes (a leftover -wal is allowed)
-check('退出后主库文件存在且已关闭', () => assert.equal(statSync(join(dataDir, 'pageask.db')).isFile(), true));
+check('退出后主库文件存在且已关闭', () => assert.equal(statSync(join(dataDir, 'righthandman.db')).isFile(), true));
 check('关闭后的数据库通过 integrity_check', () => {
-  const db = new DatabaseSync(join(dataDir, 'pageask.db'), { readOnly: true });
+  const db = new DatabaseSync(join(dataDir, 'righthandman.db'), { readOnly: true });
   try {
     assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
   } finally {

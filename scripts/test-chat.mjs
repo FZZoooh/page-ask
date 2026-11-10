@@ -1,5 +1,5 @@
 // Smoke test: hit the backend /chat directly and print the SSE events (no browser in the loop).
-// Reads the port and token from ~/.config/pageask/settings.json, like the backend itself.
+// Reads the port and token from ~/.config/righthandman/settings.json, like the backend itself.
 // Usage: PAGEASK_ALLOW_REAL=1 node scripts/test-chat.mjs ["question text"]
 import { readSettings } from '../server/settings.mjs';
 import { requireRealConfig } from './require-real-config.mjs';

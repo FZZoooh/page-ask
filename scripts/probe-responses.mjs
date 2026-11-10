@@ -1,5 +1,5 @@
 // Probe the Responses API: images inside tool results, and replaying reasoning+tool history.
-// Reads baseUrl / model / key from ~/.config/pageask/settings.json.
+// Reads baseUrl / model / key from ~/.config/righthandman/settings.json.
 // Usage: PAGEASK_ALLOW_REAL=1 node scripts/probe-responses.mjs
 import { readSettings } from '../server/settings.mjs';
 import { withV1 } from '../server/upstream.mjs';
@@ -12,7 +12,7 @@ const KEY = cfg.apiKey;
 const BASE = withV1(cfg.baseUrl);
 const MODEL = cfg.model;
 if (!KEY) {
-  console.error('no API key in ~/.config/pageask/settings.json');
+  console.error('no API key in ~/.config/righthandman/settings.json');
   process.exit(1);
 }
 

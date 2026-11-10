@@ -92,9 +92,9 @@ const upstream = createServer((req, res) => {
 await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
 fakePort = upstream.address().port;
 
-mkdirSync(join(home, '.config', 'pageask'), { recursive: true });
+mkdirSync(join(home, '.config', 'righthandman'), { recursive: true });
 writeFileSync(
-  join(home, '.config', 'pageask', 'settings.json'),
+  join(home, '.config', 'righthandman', 'settings.json'),
   JSON.stringify({
     baseUrl: `http://127.0.0.1:${fakePort}`,
     model: 'fake-model',

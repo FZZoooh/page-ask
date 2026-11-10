@@ -1,8 +1,10 @@
-# PageAsk
+# RightHandMan
+
+*Right Hand Man — Manual on Your Right Hand*
 
 简体中文 | [English](#english)
 
-PageAsk 是一款面向 Chromium 内核浏览器（Microsoft Edge / Google Chrome）的侧栏 AI 助手扩展。无需离开当前网页或阅读界面，即可一键解析当前标签页（支持普通网页与本地/在线 PDF）并向大语言模型提问。
+RightHandMan（旧称 PageAsk）是一款面向 Chromium 内核浏览器（Microsoft Edge / Google Chrome）的侧栏 AI 助手扩展。无需离开当前网页或阅读界面，即可一键解析当前标签页（支持普通网页与本地/在线 PDF）并向大语言模型提问。
 
 ---
 
@@ -42,7 +44,7 @@ pnpm tray:bg
 # 后台运行；与终端分离 
 ```
 
-> 服务默认监听 `127.0.0.1:8787`。首次启动会自动在 `%USERPROFILE%\.config\pageask\` 下生成配置文件，所有配置都在这一个文件里。
+> 服务默认监听 `127.0.0.1:8787`。首次启动会自动在 `%USERPROFILE%\.config\righthandman\` 下生成配置文件，所有配置都在这一个文件里。
 >
 > 配置文件中的 `port`、`dataDir`、`token` 分别控制端口、数据目录与访问令牌（`dataDir` 留空则使用默认值 `server/data`）。改这几个字段需要重启后端，或等待托盘每 4 秒自动重读文件并重启。
 
@@ -66,7 +68,7 @@ pnpm tray:bg
 
 ## 使用说明
 
-- **打开侧栏**：在任意网页或 PDF 阅读器中 **右键 → 选择“用 PageAsk 询问本页”**，或直接点击浏览器工具栏的 PageAsk 图标。
+- **打开侧栏**：在任意网页或 PDF 阅读器中 **右键 → 选择“用 RightHandMan 询问本页”**，或直接点击浏览器工具栏的 RightHandMan 图标。
 - **提问交互**：直接在输入框中提问即可；支持就当前视口和选中的文字（PDF 支持受限）提问，可引用回复。
 - **系统托盘**：若使用 `pnpm tray:bg` 启动，系统托盘右键菜单提供服务启停、配置修改、开机自启切换以及日志查看等功能。
 
@@ -87,9 +89,11 @@ pnpm tray:bg
 
 | 内容                          | 路径                                                |
 | :---------------------------- | :-------------------------------------------------- |
-| 基础配置（API Key、模型参数） | `%USERPROFILE%\.config\pageask\settings.json`       |
-| 本地数据（会话库/截图/日志/运行标记） | `server\data\`（`pageask.db`、`shots\`、`*.log`、`run.json`） |
+| 基础配置（API Key、模型参数） | `%USERPROFILE%\.config\righthandman\settings.json`       |
+| 本地数据（会话库/截图/日志/运行标记） | `server\data\`（`righthandman.db`、`shots\`、`*.log`、`run.json`） |
 | 扩展构建产物                  | `.output\chrome-mv3\`                               |
+
+> 注：配置目录与数据库已迁移为 `righthandman`（旧的 `.config\pageask` 会在首次启动时自动复制一份，确认无误后可手动删除）。日志文件名、浏览器存储键、`[pageask]` 日志前缀和环境变量仍沿用旧名，属于内部标识符。
 
 ---
 
@@ -119,9 +123,9 @@ pnpm verify       # 提交前验证（本地化 + 编译 + 测试 + 构建）
 
 ## English
 
-[简体中文](#pageask) | English
+[简体中文](#righthandman) | English
 
-PageAsk is a side-panel AI assistant for Chromium-based browsers (Microsoft Edge and Google Chrome). Without leaving the current page or reading view, you can extract the active tab (regular web pages and local or online PDFs) in one click and ask a large language model about it.
+RightHandMan (formerly PageAsk) is a side-panel AI assistant for Chromium-based browsers (Microsoft Edge and Google Chrome). Without leaving the current page or reading view, you can extract the active tab (regular web pages and local or online PDFs) in one click and ask a large language model about it.
 
 ---
 
@@ -161,7 +165,7 @@ pnpm tray:bg
 # runs in background; detached from terminal.
 ```
 
-> The service listens on `127.0.0.1:8787` by default. The first start creates the config file under `%USERPROFILE%\.config\pageask\`, and that one file holds the entire configuration.
+> The service listens on `127.0.0.1:8787` by default. The first start creates the config file under `%USERPROFILE%\.config\righthandman\`, and that one file holds the entire configuration.
 >
 > Its `port`, `dataDir` and `token` fields control the port, data directory and access token (`dataDir` empty means default value `server/data`). Changing these fields requires restarting the backend, or waiting for the tray to re-read the file every 4 seconds and restart automatically.
 
@@ -185,7 +189,7 @@ pnpm tray:bg
 
 ### Usage
 
-- **Open the panel**: on any web page or PDF viewer, **right-click → "Ask PageAsk about this page"**, or click the PageAsk icon in the toolbar.
+- **Open the panel**: on any web page or PDF viewer, **right-click → "Ask RightHandMan about this page"**, or click the RightHandMan icon in the toolbar.
 - **Asking questions**: simply type your question in the input box; supports asking about the current viewport and selected text (limited support for PDF), and quoting replies.
 - **System tray**: when started with `pnpm tray:bg`, the tray context menu offers service start/stop, configuration, start-at-login and log viewing.
 
@@ -206,9 +210,11 @@ pnpm tray:bg
 
 | Content                                        | Path                                                          |
 | :--------------------------------------------- | :------------------------------------------------------------ |
-| Base config (API key, model parameters)        | `%USERPROFILE%\.config\pageask\settings.json`                 |
-| Local data (conversations, screenshots, logs, run marker) | `server\data\` (`pageask.db`, `shots\`, `*.log`, `run.json`) |
+| Base config (API key, model parameters)        | `%USERPROFILE%\.config\righthandman\settings.json`                 |
+| Local data (conversations, screenshots, logs, run marker) | `server\data\` (`righthandman.db`, `shots\`, `*.log`, `run.json`) |
 | Extension build output                         | `.output\chrome-mv3\`                                         |
+
+> Note: the config directory and database were migrated to `righthandman` (the old `.config\pageask` is copied on first start; delete it once verified). The log filename, browser storage keys, `[pageask]` log prefix and environment variable still use the old name — internal identifiers.
 
 ---
 

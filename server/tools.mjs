@@ -1,4 +1,4 @@
-// Tool implementations for PageAsk: read_page, screenshot, web_search, fetch_url.
+// Tool implementations for RightHandMan: read_page, screenshot, web_search, fetch_url.
 // All tools are read-only. External content is encapsulated in <untrusted_content>
 // blocks and hard-capped at RESULT_CAP characters to prevent context overflow.
 

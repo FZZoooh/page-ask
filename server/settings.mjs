@@ -1,6 +1,6 @@
 /**
- * Single source of truth for config: `~/.config/pageask/settings.json` — on Windows
- * `C:\Users\<you>\.config\pageask\settings.json`. The dir is auto-created (incl. `.config`).
+ * Single source of truth for config: `~/.config/righthandman/settings.json` — on Windows
+ * `C:\Users\<you>\.config\righthandman\settings.json`. The dir is auto-created (incl. `.config`).
  *
  * **Everything is in this file and nothing is read from the environment**: model settings
  * (baseUrl / model / apiKey / state) plus service settings (port / token / dataDir). The extension
@@ -10,9 +10,21 @@
  * "I changed it but nothing happened" and made the tray and the backend disagree about the port,
  * so the file is now the only source. Startup arguments cannot override it.
  *
- * The old location (`<data dir>/settings.json`) is auto-migrated at startup; the old file is deleted after.
+ * Two old locations are auto-migrated at startup: the pre-rename `~/.config/pageask/` directory is
+ * copied here (old dir kept as a backup), and the even older `<data dir>/settings.json` is moved.
  */
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 
@@ -31,8 +43,62 @@ function resolveDataDir(value) {
 }
 
 /** config lives separately, under an XDG-style path in the home directory */
-export const configDir = join(homedir(), '.config', 'pageask');
+export const configDir = join(homedir(), '.config', 'righthandman');
 export const settingsFile = join(configDir, 'settings.json');
+const legacyConfigDir = join(homedir(), '.config', 'pageask');
+const legacyConfigFile = join(legacyConfigDir, 'settings.json');
+
+/**
+ * One-time move after the display rename. Copy instead of rename: a tray started before the backend
+ * (or an older build) may still read the old path, and keeping the old dir as a backup makes a
+ * rollback painless. The new location always wins, and every step is idempotent.
+ */
+function migrateLegacyConfigDir() {
+  if (existsSync(settingsFile) || !existsSync(legacyConfigDir)) return;
+  try {
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    // Key and broken-file backups first, settings.json last: a failed settings copy is retried next start.
+    for (const name of readdirSync(legacyConfigDir)) {
+      if (name !== 'extension-key.pem' && !name.startsWith('settings.json.')) continue;
+      const from = join(legacyConfigDir, name);
+      if (!statSync(from).isFile()) continue;
+      const to = join(configDir, name);
+      if (existsSync(to)) continue;
+      copyFileSync(from, to);
+      try {
+        chmodSync(to, 0o600);
+      } catch {
+        /* chmod is limited on Windows */
+      }
+    }
+    if (existsSync(legacyConfigFile)) {
+      const tmp = `${settingsFile}.${process.pid}.${Date.now()}.tmp`;
+      try {
+        copyFileSync(legacyConfigFile, tmp);
+        try {
+          chmodSync(tmp, 0o600);
+        } catch {
+          /* chmod is limited on Windows */
+        }
+        renameSync(tmp, settingsFile);
+      } catch (err) {
+        // The temp copy holds the API key; never leave it behind when the rename loses a race.
+        try {
+          unlinkSync(tmp);
+        } catch {
+          /* already gone */
+        }
+        throw err;
+      }
+    }
+    console.log(`[pageask] migrated config dir ${legacyConfigDir} -> ${configDir} (old dir kept as backup)`);
+  } catch (err) {
+    console.error(`[pageask] config dir migration failed: ${err?.message ?? err}`);
+  }
+}
+
+// Before dataDir: a migrated settings.json can carry a custom dataDir, which must apply on this start.
+migrateLegacyConfigDir();
 
 /** raw parse with no side effects: `dataDir` is needed before the file is normalized/created */
 function readRawSettings() {
@@ -44,8 +110,8 @@ function readRawSettings() {
 }
 
 export const dataDir = resolveDataDir(readRawSettings()?.dataDir);
-/** old location: read once, only during migration */
-const legacySettingsFile = join(dataDir, 'settings.json');
+/** even older location: read once, only during migration */
+const legacyDataSettingsFile = join(dataDir, 'settings.json');
 
 export const DEFAULTS = {
   baseUrl: 'https://api.deepseek.com',
@@ -237,14 +303,14 @@ function readExisting() {
 }
 
 /**
- * Move the legacy `settings.json` to `~/.config/pageask/`. Write the new file first,
+ * Move the even older `<data dir>/settings.json` to the new config dir. Write the new file first,
  * delete the old one only after that succeeds, so a mid-way failure never loses the key.
  */
 function migrateLegacySettings() {
-  if (legacySettingsFile === settingsFile || !existsSync(legacySettingsFile)) return;
+  if (legacyDataSettingsFile === settingsFile || !existsSync(legacyDataSettingsFile)) return;
   if (existsSync(settingsFile)) return; // new location already exists; it wins, don't overwrite
   try {
-    const raw = JSON.parse(readFileSync(legacySettingsFile, 'utf8'));
+    const raw = JSON.parse(readFileSync(legacyDataSettingsFile, 'utf8'));
     const next = normalize(raw);
     mkdirSync(configDir, { recursive: true, mode: 0o700 });
     const tmp = `${settingsFile}.tmp`;
@@ -255,8 +321,8 @@ function migrateLegacySettings() {
     } catch {
       /* chmod is limited on Windows */
     }
-    unlinkSync(legacySettingsFile);
-    console.log(`[pageask] migrated config: ${legacySettingsFile} -> ${settingsFile}`);
+    unlinkSync(legacyDataSettingsFile);
+    console.log(`[pageask] migrated config: ${legacyDataSettingsFile} -> ${settingsFile}`);
   } catch (err) {
     console.error(`[pageask] config migration failed (old file left in place): ${err?.message ?? err}`);
   }

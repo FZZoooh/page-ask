@@ -1,4 +1,4 @@
-// Persistence layer for the local PageAsk backend: one SQLite file plus a few fixed queries.
+// Persistence layer for the local RightHandMan backend: one SQLite file plus a few fixed queries.
 // Uses the built-in node:sqlite (Node >= 22.5; verified on 24.18 with no flag needed).
 //
 // Since P3 the messages table also has to store "tool calls":
@@ -8,21 +8,58 @@
 // when replaying history and folded into function_call_output, so "look at that image again" still works.
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { dataDir } from './settings.mjs';
 
-const DB_FILE = join(dataDir, 'pageask.db');
+const DB_FILE = join(dataDir, 'righthandman.db');
+const LEGACY_DB_FILE = join(dataDir, 'pageask.db');
 /** Data directory: lifecycle markers, screenshots and logs all live here (path comes from settings.json) */
 export { dataDir };
 
 mkdirSync(dirname(DB_FILE), { recursive: true });
 
+/**
+ * One-time rename of the pre-rename database (plus its WAL sidecars). Rename rather than copy: a
+ * copy taken while an old backend still holds the file could be a torn snapshot, while rename fails
+ * fast on Windows. A partial rename is rolled back; when it fails we keep using the old file so no
+ * history disappears on this start, and the next start retries.
+ */
+function migrateDbFile() {
+  if (existsSync(DB_FILE) || !existsSync(LEGACY_DB_FILE)) return DB_FILE;
+  const moved = [];
+  try {
+    // Sidecars first: if the main file is locked, nothing has moved yet and the rollback is trivial.
+    for (const suffix of ['-shm', '-wal', '']) {
+      const from = `${LEGACY_DB_FILE}${suffix}`;
+      if (!existsSync(from)) continue;
+      renameSync(from, `${DB_FILE}${suffix}`);
+      moved.push([from, `${DB_FILE}${suffix}`]);
+    }
+    console.log(`[pageask] migrated database ${LEGACY_DB_FILE} -> ${DB_FILE}`);
+    return DB_FILE;
+  } catch (err) {
+    for (const [from, to] of moved.reverse()) {
+      try {
+        renameSync(to, from);
+      } catch {
+        /* best effort: keep the error below useful */
+      }
+    }
+    console.error(`[pageask] database rename failed; using ${LEGACY_DB_FILE}: ${err?.message ?? err}`);
+    return LEGACY_DB_FILE;
+  }
+}
+
+const openedDbFile = migrateDbFile();
+/** Actual database file in use; falls back to the old name if the one-time rename failed */
+export const dbFile = openedDbFile;
+
 /** Screenshot landing directory: data/shots/<uuid>.jpg */
 export const shotsDir = join(dataDir, 'shots');
 mkdirSync(shotsDir, { recursive: true });
 
-const db = new DatabaseSync(DB_FILE);
+const db = new DatabaseSync(openedDbFile);
 db.exec('PRAGMA journal_mode = WAL');
 db.exec('PRAGMA foreign_keys = ON');
 // Stop a second process (or another instance probing liveness from the tray) from hitting
@@ -73,8 +110,6 @@ db.exec(`
 }
 
 const now = () => Date.now();
-
-export const dbFile = DB_FILE;
 
 /* ---------------- conversations ---------------- */
 
