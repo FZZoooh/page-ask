@@ -81,22 +81,9 @@ export const MarkdownView = memo(function MarkdownView({
   /** URL of the page being read; relative links in the answer resolve against it */
   baseUrl?: string;
 }) {
-  const split = useMemo(
-    () => (streaming ? splitStreamingMarkdown(text) : { blocks: [text], tail: '' }),
-    [streaming, text],
-  );
-
-  if (!streaming) {
-    return (
-      <BaseUrlContext.Provider value={baseUrl}>
-        <div className="md">
-          <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins as never} components={components}>
-            {text}
-          </Markdown>
-        </div>
-      </BaseUrlContext.Provider>
-    );
-  }
+  // Split both live and finished text with the same rules so the blocks parsed during streaming
+  // keep their memo at completion; only the final tail needs a fresh parse.
+  const split = useMemo(() => splitStreamingMarkdown(text), [text]);
 
   return (
     <BaseUrlContext.Provider value={baseUrl}>
@@ -104,7 +91,9 @@ export const MarkdownView = memo(function MarkdownView({
         {split.blocks.map((block, index) => (
           <MarkdownBlock key={index} text={block} />
         ))}
-        {split.tail ? <span className="md-tail">{split.tail}</span> : null}
+        {split.tail ? (
+          streaming ? <span className="md-tail">{split.tail}</span> : <MarkdownBlock key="tail" text={split.tail} />
+        ) : null}
       </div>
     </BaseUrlContext.Provider>
   );
