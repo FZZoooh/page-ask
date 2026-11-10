@@ -324,12 +324,16 @@ export async function* streamChat(req: ChatRequest): AsyncGenerator<ChatEvent> {
           }
           case 'content': {
             const delta = text(payload.delta);
-            if (delta) yield { type: 'content', delta };
+            // The server freezes phaseMs on the first content frame. Dropping it here made the live
+            // summary fall back to an untimed phase, which rendered as "0.0s" while the answer streamed.
+            if (delta) yield { type: 'content', delta, processMs: count(payload.processMs) };
             break;
           }
           case 'replace': {
             const finalText = text(payload.text);
-            if (finalText !== undefined) yield { type: 'replace', text: finalText };
+            if (finalText !== undefined) {
+              yield { type: 'replace', text: finalText, processMs: count(payload.processMs) };
+            }
             break;
           }
           case 'usage':
