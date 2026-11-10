@@ -1032,11 +1032,29 @@ button.primary.save:hover:not(:disabled) {
   background: color-mix(in srgb, var(--fg) 5%, transparent);
 }
 
-/* Let display LaTeX scroll horizontally instead of blowing out the panel */
+/* Let display LaTeX scroll horizontally instead of blowing out the panel.
+   KaTeX makes this block full width with the formula centered inside it, so shrink-wrap it to the
+   formula: the hover ring then marks the formula itself, and once the formula is too wide the ring
+   frames the visible scroll box instead of a shadow that ends somewhere in the middle of the maths. */
 .md .katex-display {
   overflow-x: auto;
   overflow-y: hidden;
   padding: 2px 0;
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+  border-radius: 4px;
+  transition:
+    background-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+/* Same reason one level down: the inner block is full width too, so a formula wider than the panel
+   is centered inside that width and its left end lands at a negative offset no scroll can reach.
+   `max-content` sizes the box to the formula itself; the scroll container then scrolls it from its
+   real left edge, and the container's own shrink-wrap keeps short formulas centred. */
+.md .katex-display > .katex {
+  width: max-content;
 }
 
 /* KaTeX defaults to 1.21em, which makes every formula noticeably larger than the 13px answer
@@ -1054,6 +1072,18 @@ button.primary.save:hover:not(:disabled) {
 .md .katex:hover {
   background: color-mix(in srgb, var(--fg) 6%, transparent);
   box-shadow: 0 2px 8px color-mix(in srgb, var(--fg) 16%, transparent);
+}
+
+/* Display formulas take the ring on the scroll box: a box-shadow on the scrolled element is clipped
+   by that same overflow, which is exactly what made the shadow look cut off mid-formula. */
+.md .katex-display:hover {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--fg) 16%, transparent);
+}
+
+.md .katex-display .katex:hover {
+  background: none;
+  box-shadow: none;
 }
 
 /* Fixed and portaled to <body>: the side panel scrolls and clips its own children */
