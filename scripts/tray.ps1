@@ -67,10 +67,60 @@ $script:StoppedByUser = $false
 # 8s on the WinForms UI thread and freezing the tray menu.
 $script:StartingUntil = [datetime]::MinValue
 $script:StartupChecked = $false
+# Windows terminates processes with this code when the session ends (shutdown/restart/logoff).
+# Nothing in the backend can catch that, so the tray treats it as "the shutdown did it", not as a crash.
+$script:SessionEndExitCode = 0x40010004
+# Set once the C# session-end guard (scripts/session-guard.ps1) is attached; false keeps every
+# call site below working on a machine where Add-Type is unavailable.
+$script:SessionGuard = $false
 
 function Write-Tray([string]$msg) {
   $line = '{0} {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $msg
   Add-Content -Path $script:TrayLog -Value $line -Encoding utf8
+}
+
+# Keep the guard pointed at the backend the tray currently owns, so a shutdown asks exactly that
+# process to exit and waits for it. pid 0 means "the backend was started outside the tray".
+function Update-SessionGuardTarget {
+  if (-not $script:SessionGuard) { return }
+  $childPid = 0
+  if ($script:Child -and -not $script:Child.HasExited) { $childPid = $script:Child.Id }
+  try { [SessionEndGuard]::SetTarget($script:Port, $childPid, $script:TrayLog) } catch { }
+}
+
+function Reset-SessionEndFlag {
+  if (-not $script:SessionGuard) { return }
+  try { [SessionEndGuard]::Reset() } catch { }
+}
+
+# Is Windows ending the session right now? Two independent signals: the guard's notification
+# (WM_QUERYENDSESSION) and the documented SM_SHUTTINGDOWN metric. Either one means a backend started
+# now would only be terminated again with its run.json left behind, so stay out of the way.
+function Test-SessionEnding {
+  if (-not $script:SessionGuard) { return $false }
+  try {
+    if ([SessionEndGuard]::SessionEnding) { return $true }
+    return [SessionEndGuard]::IsSessionShuttingDown()
+  } catch {
+    return $false
+  }
+}
+
+# The backend deletes run.json on a clean exit. When Windows terminates our child before it could,
+# the marker would make the next start report a crash that never happened - drop it, but only when
+# it belongs to that child (another instance may have rewritten it in the meantime).
+function Remove-StaleMarker([int]$BackendPid) {
+  $marker = Join-Path $script:DataDir 'run.json'
+  try {
+    if (-not (Test-Path $marker)) { return $false }
+    $m = Get-Content -Raw -Path $marker | ConvertFrom-Json
+    if ([int]$m.pid -ne $BackendPid) { return $false }
+    Remove-Item $marker -Force
+    Write-Tray ("removed the stale run.json left by pid={0}" -f $BackendPid)
+    return $true
+  } catch {
+    return $false
+  }
 }
 
 # The one config source: settings.json in the user profile. Returns $null when it is missing or
@@ -125,6 +175,7 @@ function Update-DataDir {
   $script:TrayLog = Join-Path $script:DataDir 'tray.log'
   $script:ServerErr = Join-Path $script:DataDir 'server.err.log'
   New-Item -ItemType Directory -Force -Path $script:DataDir | Out-Null
+  Update-SessionGuardTarget
 }
 
 $script:Port = Get-ConfiguredPort
@@ -201,6 +252,9 @@ function Get-AbnormalExit {
 }
 
 function Start-Backend {
+  # Windows is ending the session: anything started now is terminated again with its run.json left
+  # behind. The menu's Start/Restart clear the flag first, so a cancelled shutdown still recovers.
+  if (Test-SessionEnding) { return $false }
   $state = Get-BackendState
   if ($state -eq 'up') { return $true }
   if ($state -eq 'foreign') {
@@ -235,6 +289,7 @@ function Start-Backend {
 
   $script:Starts++
   $script:StartingUntil = (Get-Date).AddSeconds(8)
+  Update-SessionGuardTarget
   Write-Tray ("start: pid={0} port={1}" -f $script:Child.Id, $script:Port)
   return $true
 }
@@ -282,6 +337,7 @@ function Stop-Backend {
 
   if ($killed.Count -gt 0) { Write-Tray ("stop: pid={0}" -f ($killed -join ',')) }
   $script:Child = $null
+  Update-SessionGuardTarget
 }
 
 function Restart-Backend {
@@ -453,6 +509,7 @@ $menu.add_Opening({ & $refresh })
 
 $miStart.add_Click({
   $script:StoppedByUser = $false
+  Reset-SessionEndFlag
   $script:WasDown = $false
   $script:DownSince = [datetime]::MinValue
   $script:RestartDelay = 10
@@ -470,6 +527,7 @@ $miStop.add_Click({
 })
 $miRestart.add_Click({
   $script:StoppedByUser = $false
+  Reset-SessionEndFlag
   $script:WasDown = $false
   $script:DownSince = [datetime]::MinValue
   $script:RestartDelay = 10
@@ -481,6 +539,7 @@ $miConsole.add_Click({
   # The settings page needs the backend up; start it first if it is down, then open the page
   if (-not (Test-Backend)) {
     $script:StoppedByUser = $false
+    Reset-SessionEndFlag
     $script:WasDown = $false
     $script:DownSince = [datetime]::MinValue
     Start-Backend | Out-Null
@@ -512,6 +571,10 @@ $timer.Interval = 4000
 $timer.add_Tick({
   if ($script:Quitting) { return }
 
+  # Windows is shutting down / logging off: the guard already stopped the backend, and restarting it
+  # now would only spawn a process that is killed again with its run.json left behind.
+  if (Test-SessionEnding) { return }
+
   # settings.json stays authoritative while the tray runs: follow a port / data-dir change at once
   $wantedPort = Get-ConfiguredPort
   if ($wantedPort -ne $script:Port) {
@@ -519,6 +582,7 @@ $timer.add_Tick({
     if (-not $script:StoppedByUser) { Stop-Backend }
     $script:Port = $wantedPort
     Update-DataDir
+    Update-SessionGuardTarget
     if (-not $script:StoppedByUser) { [void](Start-Backend) }
     return
   }
@@ -532,9 +596,29 @@ $timer.add_Tick({
   }
 
   if ($script:Child -and $script:Child.HasExited) {
-    Write-Tray ("backend pid={0} exited with {1} (see server.err.log)" -f $script:Child.Id, $script:Child.ExitCode)
+    $exitedPid = $script:Child.Id
+    # Start-Process with -RedirectStandardError hands back a Process object whose ExitCode is null
+    # after the exit, so a missing code must read as "unknown", never silently as 0.
+    $exitCode = $null
+    try { $exitCode = $script:Child.ExitCode } catch { }
+    $shownCode = if ($null -eq $exitCode) { 'an unknown code' } else { [string]$exitCode }
+    Write-Tray ("backend pid={0} exited with {1} (see server.err.log)" -f $exitedPid, $shownCode)
     $script:Child = $null
     $script:StartingUntil = [datetime]::MinValue
+    Update-SessionGuardTarget
+    # Windows ends the session by terminating every process: the backend never reaches shutdown(),
+    # so its marker is stale rather than a crash. The guard normally gets there first; this covers
+    # the case where it did not (no message, or the shutdown request lost the race).
+    $sessionEnded = (Test-SessionEnding) -or ($null -ne $exitCode -and $exitCode -eq $script:SessionEndExitCode)
+    if ($sessionEnded) {
+      Write-Tray 'backend was terminated by Windows (session ending); no restart'
+      Remove-StaleMarker -BackendPid $exitedPid | Out-Null
+      # do not fall through to the "port is down" path and restart it during the shutdown
+      $script:StoppedByUser = $true
+      $script:WasDown = $false
+      $script:DownSince = [datetime]::MinValue
+      return
+    }
   }
 
   $state = Get-BackendState
@@ -589,7 +673,21 @@ $timer.add_Tick({
 })
 $timer.Start()
 
-Write-Tray ("tray started: port={0} node={1}" -f $script:Port, (Get-NodeExe))
+# Windows only tells a GUI process that the session is ending (WM_QUERYENDSESSION); the backend, a
+# console process, is killed without a catchable signal. The tray owns a hidden window, so attach
+# the guard before the first start: a shutdown then asks the backend to exit through /api/shutdown
+# and waits for it, instead of leaving run.json behind. Losing the guard only degrades that to the
+# old behaviour (plus the exit-code fallback in the watchdog), so it must never stop the tray.
+try {
+  . (Join-Path $PSScriptRoot 'session-guard.ps1')
+  Install-SessionEndGuard
+  $script:SessionGuard = $true
+} catch {
+  Write-Tray ("session-end guard unavailable (a Windows shutdown will look like a crash): {0}" -f $_.Exception.Message)
+}
+Update-SessionGuardTarget
+
+Write-Tray ("tray started: port={0} node={1} guard={2}" -f $script:Port, (Get-NodeExe), $script:SessionGuard)
 [void](Start-Backend)
 
 try {

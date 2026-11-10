@@ -183,9 +183,15 @@ server.listen(PORT, HOST, () => {
   console.log(`[pageask] settings page http://${HOST}:${PORT}/settings  (config file ${settingsFile})`);
 });
 
+// Every catchable termination path ends in shutdown(): Ctrl+C (SIGINT), `stop` / SIGTERM,
+// Ctrl+Break (SIGBREAK) and - on Windows - a closed console window, which libuv reports as SIGHUP
+// (CTRL_CLOSE_EVENT). A system shutdown cannot be caught here: Windows kills console processes
+// without a JS-visible signal, which is why the tray answers WM_QUERYENDSESSION and why a leftover
+// marker from an earlier boot is not reported as a crash (see lifecycle.mjs).
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGBREAK', () => shutdown('SIGBREAK'));
+process.on('SIGHUP', () => shutdown('SIGHUP'));
 
 /** rebinding pages reach this port with their own Host; only the two loopback spellings are legitimate */
 function isAllowedHost(host) {

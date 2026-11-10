@@ -4,7 +4,13 @@
 // or a power cut leaves it, so next start knows shutdown was skipped. The 30s heartbeat
 // separates "just crashed" from a stale marker, and reports a live second instance
 // clearly instead of letting both fight over the same database.
+//
+// The marker also records the OS uptime. A process that is terminated by a Windows shutdown
+// never runs shutdown() (the OS kills console apps with exit code 0x40010004), so its marker
+// survives even though nothing went wrong; uptime only grows within one boot, so a marker with
+// a *higher* uptime than ours can only come from a machine that has restarted since.
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import { join } from 'node:path';
 import { dataDir } from './db.mjs';
 import { logEvent } from './log.mjs';
@@ -18,7 +24,25 @@ let timer = null;
 let startedAt = Date.now();
 let previous = null;
 let abnormal = false;
+let previousExit = 'clean';
 let version = '0.0.0';
+
+// uptime is monotonic inside one boot; the tolerance only absorbs rounding, never a real restart
+const UPTIME_TOLERANCE_S = 5;
+
+/**
+ * Classify the previous run from its marker: 'clean' (no marker), 'crash' (marker from this
+ * boot: kill, power loss on the same boot, or a real crash), or 'osShutdown' (the marker was
+ * written before the machine restarted, so the OS took the process down). Pure and exported so
+ * the rule can be tested without rebooting.
+ */
+export function previousExitKind(previousMarker, uptimeNow = os.uptime()) {
+  if (!previousMarker) return 'clean';
+  const writtenAt = Number(previousMarker.uptime);
+  // markers written by older versions have no uptime: keep reporting them as abnormal
+  if (!Number.isFinite(writtenAt) || writtenAt <= 0) return 'crash';
+  return Number(uptimeNow) + UPTIME_TOLERANCE_S < writtenAt ? 'osShutdown' : 'crash';
+}
 
 function readMarker() {
   try {
@@ -46,6 +70,7 @@ function writeMarker() {
     startedAt,
     version,
     heartbeat: Date.now(),
+    uptime: Math.round(os.uptime()),
   })}\n`;
   const tmp = `${markerFile}.tmp`;
   // atomic replace: a half-written JSON would be read as a corrupt marker and falsely report an abnormal exit
@@ -54,9 +79,11 @@ function writeMarker() {
 }
 
 /**
- * Called on startup. Returns { abnormal, previous, alreadyRunning }:
- * - abnormal=true means the last run did not go through the clean-exit path;
- * - previous is the marker that run left behind (pid/startedAt/version/heartbeat);
+ * Called on startup. Returns { abnormal, previous, previousExit, alreadyRunning }:
+ * - abnormal=true means the last run did not go through the clean-exit path and did not die with
+ *   the machine either (see previousExitKind);
+ * - previous is the marker that run left behind (pid/startedAt/version/heartbeat/uptime);
+ * - previousExit is 'clean' | 'crash' | 'osShutdown';
  * - alreadyRunning=true means another live process owns this dataDir. The caller must exit
  *   through its shutdown path (without deleting the live process's marker); this module never
  *   calls process.exit itself.
@@ -66,6 +93,7 @@ export function startLifecycle(appVersion) {
   startedAt = Date.now();
   mkdirSync(dataDir, { recursive: true });
   previous = readMarker();
+  previousExit = previousExitKind(previous);
 
   if (previous) {
     const lastHeartbeat = Number(previous.heartbeat ?? previous.startedAt ?? 0);
@@ -77,17 +105,29 @@ export function startLifecycle(appVersion) {
         `[pageask] another backend instance is still running (pid ${previous.pid}, last heartbeat ${new Date(lastHeartbeat).toISOString()}); ` +
           'stop it first, or point dataDir in settings.json somewhere else',
       );
-      return { abnormal: false, previous, alreadyRunning: true };
+      return { abnormal: false, previous, previousExit, alreadyRunning: true };
     }
-    abnormal = true;
-    logEvent('abnormal_exit_detected', {
-      pid: previous.pid ?? null,
-      startedAt: previous.startedAt ?? null,
-      lastHeartbeat: lastHeartbeat || null,
-      version: previous.version ?? null,
-    });
-    const when = lastHeartbeat ? new Date(lastHeartbeat).toISOString() : 'unknown';
-    console.error(`[pageask] previous process did not exit cleanly (pid ${previous.pid ?? '?'}, last heartbeat ${when})`);
+    if (previousExit === 'osShutdown') {
+      // The machine went down (shutdown / restart / logoff) rather than the backend crashing:
+      // the OS terminated the process before shutdown() could run. Nothing to warn about - the
+      // settings page, the tray and the pending-question recovery all work from the database.
+      logEvent('previous_exit_os_shutdown', {
+        pid: previous.pid ?? null,
+        startedAt: previous.startedAt ?? null,
+        lastHeartbeat: lastHeartbeat || null,
+        version: previous.version ?? null,
+      });
+    } else {
+      abnormal = true;
+      logEvent('abnormal_exit_detected', {
+        pid: previous.pid ?? null,
+        startedAt: previous.startedAt ?? null,
+        lastHeartbeat: lastHeartbeat || null,
+        version: previous.version ?? null,
+      });
+      const when = lastHeartbeat ? new Date(lastHeartbeat).toISOString() : 'unknown';
+      console.error(`[pageask] previous process did not exit cleanly (pid ${previous.pid ?? '?'}, last heartbeat ${when})`);
+    }
   }
 
   writeMarker();
@@ -99,7 +139,7 @@ export function startLifecycle(appVersion) {
     }
   }, HEARTBEAT_MS);
   timer.unref?.();
-  return { abnormal, previous, alreadyRunning: false };
+  return { abnormal, previous, previousExit, alreadyRunning: false };
 }
 
 /** clean exit: stop the heartbeat, delete the marker */
@@ -113,11 +153,12 @@ export function markCleanExit() {
   }
 }
 
-/** for /health: did this startup detect an abnormal exit last time */
+/** for /health: did this startup detect an abnormal exit last time, and why did that run end */
 export function lifecycleInfo() {
   return {
     startedAt,
     abnormalPreviousExit: abnormal,
+    previousExit,
     previousPid: previous?.pid ?? null,
     previousStartedAt: previous?.startedAt ?? null,
     previousLastHeartbeat: previous?.heartbeat ?? null,

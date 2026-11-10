@@ -3,7 +3,7 @@
 // Uses a temporary HOME / DATA_DIR and never touches the real config or database.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -41,6 +41,7 @@ const { addMessage, cleanupOrphanShots, closeDb, createConversation, recoverLast
   '../server/db.mjs'
 );
 assert.equal(shotsDir, shots);
+const { previousExitKind } = await import('../server/lifecycle.mjs');
 
 function check(name, fn) {
   fn();
@@ -135,6 +136,21 @@ check('takes back and deletes a trailing user message', () => {
   assert.equal(recoverLastUserMessage(conv.id), null);
 });
 
+// Uptime only grows within one boot, so a marker that claims a *higher* uptime than ours was
+// written before the machine restarted: the OS ended that process, nothing crashed.
+check('a marker from an earlier boot is an OS shutdown, not a crash', () => {
+  assert.equal(previousExitKind({ uptime: 50_000 }, 60), 'osShutdown');
+});
+check('a marker from this boot is a crash', () => {
+  assert.equal(previousExitKind({ uptime: 600, heartbeat: Date.now() - 1000 }, 660), 'crash');
+});
+check('a marker without an uptime (older version) still counts as a crash', () => {
+  assert.equal(previousExitKind({ pid: 123 }, 660), 'crash');
+});
+check('no marker means a clean previous exit', () => {
+  assert.equal(previousExitKind(null, 660), 'clean');
+});
+
 const conv2 = createConversation({ url: 'http://example.com/other' });
 addMessage({ conversationId: conv2.id, role: 'user', content: '恢复我' });
 addMessage({ conversationId: conv2.id, role: 'assistant', content: '已经回答过了' });
@@ -163,7 +179,13 @@ assert.equal(await waitFor(async () => (await fetch(`http://127.0.0.1:${port}/he
 const first = await getJson(port, '/health');
 check('first start reports a clean lifecycle', () => {
   assert.equal(first.body.lifecycle.abnormalPreviousExit, false);
+  assert.equal(first.body.lifecycle.previousExit, 'clean');
   assert.ok(existsSync(join(dataDir, 'run.json')), 'run.json should exist');
+});
+check('the marker records the OS uptime', () => {
+  const marker = JSON.parse(readFileSync(join(dataDir, 'run.json'), 'utf8'));
+  assert.equal(typeof marker.uptime, 'number');
+  assert.ok(marker.uptime >= 0);
 });
 
 const before = await getJson(port, `/conversations/${conv2.id}/recover`, { method: 'POST' });
@@ -190,6 +212,7 @@ assert.equal(await waitFor(async () => (await fetch(`http://127.0.0.1:${port2}/h
 const second = await getJson(port2, '/health');
 check('restart after a hard kill reports an abnormal exit', () => {
   assert.equal(second.body.lifecycle.abnormalPreviousExit, true);
+  assert.equal(second.body.lifecycle.previousExit, 'crash');
   assert.equal(typeof second.body.lifecycle.previousPid, 'number');
 });
 
