@@ -1054,12 +1054,17 @@ button.primary.save:hover:not(:disabled) {
    `max-content` sizes the box to the formula itself; the scroll container then scrolls it from its
    real left edge, and the container's own shrink-wrap keeps short formulas centred. */
 .md .katex-display > .katex {
+  display: block;
   width: max-content;
 }
 
-/* KaTeX defaults to 1.21em, which makes every formula noticeably larger than the 13px answer
-   text; 1.1em keeps sub/superscripts legible while staying close to the surrounding line. */
+/* KaTeX's inline .katex is an inline box wrapping a block .katex-html, so the browser splits it and
+   the hover pill only covers the thin band around the text baseline - fractions, big parentheses and
+   superscripts stick out of it. inline-block makes the box the formula's real box.
+   KaTeX defaults to 1.21em, which makes every formula noticeably larger than the 13px answer text;
+   1.1em keeps sub/superscripts legible while staying close to the surrounding line. */
 .md .katex {
+  display: inline-block;
   font-size: 1.1em;
   border-radius: 4px;
   cursor: context-menu;
