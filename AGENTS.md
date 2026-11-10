@@ -105,6 +105,7 @@ PLAN.md                           archived early planning (unmaintained, not an 
 - 2-space indent, single quotes, semicolons, trailing commas; line width ~120.
 - **Write comments in English** (unless something explicitly requires otherwise). Comments **explain why** — pitfalls we hit, protocol limits, trade-offs — never "what this line does" filler. The localization dictionaries (`src/lib/i18n.ts`, `src/lib/i18n.en-US.ts`, `server/i18n/*.mjs`, `scripts/i18n/*/Tray.psd1`) are exempt: their content is the localized data itself.
 - **Write commit messages in English** too — subject and body — keeping the conventional `type(scope): summary` prefix this history already uses (e.g. `feat(sidepanel): …`, `fix: …`, `chore: …`). Older commits are in Chinese; do not take them as the convention.
+- **Start every independent task from a clean tree**: before editing anything for a new, unrelated request, run `git status`. If the previous task left uncommitted changes, commit them first (message rules above) so the new work cannot be mixed into that diff; do not include the new task's edits in that commit.
 - Exported types/interfaces live in `src/lib/*.ts`, components only consume them; avoid `any` — `tsconfig` enables `strict` and `noUncheckedIndexedAccess`.
 - Think before adding a dependency: the backend HTTP/DB layers must stay zero-dependency; PDF code uses `pdfjs-dist` only in `server/pdf.mjs`.
 
