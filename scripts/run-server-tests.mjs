@@ -23,6 +23,7 @@ const TESTS = [
   'test-auto-title.mjs',
   'test-truncated-stream.mjs',
   'test-chat-busy.mjs',
+  'test-chat-edit.mjs',
   'test-stateful-fallback.mjs',
   'test-host.mjs',
   'test-tool-cap.mjs',

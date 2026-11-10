@@ -320,6 +320,52 @@ export function truncateAfterLastUser(conversationId) {
   return { id: last.id };
 }
 
+/**
+ * For inline editing: replace one user message's text and delete every row after it, so the caller
+ * can regenerate the turn from that point. The message keeps its id and created_at (the turn stays
+ * where it was); later assistant/tool rows are discarded exactly like "regenerate".
+ * Returns `{ id }`, or null when the id is not a user message of this conversation.
+ */
+export function editUserMessage({ conversationId, messageId, content }) {
+  let doomed = [];
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const row = db
+      .prepare("SELECT rowid FROM messages WHERE id = ? AND conversation_id = ? AND role = 'user'")
+      .get(messageId, conversationId);
+    if (!row) {
+      db.exec('COMMIT');
+      return null;
+    }
+    db.prepare('UPDATE messages SET content = ? WHERE id = ?').run(content, messageId);
+    // Read the doomed screenshots and the boundary inside the same transaction as the DELETE.
+    doomed = db
+      .prepare(
+        'SELECT image_path FROM messages WHERE conversation_id = ? AND rowid > ? AND image_path IS NOT NULL',
+      )
+      .all(conversationId, row.rowid);
+    const boundary = db
+      .prepare('SELECT COALESCE(MAX(rowid), 0) AS maxRowid FROM messages WHERE conversation_id = ?')
+      .get(conversationId).maxRowid;
+    db.prepare('DELETE FROM messages WHERE conversation_id = ? AND rowid > ? AND rowid <= ?').run(
+      conversationId,
+      row.rowid,
+      boundary,
+    );
+    db.exec('COMMIT');
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      /* ignore */
+    }
+    throw err;
+  }
+
+  pruneShots(doomed.map((row) => row.image_path));
+  return { id: messageId };
+}
+
 /** Delete a set of screenshot files, but only ones no message references (content-addressed, rows may share) */
 export function pruneShots(paths) {
   for (const path of paths) {

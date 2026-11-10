@@ -364,6 +364,14 @@ button.primary.save:hover:not(:disabled) {
 
 /* ---------- conversation list ---------- */
 
+/* Positions the floating jump-to-bottom button over the list without adding layout height. */
+.list-wrap {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .list {
   flex: 1 1 auto;
   min-height: 0;
@@ -376,12 +384,59 @@ button.primary.save:hover:not(:disabled) {
   padding: 2px 2px 8px;
   scroll-padding-bottom: 12px;
   overscroll-behavior: contain;
+  /* The spacer effect owns every scroll adjustment; browser scroll anchoring would fight it. */
+  overflow-anchor: none;
 }
 
 /* Scroll anchor: zero height, exists only for scrollIntoView */
 .list-end {
   flex: 0 0 auto;
   height: 0;
+}
+
+/* Invisible spacer whose height is managed by the scroll layout effect. */
+.scroll-spacer {
+  flex: 0 0 auto;
+  width: 1px;
+}
+
+/* Jump-to-bottom control: only rendered while the list is not following live growth. */
+.scroll-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: var(--meta);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.16);
+  cursor: pointer;
+}
+
+.scroll-bottom:hover:not(:disabled) {
+  /* The global button:hover paints a translucent tint; without a solid base the floating card
+     would show the conversation through it. Keep the card color and tint only slightly. */
+  background: color-mix(in srgb, var(--fg) 5%, var(--card));
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--fg) 22%, var(--line));
+}
+
+.scroll-bottom:active {
+  transform: translateX(-50%) scale(0.94);
+}
+
+/* One-shot lead-in above the first question; shrinks away to slide it from the bottom to the top. */
+.scroll-lead {
+  flex: 0 0 auto;
+  width: 1px;
 }
 
 /*
@@ -551,12 +606,41 @@ button.primary.save:hover:not(:disabled) {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade-h)), transparent 100%);
 }
 
-/* Placeholder before answer text in clean mode: fades in, fades out and collapses once the text lands */
+/* Placeholder before answer text in clean mode: fades in, fades out and collapses once the text lands.
+   The shimmer is a text-clipped gradient; the wide muted margins make the loop seamless. */
 .thinking {
   color: var(--muted);
   font-size: 13px;
   padding: 2px 0 4px;
-  animation: thinkingIn 0.22s ease both;
+  background-image: linear-gradient(
+    100deg,
+    var(--muted) 0%,
+    var(--muted) 42%,
+    var(--fg) 50%,
+    var(--muted) 58%,
+    var(--muted) 100%
+  );
+  background-size: 250% 100%;
+  background-repeat: no-repeat;
+  background-position: 0% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation:
+    thinkingIn 0.22s ease both,
+    thinkingShimmer 2.2s linear infinite;
+}
+@keyframes thinkingShimmer {
+  from { background-position: 0% 0; }
+  to { background-position: 100% 0; }
+}
+/* The gradient needs a solid fallback when motion is reduced, otherwise the text stays transparent. */
+@media (prefers-reduced-motion: reduce) {
+  .thinking {
+    background-image: none;
+    -webkit-text-fill-color: currentColor;
+    animation: thinkingIn 0.22s ease both;
+  }
 }
 .thinking.out {
   opacity: 0;
@@ -570,14 +654,20 @@ button.primary.save:hover:not(:disabled) {
   from { opacity: 0; transform: translateY(-2px); }
   to { opacity: 1; transform: none; }
 }
-/* The two small square buttons under an answer (copy / regenerate) */
-.answer-actions {
+/* Small square buttons under an answer (copy / regenerate) and under a question (copy / edit) */
+.answer-actions,
+.msg-actions {
   display: flex;
   align-items: center;
   gap: 0;
-  /* Hugs the answer: no top margin, and no negative margin either (the 36px button is bigger than the
+  /* Hugs the answer: no top margin, and no negative margin either (the 26px button is bigger than the
      icon, so a negative margin would push its hover fill outside the container and get clipped) */
   margin: 0;
+}
+
+/* A question's actions mirror its right-aligned bubble */
+.msg-actions {
+  align-self: flex-end;
 }
 
 /* Verbose-mode stats follow the buttons on the same line; a small margin keeps them apart */
@@ -588,7 +678,8 @@ button.primary.save:hover:not(:disabled) {
   white-space: nowrap;
 }
 
-.answer-actions .icon-btn {
+.answer-actions .icon-btn,
+.msg-actions .icon-btn {
   width: var(--icon-btn);
   height: var(--icon-btn);
   padding: 0;
@@ -603,18 +694,90 @@ button.primary.save:hover:not(:disabled) {
   cursor: pointer;
 }
 
-.answer-actions .icon-btn:hover:not(:disabled) {
+.answer-actions .icon-btn:hover:not(:disabled),
+.msg-actions .icon-btn:hover:not(:disabled) {
   color: color-mix(in srgb, var(--fg) 78%, transparent);
   background: color-mix(in srgb, var(--fg) 6%, transparent);
 }
 
-.answer-actions .icon-btn:disabled {
+.answer-actions .icon-btn:disabled,
+.msg-actions .icon-btn:disabled {
   opacity: 0.35;
   cursor: default;
 }
-.answer-actions .icon {
+.answer-actions .icon,
+.msg-actions .icon {
   width: var(--icon-size);
   height: var(--icon-size);
+}
+
+/* In-place question editor: replaces the user bubble with a neutral gray card (not the blue bubble).
+   Full width matches the answer column, and the footer keeps the reference's ghost/primary pills. */
+.inline-edit {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 10px 14px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--fg) 7%, var(--bg));
+}
+
+.msg.user.editing {
+  align-items: stretch;
+}
+
+/* Uncontrolled contenteditable: no border or padding of its own, just the multiline text area */
+.inline-edit-input {
+  min-height: 44px;
+  max-height: 40vh;
+  overflow-y: auto;
+  outline: none;
+  font: inherit;
+  line-height: 22px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--fg);
+}
+
+.inline-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.edit-cancel,
+.edit-send {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 6px 16px;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.edit-cancel {
+  background: color-mix(in srgb, var(--fg) 7%, var(--bg));
+  color: var(--fg);
+}
+
+.edit-cancel:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fg) 12%, var(--bg));
+}
+
+/* Inverted fill (black pill in light theme, white pill in dark) like the reference's send button */
+.edit-send {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.edit-send:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fg) 88%, var(--bg));
+}
+
+.edit-send:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .err {
@@ -866,6 +1029,7 @@ button.primary.save:hover:not(:disabled) {
 }
 
 .icon-btn:focus-visible,
+.scroll-bottom:focus-visible,
 .suggest:focus-visible,
 .btn:focus-visible,
 .conv-del:focus-visible {

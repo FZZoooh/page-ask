@@ -4,6 +4,11 @@ import type { StoredMessage, Usage } from '@/lib/chat';
 
 export interface Message {
   id: string;
+  /**
+   * The row id the backend assigned to a locally appended user message. Loaded messages already use
+   * the DB id as `id`, but a fresh send needs a stable local key until `meta` reports the server id.
+   */
+  serverId?: string;
   role: 'user' | 'assistant' | 'tool';
   content: string;
   reasoning?: string;

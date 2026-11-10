@@ -65,8 +65,9 @@ export interface Usage {
 export type ChatEvent =
   | { type: 'meta'; conversationId: string; messageId: string; model: string }
   | { type: 'reasoning'; delta: string }
-  | { type: 'content'; delta: string }
-  | { type: 'replace'; text: string }
+  /** processMs is the server-authoritative duration of the current think/tool phase */
+  | { type: 'content'; delta: string; processMs?: number }
+  | { type: 'replace'; text: string; processMs?: number }
   | { type: 'usage'; usage: Usage }
   | {
       type: 'tool';
@@ -224,6 +225,8 @@ export interface ChatRequest {
   text: string;
   /** Regenerate: the backend drops the previous answer (rows after the last user message) and reruns */
   regenerate?: boolean;
+  /** Inline edit: the backend rewrites this user message and drops every later row, then reruns from it */
+  editMessageId?: string;
   /** UI language: the backend answers and titles in this language instead of always using Chinese */
   locale?: 'zh-CN' | 'en-US';
   signal?: AbortSignal;
@@ -238,6 +241,7 @@ export async function* streamChat(req: ChatRequest): AsyncGenerator<ChatEvent> {
       body: JSON.stringify({
         conversationId: req.conversationId ?? undefined,
         regenerate: req.regenerate ? true : undefined,
+        editMessageId: req.editMessageId,
         locale: req.locale,
         page: {
           url: req.page.url,

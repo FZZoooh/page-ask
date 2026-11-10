@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { MarkdownView } from '@/components/MarkdownView';
-import { IconCheck, IconCopy, IconQuote, IconReload } from '@/components/icons';
+import { IconArrowDown, IconCheck, IconCopy, IconEdit, IconQuote, IconReload } from '@/components/icons';
 import {
   getConversation,
   deleteConversation,
@@ -139,11 +139,16 @@ export default function App() {
   const backendRef = useRef<string>(DEFAULT_SETTINGS.backendUrl);
   const tokenRef = useRef<string>('');
   const listRef = useRef<HTMLDivElement | null>(null);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+
   const editorRef = useRef<HTMLDivElement | null>(null);
+  /** Inline question editor (rendered in place of a user bubble); kept uncontrolled like the composer */
+  const inlineEditorRef = useRef<HTMLDivElement | null>(null);
   /** Last caret inside the editor: selecting elsewhere replaces the document selection; restore this */
   const savedRange = useRef<Range | null>(null);
   const stickToBottom = useRef(true);
+  // Mirrors "not following" for the floating jump-to-bottom button. Kept separate from the ref so
+  // layout/animation code can change the scroll behavior without forcing a React render.
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
   /** Async callbacks must ask "did the user already send?", and only a ref holds the latest value */
   const messagesRef = useRef<Message[]>([]);
   /** Conversation load sequence: on tab switches or rapid history clicks only the latest request wins */
@@ -372,44 +377,370 @@ export default function App() {
 
   /* ---------------- Scrolling ---------------- */
 
-  useEffect(() => {
-    const el = listRef.current;
-    if (!el || !stickToBottom.current) return;
-    // Setting scrollTop alone falls short when content grows afterwards (tables/KaTeX/code reflow), so
-    // pin to the bottom anchor and correct again on the next frame to actually reach the bottom.
-    el.scrollTop = el.scrollHeight;
-    const raf = requestAnimationFrame(() => {
-      if (stickToBottom.current) bottomRef.current?.scrollIntoView({ block: 'end' });
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [messages]);
+  const scrollConversation = useRef<string | null>(null);
+  // Bottom spacer: gives the sent question room to sit in the middle of the viewport, and absorbs
+  // answer growth / think-block collapse so the viewport does not move until the spacer is gone.
+  const spacerRef = useRef<HTMLDivElement | null>(null);
+  const spacerHeight = useRef(0);
+  const contentHeight = useRef(0);
+  // A one-shot spacer above the first message: it lets a brand-new conversation start with the
+  // question at the bottom, then shrink away so the question slides up to its final place at the top.
+  const leadSpacerRef = useRef<HTMLDivElement | null>(null);
+  const leadHeight = useRef(0);
+  const leadAnim = useRef<number | null>(null);
+  const centerNext = useRef(false);
+  const prepended = useRef(false);
+  // A new conversation gets its id from the server's `meta` after the messages are already rendered.
+  // That id change must not look like a conversation switch (which would reset the spacer and pin
+  // to the bottom, undoing the centering).
+  const pendingConversation = useRef(false);
+  const internalScrollUntil = useRef(0);
+  // Layout-induced scroll events (browser scroll clamping, scrollbar appearing) must not look like
+  // the user scrolling up. Only wheel/touch/pointer input arms the brake in onScroll.
+  const userScrollAt = useRef(0);
+  // Right after a send the question is centered; hold that offset until the turn ends. A think
+  // block collapsing (instant, or 240ms in clean mode) can otherwise make the browser clamp the
+  // scroll offset before the spacer has grown to cover the removed height.
+  const centerLockTop = useRef(0);
+  const centerLockUntil = useRef(0);
+  const scrollAnim = useRef<{ frame: number; until: number } | null>(null);
 
-  // Content grew on its own (images, table/math reflow) while the user is at the bottom: keep following it
+  const cancelScrollAnim = () => {
+    if (!scrollAnim.current) return;
+    cancelAnimationFrame(scrollAnim.current.frame);
+    scrollAnim.current = null;
+  };
+
+  const applySpacer = (px: number) => {
+    const max = listRef.current?.clientHeight ?? 0;
+    const next = Math.max(0, Math.min(max, Math.round(px)));
+    spacerHeight.current = next;
+    if (spacerRef.current) spacerRef.current.style.height = `${next}px`;
+  };
+
+  const cancelLeadAnim = () => {
+    if (leadAnim.current == null) return;
+    cancelAnimationFrame(leadAnim.current);
+    leadAnim.current = null;
+  };
+
+  const applyLead = (px: number) => {
+    const max = listRef.current?.clientHeight ?? 0;
+    const next = Math.max(0, Math.min(max, Math.round(px)));
+    leadHeight.current = next;
+    if (leadSpacerRef.current) leadSpacerRef.current.style.height = `${next}px`;
+  };
+
+  const scrollTo = (el: HTMLElement, top: number) => {
+    cancelScrollAnim();
+    // Programmatic scrolls must not run the user-scroll brake in onScroll.
+    internalScrollUntil.current = performance.now() + 120;
+    el.scrollTop = top;
+  };
+
+  // Ease-in-out cubic: slow at both ends, fast in the middle. A native smooth scroll has no easing
+  // control, so the centering slide is driven by rAF and can be cancelled the moment the user scrolls.
+  const animateScrollTo = (el: HTMLElement, top: number) => {
+    cancelScrollAnim();
+    const from = el.scrollTop;
+    const delta = top - from;
+    const duration = 460;
+    if (Math.abs(delta) < 2 || window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
+      scrollTo(el, top);
+      return;
+    }
+    const start = performance.now();
+    internalScrollUntil.current = start + duration + 120;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      el.scrollTop = from + delta * eased;
+      if (t < 1) {
+        scrollAnim.current = { frame: requestAnimationFrame(tick), until: start + duration };
+      } else {
+        scrollAnim.current = null;
+        internalScrollUntil.current = performance.now() + 120;
+      }
+    };
+    scrollAnim.current = { frame: requestAnimationFrame(tick), until: start + duration };
+  };
+
+  const scrollToBottom = () => {
+    const el = listRef.current;
+    if (!el) return;
+    // A click is an explicit request to resume following: drop the blank room below the content,
+    // clear the centering hold, then slide to the real bottom.
+    centerLockUntil.current = 0;
+    applySpacer(0);
+    contentHeight.current = el.scrollHeight;
+    stickToBottom.current = true;
+    setShowScrollBtn(false);
+    animateScrollTo(el, el.scrollHeight);
+  };
+
+  /**
+   * Track the real content bottom, not the blank spacer. A centered send leaves the spacer below the
+   * question, so a plain scrollHeight check would reveal the button immediately; `.list-end` is the
+   * zero-height sentinel after the last turn, which only passes the viewport once the answer itself
+   * has grown past it.
+   */
+  const refreshScrollBtn = (el: HTMLElement) => {
+    const end = el.querySelector<HTMLElement>('.list-end');
+    if (!end) return;
+    const gap = end.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom;
+    setShowScrollBtn(gap > 1);
+  };
+
+  const animateLeadTo = (el: HTMLElement, top: number) => {
+    cancelLeadAnim();
+    const from = leadHeight.current;
+    if (Math.abs(top - from) < 2) {
+      applyLead(top);
+      return;
+    }
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
+      applyLead(top);
+      contentHeight.current = el.scrollHeight - spacerHeight.current;
+      return;
+    }
+    const duration = 460;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      applyLead(from + (top - from) * eased);
+      // The lead is part of the content box; keep the delta tracker in sync while it shrinks.
+      contentHeight.current = el.scrollHeight - spacerHeight.current;
+      if (t < 1) {
+        leadAnim.current = requestAnimationFrame(tick);
+      } else {
+        leadAnim.current = null;
+        applyLead(top);
+        contentHeight.current = el.scrollHeight - spacerHeight.current;
+      }
+    };
+    leadAnim.current = requestAnimationFrame(tick);
+  };
+
+  // useLayoutEffect, not useEffect: every adjustment lands before paint, so a collapse never shows
+  // the old scroll offset for one frame.
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const key = conversationId ?? '';
+    const reset = scrollConversation.current !== key;
+    scrollConversation.current = key;
+
+    if (reset) {
+      cancelLeadAnim();
+      applyLead(0);
+      applySpacer(0);
+      contentHeight.current = el.scrollHeight;
+      stickToBottom.current = true;
+      setShowScrollBtn(false);
+      centerNext.current = false;
+      pendingConversation.current = false;
+      scrollTo(el, el.scrollHeight);
+      return;
+    }
+
+    if (prepended.current) {
+      // loadEarlier already restores the old scrollTop; its growth is above the viewport.
+      prepended.current = false;
+      contentHeight.current = el.scrollHeight - spacerHeight.current;
+      return;
+    }
+
+    if (leadAnim.current != null) {
+      // The lead spacer is animated frame by frame; its height change is not content growth.
+      contentHeight.current = el.scrollHeight - spacerHeight.current;
+      return;
+    }
+
+    if (centerNext.current) {
+      centerNext.current = false;
+      applySpacer(0);
+      const users = el.querySelectorAll<HTMLElement>('.msg.user');
+      const userEl = users[users.length - 1];
+      if (!userEl) {
+        contentHeight.current = el.scrollHeight;
+        return;
+      }
+      const listRect = el.getBoundingClientRect();
+      const userRect = userEl.getBoundingClientRect();
+      const userTop = userRect.top - listRect.top + el.scrollTop;
+      stickToBottom.current = false;
+      if (users.length === 1) {
+        // No previous content to scroll above: put the first question at the bottom with a
+        // temporary lead spacer, then shrink that spacer so the question glides up to the top.
+        const lead = Math.max(0, el.clientHeight - userRect.height - userTop);
+        cancelLeadAnim();
+        applyLead(lead);
+        contentHeight.current = el.scrollHeight - spacerHeight.current;
+        scrollTo(el, 0);
+        centerLockUntil.current = 0;
+        animateLeadTo(el, 0);
+        return;
+      }
+      cancelLeadAnim();
+      applyLead(0);
+      const target = Math.max(0, userTop + userRect.height / 2 - el.clientHeight / 2);
+      applySpacer(target + el.clientHeight - el.scrollHeight);
+      contentHeight.current = el.scrollHeight - spacerHeight.current;
+      // Start from the current bottom position and slide the new question to the middle.
+      animateScrollTo(el, target);
+      // Hold the question centered until the turn ends: any layout clamp while the think block
+      // mounts/collapses must not move the viewport (or look like a user scroll to onScroll).
+      centerLockTop.current = target;
+      centerLockUntil.current = performance.now() + 30_000;
+      refreshScrollBtn(el);
+      return;
+    }
+
+    const height = el.scrollHeight - spacerHeight.current;
+    const delta = height - contentHeight.current;
+    contentHeight.current = height;
+    if (delta > 0) {
+      // Answer growth first consumes the blank spacer; the total height stays put.
+      if (spacerHeight.current > 0) applySpacer(spacerHeight.current - delta);
+    } else if (delta < 0 && !(stickToBottom.current && spacerHeight.current <= 0)) {
+      // A think block collapsed while not following: give the space back to the spacer instead of
+      // moving the viewport. When following, skip this and let the pin below absorb the shrink.
+      applySpacer(spacerHeight.current - delta);
+    }
+
+    const now = performance.now();
+    if (scrollAnim.current && now < scrollAnim.current.until) return;
+    if (centerLockUntil.current > now) {
+      // The collapse can clamp scrollTop before the spacer has caught up. While the centering lock
+      // is held, make the centered offset reachable again and restore it in this layout pass, so
+      // the clamp is never painted.
+      const need = centerLockTop.current + el.clientHeight - el.scrollHeight;
+      if (need > 0) applySpacer(spacerHeight.current + need);
+      const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      const want = Math.min(centerLockTop.current, maxTop);
+      if (Math.abs(el.scrollTop - want) > 1) scrollTo(el, want);
+      refreshScrollBtn(el);
+      return;
+    }
+
+    if (stickToBottom.current && spacerHeight.current <= 0) {
+      scrollTo(el, el.scrollHeight);
+    }
+    refreshScrollBtn(el);
+  }, [messages, conversationId]);
+
+  // CSS height transitions (ThinkingFade) and late images change the layout without a React render.
+  // Compensate them with the spacer too; otherwise the 240ms collapse still drags the viewport up.
   useEffect(() => {
     const el = listRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
-    let pending = 0;
     const ro = new ResizeObserver(() => {
-      if (!stickToBottom.current) return;
-      cancelAnimationFrame(pending);
-      pending = requestAnimationFrame(() => {
-        if (stickToBottom.current) el.scrollTop = el.scrollHeight;
-      });
+      if (leadAnim.current != null) {
+        // The lead animation owns layout while it runs; do not reinterpret its shrink as content.
+        contentHeight.current = el.scrollHeight - spacerHeight.current;
+        return;
+      }
+      // The panel can be resized; never let the spacer protrude past the new viewport.
+      if (spacerHeight.current > el.clientHeight) applySpacer(el.clientHeight);
+      const height = el.scrollHeight - spacerHeight.current;
+      const delta = height - contentHeight.current;
+      contentHeight.current = height;
+      if (delta > 0) {
+        if (spacerHeight.current > 0) applySpacer(spacerHeight.current - delta);
+      } else if (delta < 0 && !(stickToBottom.current && spacerHeight.current <= 0)) {
+        applySpacer(spacerHeight.current - delta);
+      }
+
+      const now = performance.now();
+      if (scrollAnim.current && now < scrollAnim.current.until) return;
+      if (centerLockUntil.current > now) {
+        const need = centerLockTop.current + el.clientHeight - el.scrollHeight;
+        if (need > 0) applySpacer(spacerHeight.current + need);
+        const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+        const want = Math.min(centerLockTop.current, maxTop);
+        if (Math.abs(el.scrollTop - want) > 1) scrollTo(el, want);
+        refreshScrollBtn(el);
+        return;
+      }
+
+      if (stickToBottom.current && spacerHeight.current <= 0) {
+        scrollTo(el, el.scrollHeight);
+      }
+      refreshScrollBtn(el);
     });
+    // The scroll container's own box is fixed, so observing it never fires. Watch each direct child
+    // instead; MutationObserver keeps the set in sync as rounds/tool rows are added.
+    const seen = new WeakSet<Element>();
+    const sync = () => {
+      for (const child of Array.from(el.children)) {
+        if (seen.has(child)) continue;
+        seen.add(child);
+        ro.observe(child);
+      }
+    };
+    sync();
     ro.observe(el);
-    for (const child of Array.from(el.children)) ro.observe(child);
+    const mo = new MutationObserver(sync);
+    mo.observe(el, { childList: true });
     return () => {
-      cancelAnimationFrame(pending);
+      mo.disconnect();
       ro.disconnect();
     };
-  }, [messages]);
+  }, []);
+
+  const noteUserScroll = () => {
+    cancelScrollAnim();
+    internalScrollUntil.current = 0;
+    userScrollAt.current = performance.now();
+    centerLockUntil.current = 0;
+  };
 
   const onScroll = () => {
     const el = listRef.current;
     if (!el) return;
-    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     // Scrolling moves the selection rect, so just dismiss the quote button
     setQuoteMenu(null);
+    const now = performance.now();
+    // Ignore the scroll events produced by our own centering animation; they would otherwise look
+    // like a user taking control and cancel the lock mid-slide.
+    if (scrollAnim.current && now < scrollAnim.current.until) return;
+    if (centerLockUntil.current > now) {
+      // The collapse may have made the centered offset unreachable; grow the spacer before
+      // clamping so restoring the target cannot be silently truncated.
+      const need = centerLockTop.current + el.clientHeight - el.scrollHeight;
+      if (need > 0) applySpacer(spacerHeight.current + need);
+      const want = Math.min(centerLockTop.current, Math.max(0, el.scrollHeight - el.clientHeight));
+      centerLockTop.current = want;
+      if (Math.abs(el.scrollTop - want) > 1) {
+        internalScrollUntil.current = now + 120;
+        el.scrollTop = want;
+      }
+      return;
+    }
+    if (now < internalScrollUntil.current) return;
+    // Ignore scroll events we did not cause: a collapsing/expanding block can make the browser
+    // clamp the offset, and treating that as "user scrolled up" shrinks the spacer and moves the
+    // conversation. Only genuine wheel/touch/pointer input arms the brake below.
+    if (now - userScrollAt.current > 400) return;
+
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (gap > 1 && spacerHeight.current > 0) {
+      // User is scrolling up: spend the blank spacer instead of moving the content. Shrinking it
+      // by exactly the gap makes the content bottom touch the viewport bottom again, so the wheel
+      // cannot run into blank space above the answer.
+      applySpacer(spacerHeight.current - gap);
+      stickToBottom.current = false;
+      refreshScrollBtn(el);
+      return;
+    }
+    // Following resumes only at the real bottom, never on a small upward nudge.
+    if (gap <= 1 && spacerHeight.current <= 0) {
+      stickToBottom.current = true;
+    } else if (gap > 1) {
+      stickToBottom.current = false;
+    }
+    refreshScrollBtn(el);
   };
 
   /* ---------------- Answer selection → quote ---------------- */
@@ -565,18 +896,21 @@ export default function App() {
   const canSend = configured && !busy && input.trim().length > 0;
 
   const send = useCallback(
-    async (raw?: string, opts?: { regenerate?: boolean }) => {
-      const regenerate = Boolean(opts?.regenerate);
+    async (raw?: string, opts?: { regenerate?: boolean; editMessageId?: string; editLocalId?: string }) => {
+      const editMessageId = opts?.editMessageId;
+      const editingQuestion = Boolean(editMessageId);
+      const regenerate = Boolean(opts?.regenerate) && !editingQuestion;
       const question = (raw ?? serialize()).trim();
       if (!question || !settings || busy || sendingRef.current) return;
       if (!isConfigured(settings) || !page) return;
-      if (regenerate && !conversationId) return;
+      if ((regenerate || editingQuestion) && !conversationId) return;
+      if (editingQuestion && !opts?.editLocalId) return;
 
       const runId = ++runSeqRef.current;
       abortRef.current?.abort();
       sendingRef.current = true;
       suppressedResumeUrl.current = null;
-      if (!regenerate) {
+      if (!regenerate && !editingQuestion) {
         setInput('');
         if (editorRef.current) {
           editorRef.current.innerHTML = '';
@@ -584,17 +918,53 @@ export default function App() {
         }
         savedRange.current = null;
       }
-      stickToBottom.current = true;
+      // Send starts a new scroll layout: center the question, leave blank space below, and stop
+      // following until the user explicitly scrolls to the bottom again.
+      stickToBottom.current = false;
+      setShowScrollBtn(false);
+      centerNext.current = !regenerate && !editingQuestion;
+      if (editingQuestion) {
+        // An edited question keeps the position it had when Send was clicked (unlike a new question,
+        // which is centered). Sending deletes the later rows, so freeze the offset before that
+        // layout change; the spacer below then fills the space they leave instead of pinning/clamping.
+        centerLockTop.current = listRef.current?.scrollTop ?? 0;
+        centerLockUntil.current = performance.now() + 30_000;
+      }
+      if (!conversationId) pendingConversation.current = true;
 
       // One question can produce several assistant segments (tool calls split them), so targetId
       // points at the bubble currently receiving text; it resets when a tool starts and recreates later.
       let targetId: string | null = crypto.randomUUID();
       const firstAsstId = targetId;
-      setMessages((prev) => [
-        ...prev,
-        ...(regenerate ? [] : [{ id: crypto.randomUUID(), role: 'user' as const, content: question, createdAt: Date.now() }]),
-        { id: firstAsstId, role: 'assistant', content: '', reasoning: '', streaming: true },
-      ]);
+      // A fresh send keeps a local id until `meta` reports the DB id. Editing an existing row reuses
+      // its local id (so the DOM stays stable) and already knows the DB id.
+      const localUserId = editingQuestion ? (opts?.editLocalId ?? null) : regenerate ? null : crypto.randomUUID();
+      setMessages((prev) => {
+        if (editingQuestion && localUserId) {
+          // Overwrite semantics: the edited question and everything after it are replaced locally,
+          // matching the backend's edit + truncate.
+          const at = prev.findIndex((m) => m.id === localUserId);
+          const kept = at >= 0 ? prev.slice(0, at) : prev;
+          return [
+            ...kept,
+            {
+              id: localUserId,
+              serverId: editMessageId,
+              role: 'user' as const,
+              content: question,
+              createdAt: Date.now(),
+            },
+            { id: firstAsstId, role: 'assistant', content: '', reasoning: '', streaming: true },
+          ];
+        }
+        return [
+          ...prev,
+          ...(localUserId
+            ? [{ id: localUserId, role: 'user' as const, content: question, createdAt: Date.now() }]
+            : []),
+          { id: firstAsstId, role: 'assistant', content: '', reasoning: '', streaming: true },
+        ];
+      });
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -604,10 +974,9 @@ export default function App() {
       // flush into state in one go.
       let contentBuf = '';
       let reasoningBuf = '';
-      // Live answer start: the server only reports processMs with done, so the collapsed summary would
-      // otherwise show "0.0s" for the whole time the answer text is still streaming.
+      // The server sends processMs on the first content/replace frame of each phase. Keep the
+      // latest one so the live summary renders the same duration the persisted row will get.
       let phaseMs: number | null = null;
-      let responseStartedAt = 0;
       /** The current phase already rendered answer text, so the next tool starts a new phase. */
       let phaseAnswered = false;
       let timer: ReturnType<typeof setTimeout> | null = null;
@@ -676,7 +1045,6 @@ export default function App() {
         ]);
         const selected = sel?.text || snapshot.selection || '';
 
-        responseStartedAt = Date.now();
         for await (const ev of streamChat({
           settings,
           conversationId,
@@ -693,6 +1061,7 @@ export default function App() {
           screenshot: shot,
           text: question,
           regenerate,
+          editMessageId,
           locale: getLocale(),
           signal: controller.signal,
         })) {
@@ -709,9 +1078,24 @@ export default function App() {
           if (runSeqRef.current !== runId) break;
           if (ev.type === 'meta') {
             convId = ev.conversationId;
+            if (pendingConversation.current) {
+              // Assigning the new id is not a conversation switch; keep the centered layout.
+              scrollConversation.current = ev.conversationId;
+              pendingConversation.current = false;
+            }
+            // Remember which DB row this local bubble is, so editing it later targets the server id.
+            if (localUserId) {
+              const uid = localUserId;
+              setMessages((prev) =>
+                prev.map((m) => (m.id === uid ? { ...m, serverId: ev.messageId } : m)),
+              );
+            }
             setConversationId(ev.conversationId);
           } else if (ev.type === 'content') {
-            if (phaseMs == null) phaseMs = Date.now() - responseStartedAt;
+            // Keep the centering lock until done: the think block collapses in this commit and,
+            // in clean mode, fades out for another 240ms. Releasing the lock here let a browser
+            // scroll clamp move the question before the spacer had caught up.
+            if (ev.processMs != null) phaseMs = ev.processMs;
             phaseAnswered = true;
             ensureTarget();
             contentBuf += ev.delta;
@@ -720,7 +1104,7 @@ export default function App() {
             // Final output differs from the streamed deltas. Set the final text directly: flush()
             // appends, so buffering ev.text there would duplicate the already-rendered prefix.
             ensureTarget();
-            if (phaseMs == null) phaseMs = Date.now() - responseStartedAt;
+            if (ev.processMs != null) phaseMs = ev.processMs;
             phaseAnswered = true;
             const answerPhaseMs = phaseMs;
             if (timer) {
@@ -737,7 +1121,7 @@ export default function App() {
                       ...m,
                       content: ev.text,
                       reasoning: (m.reasoning ?? '') + pendingReasoning,
-                      processMs: m.processMs ?? answerPhaseMs,
+                      processMs: m.processMs ?? answerPhaseMs ?? undefined,
                     }
                   : m,
               ),
@@ -765,7 +1149,6 @@ export default function App() {
               // A new answer segment starts after the tool: measure its own phase from the tool start.
               if (startsNewPhase) {
                 phaseMs = null;
-                responseStartedAt = Date.now();
                 phaseAnswered = false;
               }
               targetId = null;
@@ -800,6 +1183,7 @@ export default function App() {
               );
             }
           } else if (ev.type === 'done') {
+            centerLockUntil.current = 0;
             sawDone = true;
             flush();
             // Answer done: release the editor now instead of holding the connection ~20s for auto-title
@@ -823,6 +1207,7 @@ export default function App() {
               }),
             );
           } else if (ev.type === 'error') {
+            centerLockUntil.current = 0;
             sawError = true;
             flush();
             ensureTarget();
@@ -885,6 +1270,15 @@ export default function App() {
   );
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  /** Separate from copiedId: a question and an answer are different buttons in the same turn */
+  const [copiedUserId, setCopiedUserId] = useState<string | null>(null);
+  /**
+   * In-place question editor. `localId` keeps the rendered row stable while `serverId` is the DB id
+   * the backend rewrites; `content` is the original text restored by fillEditor on open.
+   */
+  const [editing, setEditing] = useState<{ localId: string; serverId: string; content: string } | null>(null);
+  /** Mirror of the inline editor's text: only used to disable Send while it is empty */
+  const [editDraft, setEditDraft] = useState('');
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
   const showToast = useCallback((message: string) => {
@@ -892,6 +1286,51 @@ export default function App() {
     if (toastTimer.current != null) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), 2200);
   }, []);
+
+  // Fill and focus the inline editor once it is in the DOM. Content is rendered imperatively (quote
+  // chips need real spans), so React must not own the children of this contenteditable.
+  useLayoutEffect(() => {
+    if (!editing) return;
+    const el = inlineEditorRef.current;
+    if (!el) return;
+    fillDomEditor(el, editing.content);
+    setEditDraft(serializeEditor(el));
+    el.focus();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }, [editing]);
+
+  // The inline editor is taller than the bubble it replaces. Show all of it (scrolling only the
+  // overflow) without pinning the list to the bottom; the send lock captures this offset later.
+  // No center lock here: it would fight the browser scrolling the caret into view while typing.
+  useLayoutEffect(() => {
+    if (!editing) return;
+    const el = listRef.current;
+    const row = el?.querySelector<HTMLElement>('.msg.user.editing');
+    if (!el || !row) return;
+    cancelScrollAnim();
+    stickToBottom.current = false;
+    const listRect = el.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    let top = el.scrollTop + Math.max(0, rowRect.bottom - listRect.bottom);
+    const need = top + el.clientHeight - el.scrollHeight;
+    if (need > 0) applySpacer(spacerHeight.current + need);
+    top = Math.min(top, Math.max(0, el.scrollHeight - el.clientHeight));
+    scrollTo(el, top);
+    refreshScrollBtn(el);
+    contentHeight.current = el.scrollHeight - spacerHeight.current;
+  }, [editing]);
+
+  // A different page or conversation invalidates the open editor (its row may no longer exist).
+  useEffect(() => {
+    centerLockUntil.current = 0;
+    setEditing(null);
+    setEditDraft('');
+  }, [conversationId, pageUrl]);
 
   const stop = () => abortRef.current?.abort();
 
@@ -915,6 +1354,88 @@ export default function App() {
       .catch(() => showToast(t('answer.copyFailed')));
   }, [showToast]);
 
+  /**
+   * Copy the user's own question. Quote chips are serialized as <q>…</q> in the stored text, so
+   * turn them back into plain quoted text instead of leaking the markers into the clipboard.
+   */
+  const copyQuestion = useCallback((m: Message) => {
+    const text = m.content.replace(/<q>([\s\S]*?)<\/q>/g, (_all, quote: string) => `"${decodeQuote(quote)}"`);
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopiedUserId(m.id);
+        window.setTimeout(() => setCopiedUserId((cur) => (cur === m.id ? null : cur)), 1400);
+      })
+      .catch(() => showToast(t('answer.copyFailed')));
+  }, [showToast]);
+
+  /**
+   * Open the in-place editor for a past question. Unlike the old composer refill, Send rewrites this
+   * message in the backend and regenerates from it (later turns are overwritten on purpose).
+   */
+  const startEdit = useCallback(
+    (m: Message) => {
+      if (busy || sendingRef.current) return;
+      // Editing takes over scrolling; a still-active send lock would snap the row back on open.
+      centerLockUntil.current = 0;
+      setEditing({ localId: m.id, serverId: m.serverId ?? m.id, content: m.content });
+      setEditDraft(m.content);
+    },
+    [busy],
+  );
+
+  const cancelEdit = useCallback(() => {
+    // The anchor lock belongs to editing; keep the collapsed editor from holding a stale offset.
+    centerLockUntil.current = 0;
+    setEditing(null);
+    setEditDraft('');
+  }, []);
+
+  const onEditInput = useCallback(() => {
+    setEditDraft(serializeEditor(inlineEditorRef.current));
+  }, []);
+
+  const submitEdit = useCallback(() => {
+    if (!editing) return;
+    const el = inlineEditorRef.current;
+    const text = (el ? serializeEditor(el) : editDraft).trim();
+    if (!text || busy || sendingRef.current) return;
+    if (!settings || !isConfigured(settings) || !page || !conversationId) return;
+    const { localId, serverId } = editing;
+    setEditing(null);
+    setEditDraft('');
+    void send(text, { editMessageId: serverId, editLocalId: localId });
+  }, [busy, conversationId, editDraft, editing, page, send, settings]);
+
+  const onEditPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const text = e.clipboardData.getData('text/plain');
+    const el = inlineEditorRef.current;
+    if (!text || !el) return;
+    insertTextInto(el, text, null);
+    onEditInput();
+  };
+
+  const onEditKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Enter must not send while an IME is composing candidates
+    if (e.nativeEvent.isComposing) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEdit();
+      return;
+    }
+    if (e.key !== 'Enter') return;
+    if (e.shiftKey) {
+      e.preventDefault();
+      // Native command keeps the trailing placeholder line, same as the composer
+      document.execCommand('insertLineBreak');
+      onEditInput();
+      return;
+    }
+    e.preventDefault();
+    submitEdit();
+  };
+
   /** Regenerate a turn: drop its answers locally, then rerun the same question with regenerate */
   const regenerateRound = useCallback(
     (r: Round) => {
@@ -932,8 +1453,17 @@ export default function App() {
 
   const newConversation = () => {
     if (busy) return;
+    cancelScrollAnim();
     loadSeqRef.current += 1; // invalidate in-flight history loads so they can't refill the empty conversation
     suppressedResumeUrl.current = pageUrl;
+    pendingConversation.current = false;
+    // conversationId may already be null (e.g. after a failed first send); reset the spacer here
+    // as well so an empty new chat cannot keep the old blank space.
+    cancelLeadAnim();
+    applyLead(0);
+    applySpacer(0);
+    contentHeight.current = 0;
+    centerNext.current = false;
     setConversationId(null);
     setMessages([]);
     setHistoryOpen(false);
@@ -942,6 +1472,7 @@ export default function App() {
     setHistoryBefore(null);
     setLoadingEarlier(false);
     stickToBottom.current = true;
+    setShowScrollBtn(false);
   };
 
   const openConversation = async (id: string) => {
@@ -976,6 +1507,7 @@ export default function App() {
       setLoadingEarlier(false);
       setHistoryOpen(false);
       stickToBottom.current = true;
+      setShowScrollBtn(false);
     } catch (err) {
       if (mine !== loadSeqRef.current) return;
       // On failure keep the conversation and only show a banner; never replace the list with an error bubble
@@ -998,6 +1530,9 @@ export default function App() {
       });
       if (mine !== loadSeqRef.current) return;
       const older = toMessages(conv.messages, page?.kind === 'pdf');
+      // The spacer delta logic must not treat prepended history as answer growth.
+      cancelScrollAnim();
+      prepended.current = true;
       setMessages((prev) => {
         const seen = new Set(prev.map((m) => m.id));
         return [...older.filter((m) => !seen.has(m.id)), ...prev];
@@ -1007,9 +1542,11 @@ export default function App() {
       // Prepending grows the scroll height; keep the user's viewport anchored instead of jumping.
       requestAnimationFrame(() => {
         if (!el) return;
+        internalScrollUntil.current = performance.now() + 120;
         el.scrollTop = prevTop + (el.scrollHeight - prevHeight);
       });
     } catch (err) {
+      prepended.current = false;
       if (mine === loadSeqRef.current) {
         setLoadError(t('error.historyLoad', { message: errText(err) }));
       }
@@ -1244,7 +1781,17 @@ export default function App() {
       )}
 
       {/* Conversation area */}
-      <div className="list" ref={listRef} onScroll={onScroll}>
+      <div className="list-wrap">
+      <div
+        className="list"
+        ref={listRef}
+        onScroll={onScroll}
+        onWheel={noteUserScroll}
+        onTouchMove={noteUserScroll}
+        onPointerDown={noteUserScroll}
+        onKeyDown={noteUserScroll}
+      >
+        <div ref={leadSpacerRef} className="scroll-lead" aria-hidden="true" />
         {loadError && (
           <div className="load-error" role="alert">
             <span>{loadError}</span>
@@ -1308,18 +1855,74 @@ export default function App() {
           const userAt = r.user?.createdAt ?? null;
           const prevEnd = roundIndex > 0 ? roundEndAt(rounds[roundIndex - 1]!) : null;
           const showSep = userAt != null && (prevEnd == null || userAt - prevEnd > TIME_SEP_GAP_MS);
+          const userMsg = r.user;
           return (
           <div key={r.key} className="turn">
-            {r.user && (
+            {userMsg && (
               <>
                 {showSep && <div className="time-sep">{fmtTime(userAt)}</div>}
-                <div className="msg user">
-                  {/* Time outside the bubble follows its left edge (no drift when bubble widths differ) */}
-                  <div className="bubble-wrap">
-                    {!showSep && userAt != null && <span className="msg-time">{fmtClock(userAt)}</span>}
-                    <div className="bubble">{renderUserText(r.user.content)}</div>
+                {editing?.localId === userMsg.id ? (
+                  <div className="msg user editing">
+                    <div className="inline-edit">
+                      <div
+                        ref={inlineEditorRef}
+                        className="inline-edit-input"
+                        contentEditable
+                        role="textbox"
+                        aria-multiline="true"
+                        aria-label={t('question.edit')}
+                        spellCheck={false}
+                        onInput={onEditInput}
+                        onKeyDown={onEditKeyDown}
+                        onPaste={onEditPaste}
+                        onDrop={(e) => e.preventDefault()}
+                      />
+                      <div className="inline-edit-actions">
+                        <button type="button" className="edit-cancel" onClick={cancelEdit}>
+                          {t('question.edit.cancel')}
+                        </button>
+                        <button
+                          type="button"
+                          className="edit-send"
+                          disabled={!editDraft.trim() || busy}
+                          onClick={submitEdit}
+                        >
+                          {t('question.edit.send')}
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="msg user">
+                    {/* Time outside the bubble follows its left edge (no drift when bubble widths differ) */}
+                    <div className="bubble-wrap">
+                      {!showSep && userAt != null && <span className="msg-time">{fmtClock(userAt)}</span>}
+                      <div className="bubble">{renderUserText(userMsg.content)}</div>
+                    </div>
+                    {/* Same icon row as an answer's actions, mirrored to the bubble's right edge */}
+                    <div className="msg-actions">
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        title={copiedUserId === userMsg.id ? t('question.copied') : t('question.copy')}
+                        aria-label={copiedUserId === userMsg.id ? t('question.copied') : t('question.copy')}
+                        onClick={() => copyQuestion(userMsg)}
+                      >
+                        {copiedUserId === userMsg.id ? <IconCheck /> : <IconCopy />}
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        title={t('question.edit')}
+                        aria-label={t('question.edit')}
+                        disabled={busy}
+                        onClick={() => startEdit(userMsg)}
+                      >
+                        <IconEdit />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </>
             )}
 
@@ -1433,7 +2036,21 @@ export default function App() {
           );
         })}
         {/* Scroll anchor: catches "taller than estimated" cases when pinned (table/KaTeX reflow) */}
-        <div ref={bottomRef} className="list-end" />
+        <div className="list-end" />
+        {/* Invisible breathing room controlled by the scroll layout effect (never rendered as content). */}
+        <div ref={spacerRef} className="scroll-spacer" aria-hidden="true" />
+      </div>
+      {showScrollBtn && (
+        <button
+          type="button"
+          className="scroll-bottom"
+          title={t('scroll.toBottom')}
+          aria-label={t('scroll.toBottom')}
+          onClick={scrollToBottom}
+        >
+          <IconArrowDown />
+        </button>
+      )}
       </div>
 
       {/* Floating "Quote" button when answer text is selected */}

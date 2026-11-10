@@ -97,6 +97,8 @@ export const messages = {
   'error.chat.missing_page': 'Missing page information',
   'error.chat.invalid_page': 'Invalid page information',
   'error.chat.nothing_to_regenerate': 'There is no question to regenerate',
+  'error.chat.message_not_found': 'The question to edit was not found',
+  'error.chat.invalid_edit': 'Editing and regenerating cannot be combined',
   'error.upstream.bad_request': 'Upstream rejected the request (400)',
   'error.upstream.auth': 'API key is invalid or expired',
   'error.upstream.balance': 'Insufficient account balance',

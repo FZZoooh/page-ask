@@ -17,11 +17,19 @@ export const enUS = {
   'header.settings.title': 'Configure backend and model',
   'header.reload': 'Reload',
 
+  // Buttons under a question
+  'question.copy': 'Copy',
+  'question.copied': 'Copied',
+  'question.edit': 'Edit this question',
+  'question.edit.cancel': 'Cancel',
+  'question.edit.send': 'Send',
+
   // Buttons under an answer
   'answer.copy': 'Copy',
   'answer.copied': 'Copied',
   'answer.regenerate': 'Regenerate',
   'answer.regenerate.title': 'Discard this answer and ask again',
+  'scroll.toBottom': 'Scroll to bottom',
 
   // History list
   'history.hint': 'Chats on this site',
@@ -137,6 +145,8 @@ export const enUS = {
   'error.historyLoad': 'Failed to load history: {message}',
   'error.historyUnavailable': 'History is temporarily unavailable; the current list was kept',
   'error.chat.nothing_to_regenerate': 'There is no question to regenerate',
+  'error.chat.message_not_found': 'The question to edit was not found',
+  'error.chat.invalid_edit': 'Editing and regenerating cannot be combined',
   'error.chat.invalid_page': 'Invalid page information',
   'error.upstream.bad_frame': 'The upstream returned unreadable data',
   'error.pageMismatch': 'This chat belongs to a different page',

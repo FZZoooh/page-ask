@@ -95,6 +95,8 @@ export const messages = {
   'error.chat.missing_page': '缺少页面信息',
   'error.chat.invalid_page': '页面信息不合法',
   'error.chat.nothing_to_regenerate': '没有可重新生成的提问',
+  'error.chat.message_not_found': '找不到要编辑的提问',
+  'error.chat.invalid_edit': '不能同时编辑和重新生成',
   'error.upstream.bad_request': '请求被上游拒绝（400）',
   'error.upstream.auth': 'API Key 无效或已过期',
   'error.upstream.balance': '账号余额不足',

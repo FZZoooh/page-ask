@@ -19,11 +19,19 @@ export const zhCN = {
   'header.settings.title': '设置后端地址与模型',
   'header.reload': '重读',
 
+  // 用户提问下方的小按钮
+  'question.copy': '复制',
+  'question.copied': '已复制',
+  'question.edit': '编辑这条提问',
+  'question.edit.cancel': '取消',
+  'question.edit.send': '发送',
+
   // 回答底部的小按钮
   'answer.copy': '复制',
   'answer.copied': '已复制',
   'answer.regenerate': '重新生成',
   'answer.regenerate.title': '重试（将覆盖）',
+  'scroll.toBottom': '滚动到底部',
 
   // 历史列表
   'history.hint': '该站点的对话记录',
@@ -141,6 +149,8 @@ export const zhCN = {
   'error.historyLoad': '加载历史失败：{message}',
   'error.historyUnavailable': '历史列表暂时不可用，已保留当前列表',
   'error.chat.nothing_to_regenerate': '没有可重新生成的提问',
+  'error.chat.message_not_found': '找不到要编辑的提问',
+  'error.chat.invalid_edit': '不能同时编辑和重新生成',
   'error.chat.invalid_page': '页面信息不合法',
   'error.upstream.bad_frame': '上游返回了无法解析的数据',
   'error.pageMismatch': '这个会话属于另一个页面',

@@ -64,12 +64,32 @@ export function IconCopy(_props: Props) {
   );
 }
 
+/** Edit: pencil pointing down-left, with a band line near the eraser end */
+export function IconEdit(_props: Props) {
+  return (
+    <svg {...base} stroke="currentColor" strokeWidth={1.4} fill="none">
+      <path d="M11.3 2a1.9 1.9 0 0 1 2.7 2.7L5 13.7l-3.7 1 1-3.7L11.3 2Z" strokeLinejoin="round" />
+      <path d="m9.9 3.4 2.7 2.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** Regenerate: circular arrow */
 export function IconReload(_props: Props) {
   return (
     <svg {...base} stroke="currentColor" strokeWidth={1.4} fill="none">
       <path d="M13 8a5 5 0 1 1-1.6-3.7" strokeLinecap="round" />
       <path d="M13.2 2.4v2.9h-2.9" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Scroll to the newest message when the list is no longer following the bottom */
+export function IconArrowDown(_props: Props) {
+  return (
+    <svg {...base} stroke="currentColor" strokeWidth={1.7} fill="none">
+      <path d="M8 3v9.6" strokeLinecap="round" />
+      <path d="m4.2 9.2 3.8 3.8 3.8-3.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

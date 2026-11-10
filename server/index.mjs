@@ -37,6 +37,7 @@ import {
   touchConversation,
   trimShotBudget,
   truncateAfterLastUser,
+  editUserMessage,
 } from './db.mjs';
 import { lifecycleInfo, markCleanExit, startLifecycle } from './lifecycle.mjs';
 import { logError, logEvent } from './log.mjs';
@@ -689,14 +690,23 @@ async function handleChat(req, res) {
   // would otherwise interleave addTurn rows or remove the conversation under the running turn.
   if ((activeChats.get(conv.id) ?? 0) > 0) return sendJson(res, 409, errorPayload('conversation.busy'));
 
+  // Inline edit: rewrite one earlier user message and rerun from it. "regenerate" only affects the
+  // last user message, so the two modes are mutually exclusive by design.
+  const editMessageId = typeof body?.editMessageId === 'string' ? body.editMessageId.trim() : '';
+  if (editMessageId && body.regenerate) return sendJson(res, 400, errorPayload('chat.invalid_edit'));
+
   let userMsg;
-  if (body.regenerate) {
+  if (editMessageId) {
+    userMsg = editUserMessage({ conversationId: conv.id, messageId: editMessageId, content: text });
+    if (!userMsg) return sendJson(res, 400, errorPayload('chat.message_not_found'));
+  } else if (body.regenerate) {
     userMsg = truncateAfterLastUser(conv.id);
     if (!userMsg) return sendJson(res, 400, errorPayload('chat.nothing_to_regenerate'));
   } else {
     userMsg = addMessage({ conversationId: conv.id, role: 'user', content: text });
   }
-  logEvent(body.regenerate ? 'chat_regenerate' : 'chat_start', { conversationId: conv.id, kind: page.kind ?? '(none)', pages: page.pages, chars: (page.markdown ?? '').length, hasShot: Boolean(page.screenshot) });
+  const chatEvent = editMessageId ? 'chat_edit' : body.regenerate ? 'chat_regenerate' : 'chat_start';
+  logEvent(chatEvent, { conversationId: conv.id, kind: page.kind ?? '(none)', pages: page.pages, chars: (page.markdown ?? '').length, hasShot: Boolean(page.screenshot) });
   if (!conv.title && (page.title || text)) touchConversation(conv.id, { title: page.title || text.slice(0, 40) });
 
   res.writeHead(200, {
@@ -718,7 +728,14 @@ async function handleChat(req, res) {
       res.destroy();
       return;
     }
-    if (event === 'content' && phaseMs == null) phaseMs = Date.now() - phaseStarted;
+    // The server owns phase timing. Put the frozen duration on content/replace frames so the
+    // panel can show a live summary without keeping a second, subtly different clock.
+    if ((event === 'content' || event === 'replace') && phaseMs == null) {
+      phaseMs = Date.now() - phaseStarted;
+    }
+    if ((event === 'content' || event === 'replace') && phaseMs != null) {
+      data = { ...data, processMs: phaseMs };
+    }
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
@@ -967,7 +984,8 @@ async function handleChat(req, res) {
                 locale,
               ),
               label: toolLabel(call.name, locale),
-              detail: translate('tool.detail.failed', undefined, locale),
+              // The red "failed" marker already says this; a generic detail here would duplicate it.
+              // Keep the call detail (e.g. the URL) and let timeout/stop supply their specific detail.
               failed: true,
             };
           }
