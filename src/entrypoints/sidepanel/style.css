@@ -1106,6 +1106,13 @@ button.primary.save:hover:not(:disabled) {
   box-shadow: 0 8px 28px color-mix(in srgb, #000 24%, transparent);
 }
 
+/* The menu is what takes focus when it opens (see MarkdownView), so no item looks pre-selected; the
+   container itself is not an interactive target and must not draw a focus ring around the panel. */
+.math-menu:focus,
+.math-menu:focus-visible {
+  outline: none;
+}
+
 .math-menu button {
   width: 100%;
   padding: 7px 10px;

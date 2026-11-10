@@ -121,6 +121,11 @@ export const MarkdownView = memo(function MarkdownView({
 
   useEffect(() => {
     if (!menu) return;
+    // Focus the menu itself, not its first item. autofocus on the item made Chrome treat it as
+    // :focus-visible, so "Copy LaTeX" looked selected the moment the menu opened and stayed that
+    // way after the pointer left; an ARIA menu focuses the container instead, and Tab reaches the
+    // items with a real keyboard ring.
+    menuRef.current?.focus();
     const onPointerDown = (e: PointerEvent) => {
       if (!menuRef.current?.contains(e.target as Node)) closeMenu();
     };
@@ -198,13 +203,14 @@ export const MarkdownView = memo(function MarkdownView({
             ref={menuRef}
             className="math-menu"
             role="menu"
+            tabIndex={-1}
             aria-label={t('math.menu')}
             style={{
               left: Math.max(8, Math.min(menu.x, window.innerWidth - 168)),
               top: Math.max(8, Math.min(menu.y, window.innerHeight - 96)),
             }}
           >
-            <button type="button" role="menuitem" autoFocus onClick={copyLatex}>
+            <button type="button" role="menuitem" onClick={copyLatex}>
               {copied ? t('math.copied') : t('math.copy')}
             </button>
             {onQuoteMath && (
