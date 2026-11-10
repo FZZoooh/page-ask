@@ -3,7 +3,7 @@
 // Run: node scripts/test-reasoning-replay.mjs
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { closeSync, mkdtempSync, mkdirSync, openSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -106,27 +106,54 @@ const upstream = createServer(async (req, res) => {
 });
 await new Promise((resolve) => upstream.listen(upstreamPort, '127.0.0.1', resolve));
 
-const port = await freePort();
-writeFileSync(
-  join(home, '.config', 'righthandman', 'settings.json'),
-  JSON.stringify({
-    baseUrl: `http://127.0.0.1:${upstreamPort}`,
-    model: 'fake',
-    apiKey: 'test-key',
-    state: 'off',
-    port,
-    token: '',
-    dataDir: data,
-  }),
-);
+const settingsFile = join(home, '.config', 'righthandman', 'settings.json');
+const outLog = join(home, 'backend.out.log');
+const errLog = join(home, 'backend.err.log');
 
-const child = spawn(process.execPath, [join(root, 'server', 'index.mjs')], {
-  env: { ...process.env, USERPROFILE: home, HOME: home },
-  stdio: 'ignore',
-});
-const base = `http://127.0.0.1:${port}`;
-const waitUp = async () => {
-  for (let i = 0; i < 80; i += 1) {
+const writeSettings = (listenPort) => {
+  writeFileSync(
+    settingsFile,
+    JSON.stringify({
+      baseUrl: `http://127.0.0.1:${upstreamPort}`,
+      model: 'fake',
+      apiKey: 'test-key',
+      state: 'off',
+      port: listenPort,
+      token: '',
+      dataDir: data,
+    }),
+  );
+};
+
+const readLog = (path) => {
+  try {
+    return readFileSync(path, 'utf8').slice(-2000).trim();
+  } catch {
+    return '';
+  }
+};
+
+// Put the child's logs in files, not pipes: this test must also run under the agent sandbox,
+// where piped stdio is blocked, and a failed startup needs the backend's own error message.
+const startBackend = (listenPort) => {
+  writeSettings(listenPort);
+  const out = openSync(outLog, 'w');
+  const err = openSync(errLog, 'w');
+  const proc = spawn(process.execPath, [join(root, 'server', 'index.mjs')], {
+    env: { ...process.env, USERPROFILE: home, HOME: home },
+    stdio: ['ignore', out, err],
+  });
+  closeSync(out);
+  closeSync(err);
+  return proc;
+};
+
+let child = null;
+let port = await freePort();
+const waitUp = async (listenPort) => {
+  const base = `http://127.0.0.1:${listenPort}`;
+  for (let i = 0; i < 200; i += 1) {
+    if (child.exitCode !== null) return false;
     try {
       const response = await fetch(`${base}/health/live`);
       if (response.ok) return true;
@@ -138,8 +165,32 @@ const waitUp = async () => {
   return false;
 };
 
+const stopChild = async () => {
+  if (!child || child.exitCode !== null) return;
+  child.kill();
+  await new Promise((resolve) => {
+    child.once('exit', resolve);
+    setTimeout(resolve, 3000);
+  });
+};
+
+child = startBackend(port);
+let up = await waitUp(port);
+if (!up) {
+  // The free-port probe has a TOCTOU window: another process can take the port before the backend
+  // binds it. Retry once on a fresh port and keep the first attempt's log for diagnosis.
+  const firstOut = readLog(outLog);
+  const firstErr = readLog(errLog);
+  await stopChild();
+  port = await freePort();
+  child = startBackend(port);
+  up = await waitUp(port);
+  if (!up) console.error(`first backend attempt:\n${firstOut}\n${firstErr}`.trim());
+}
+const base = `http://127.0.0.1:${port}`;
+
 try {
-  check('后端启动', await waitUp());
+  check('后端启动', up, `exit=${child.exitCode}\n${readLog(outLog)}\n${readLog(errLog)}`);
   const created = await fetch(`${base}/conversations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
