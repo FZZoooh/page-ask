@@ -4,7 +4,7 @@ import rehypeKatex from 'rehype-katex';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
-import { splitStreamingMarkdown } from '@/lib/markdown-stream.mjs';
+import { splitStreamingMarkdown, normalizeDisplayMath } from '@/lib/markdown-stream.mjs';
 
 const remarkPlugins = [remarkGfm, remarkMath, remarkBreaks];
 const rehypePlugins = [[rehypeKatex, { throwOnError: false, strict: false, output: 'html' }]] as const;
@@ -59,9 +59,12 @@ const components: Components = {
 
 /** Completed blocks are immutable while streaming, so memo prevents re-parsing earlier answers. */
 const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
+  // Normalize on the block (not inside splitStreamingMarkdown) so the unfinished plain-text tail
+  // stays byte-for-byte what the model sent until it is complete.
+  const source = useMemo(() => normalizeDisplayMath(text), [text]);
   return (
     <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins as never} components={components}>
-      {text}
+      {source}
     </Markdown>
   );
 });

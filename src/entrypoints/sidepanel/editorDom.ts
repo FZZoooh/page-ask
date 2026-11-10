@@ -73,6 +73,29 @@ export function insertTextAtCaret(el: HTMLElement, text: string, fallback: Range
   }
 }
 
+/** Only the first line of a quote is shown; the full text stays in data-quote for sending */
+function quoteChipLabel(text: string): string {
+  const nl = text.search(/[\r\n]/);
+  if (nl < 0) return text;
+  const head = text.slice(0, nl).replace(/[ \t]+$/, '');
+  const rest = text.slice(nl).replace(/^[\r\n]+/, '').trim();
+  return rest ? `${head}…` : head;
+}
+
+/** Build the non-editable quote chip shared by insertion and recovery; CSS caps its width */
+export function createQuoteChip(text: string): HTMLElement {
+  const chip = document.createElement('span');
+  chip.className = 'q-chip';
+  chip.contentEditable = 'false';
+  chip.dataset.quote = text;
+  chip.title = text;
+  const label = document.createElement('span');
+  label.className = 'q-chip-label';
+  label.textContent = quoteChipLabel(text);
+  chip.appendChild(label);
+  return chip;
+}
+
 /** Put a recovered question back into the editor; serialized <q>…</q> becomes quote chips again */
 export function fillEditor(el: HTMLElement, text: string): void {
   el.innerHTML = '';
@@ -83,14 +106,7 @@ export function fillEditor(el: HTMLElement, text: string): void {
       el.appendChild(document.createTextNode(part));
       continue;
     }
-    const quote = decodeQuote(m[1] ?? '');
-    const chip = document.createElement('span');
-    chip.className = 'q-chip';
-    chip.contentEditable = 'false';
-    chip.dataset.quote = quote;
-    chip.title = quote;
-    chip.textContent = quote;
-    el.appendChild(chip);
+    el.appendChild(createQuoteChip(decodeQuote(m[1] ?? '')));
   }
   syncEditorEmptyState(el);
 }

@@ -1,6 +1,9 @@
 /** Extension settings: backend URL and display prefs only; model + key live in the backend's settings.json. */
 import type { LocalePreference } from './i18n';
 
+/** Reading size for answers; formulas use em units and scale with it. */
+export type FontSize = 'small' | 'normal' | 'large' | 'xlarge';
+
 export interface Settings {
   /** Local backend address, e.g. http://127.0.0.1:8787 */
   backendUrl: string;
@@ -10,6 +13,8 @@ export interface Settings {
   token: string;
   /** UI language; auto follows the browser, anything else is forced */
   locale: LocalePreference;
+  /** Answer text size; KaTeX is em-based, so formulas grow/shrink with the same value */
+  fontSize: FontSize;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -17,6 +22,7 @@ export const DEFAULT_SETTINGS: Settings = {
   verbose: true,
   token: '',
   locale: 'auto',
+  fontSize: 'normal',
 };
 
 const KEY = 'pageask.settings.v2';
@@ -24,11 +30,13 @@ const LEGACY_KEY = 'pageask.settings.v1'; // P1's {baseUrl, model, apiKey}; read
 
 /** Known fields only: leftovers such as the old model key never reach state */
 function pick(raw: Partial<Settings> | undefined): Settings {
+  const fontSize = raw?.fontSize;
   return {
     backendUrl: raw?.backendUrl?.trim() || DEFAULT_SETTINGS.backendUrl,
     verbose: raw?.verbose !== false,
     token: raw?.token?.trim() ?? '',
     locale: raw?.locale === 'zh-CN' || raw?.locale === 'en-US' ? raw.locale : 'auto',
+    fontSize: fontSize === 'small' || fontSize === 'large' || fontSize === 'xlarge' ? fontSize : 'normal',
   };
 }
 

@@ -46,6 +46,7 @@ import {
 } from './messages';
 import {
   clearEmptyEditorResidue,
+  createQuoteChip,
   decodeQuote,
   editorHasDraft as hasDraftIn,
   fillEditor as fillDomEditor,
@@ -292,6 +293,12 @@ export default function App() {
   // Sync <html lang> on locale change: screen readers and spell check both rely on it
   useEffect(() => {
     document.documentElement.lang = getLocale();
+  }, [settings]);
+
+  // Reading size lives on <html> as a data attribute so CSS can size answer text and em-based
+  // KaTeX from one value without re-rendering every block.
+  useEffect(() => {
+    document.documentElement.dataset.fontSize = settings?.fontSize ?? DEFAULT_SETTINGS.fontSize;
   }, [settings]);
 
   /* ---------------- Tab change → conversation change ---------------- */
@@ -843,16 +850,17 @@ export default function App() {
   const insertQuoteChip = (text: string) => {
     const el = editorRef.current;
     if (!el) return;
+    // The answer selection is not the insertion target: savedRange is the composer caret the user
+    // left before selecting the answer. Snapshot it before focus(), because focusing an editor with
+    // no live selection can put the caret at the start, which would win over the saved position.
+    const saved = savedRange.current;
     el.focus();
     const sel = window.getSelection();
-    let range: Range | null = null;
-    if (sel && sel.rangeCount > 0) {
+    let range: Range | null = saved && el.contains(saved.startContainer) ? saved.cloneRange() : null;
+    if (!range && sel && sel.rangeCount > 0) {
       const cur = sel.getRangeAt(0);
       if (el.contains(cur.commonAncestorContainer)) range = cur;
     }
-    // When the selection is elsewhere (answer text), go back to the last caret inside the editor
-    const saved = savedRange.current;
-    if (!range && saved && el.contains(saved.startContainer)) range = saved.cloneRange();
     if (!range) {
       range = document.createRange();
       range.selectNodeContents(el);
@@ -860,12 +868,7 @@ export default function App() {
     }
     range.deleteContents();
 
-    const chip = document.createElement('span');
-    chip.className = 'q-chip';
-    chip.contentEditable = 'false';
-    chip.dataset.quote = text;
-    chip.title = text;
-    chip.textContent = text;
+    const chip = createQuoteChip(text);
 
     range.insertNode(chip);
 

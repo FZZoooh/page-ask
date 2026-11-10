@@ -46,6 +46,7 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
       verbose: draft.verbose,
       token: draft.token.trim(),
       locale: draft.locale,
+      fontSize: draft.fontSize,
     };
   };
 
@@ -139,6 +140,19 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
           <option value="auto">{t('settings.languageAuto')}</option>
           <option value="zh-CN">{t('settings.languageZh')}</option>
           <option value="en-US">{t('settings.languageEn')}</option>
+        </select>
+      </label>
+
+      <label className="field">
+        <span>{t('settings.fontSize')}</span>
+        <select
+          value={draft.fontSize}
+          onChange={(e) => patch({ fontSize: e.target.value as Settings['fontSize'] })}
+        >
+          <option value="small">{t('settings.fontSizeSmall')}</option>
+          <option value="normal">{t('settings.fontSizeNormal')}</option>
+          <option value="large">{t('settings.fontSizeLarge')}</option>
+          <option value="xlarge">{t('settings.fontSizeXLarge')}</option>
         </select>
       </label>
 

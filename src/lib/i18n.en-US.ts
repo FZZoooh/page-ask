@@ -222,6 +222,11 @@ export const enUS = {
   'settings.languageAuto': 'Auto (browser)',
   'settings.languageZh': '简体中文',
   'settings.languageEn': 'English',
+  'settings.fontSize': 'Answer text size',
+  'settings.fontSizeSmall': 'Small',
+  'settings.fontSizeNormal': 'Default',
+  'settings.fontSizeLarge': 'Large',
+  'settings.fontSizeXLarge': 'Extra large',
 
   // Context menu
   'menu.askThisPage': 'Ask PageAsk about this page',

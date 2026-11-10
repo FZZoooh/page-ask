@@ -224,6 +224,11 @@ export const zhCN = {
   'settings.languageAuto': '跟随浏览器',
   'settings.languageZh': '简体中文',
   'settings.languageEn': 'English',
+  'settings.fontSize': '回答字号',
+  'settings.fontSizeSmall': '小',
+  'settings.fontSizeNormal': '标准',
+  'settings.fontSizeLarge': '大',
+  'settings.fontSizeXLarge': '特大',
 
   // 右键菜单
   'menu.askThisPage': '用 PageAsk 询问本页',
