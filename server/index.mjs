@@ -601,7 +601,10 @@ async function autoTitle({ conversationId, model, user, answer, locale = 'zh-CN'
           },
         ],
         reasoning: { effort: 'low' },
-        max_output_tokens: 200,
+        // Reasoning tokens count against max_output_tokens: a tiny cap is spent on the chain-of-thought
+        // before any title text is emitted, so the response comes back incomplete with no message and we
+        // silently fall back to the page title. Leave room for low-effort reasoning plus the short title.
+        max_output_tokens: 1024,
       }),
       signal: AbortSignal.timeout(8000),
     });

@@ -1,5 +1,7 @@
 // Regression: auto-title must use the same /v1 base as normal chat, must not ask the upstream to store the
-// title prompt, and state=off must send store:false on the answer request too. Run:
+// title prompt, and state=off must send store:false on the answer request too. It must also leave room for
+// reasoning tokens: a cap that only fits the visible title makes a reasoning model return an incomplete,
+// message-less response, and auto-title silently falls back to the page title. Run:
 // node scripts/test-auto-title.mjs
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -50,10 +52,28 @@ const upstream = createServer(async (req, res) => {
   requests.push({ path: req.url, body });
   if (!req.url.endsWith('/responses')) return res.writeHead(404).end();
   if (!body.stream) {
+    // Model a reasoning model on the title request: reasoning tokens count against max_output_tokens.
+    // When the cap can't cover the chain-of-thought, the response is incomplete with only a reasoning
+    // item (no message) — the exact case that used to make auto-title fall back to the page title.
+    const REASONING_COST = 400;
+    if ((body.max_output_tokens ?? 0) <= REASONING_COST) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          id: 'resp_title',
+          status: 'incomplete',
+          incomplete_details: { reason: 'max_output_tokens' },
+          output: [{ type: 'reasoning', content: [{ type: 'reasoning_text', text: '…' }] }],
+          usage: { input_tokens: 2, output_tokens: body.max_output_tokens ?? 0 },
+        }),
+      );
+      return;
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(
       JSON.stringify({
         id: 'resp_title',
+        status: 'completed',
         output: [{ type: 'message', content: [{ type: 'output_text', text: '自动标题' }] }],
         usage: { input_tokens: 2, output_tokens: 2 },
       }),
@@ -135,6 +155,11 @@ try {
   const titleReq = requests.find((r) => !r.body.stream);
   check('answer request sets store:false when state=off', answerReq?.body.store === false, JSON.stringify(answerReq?.body));
   check('title request sets store:false', titleReq?.body.store === false, JSON.stringify(titleReq?.body));
+  check(
+    'title request leaves room for reasoning tokens',
+    (titleReq?.body.max_output_tokens ?? 0) > 400,
+    JSON.stringify(titleReq?.body.max_output_tokens),
+  );
 
   const stored = await fetch(`${base}/conversations/${encodeURIComponent(conversationId)}`);
   const conversation = await stored.json();
