@@ -21,6 +21,7 @@ const TESTS = [
   'test-pdf-auth.mjs',
   'test-partial-failure.mjs',
   'test-auto-title.mjs',
+  'test-debug-flag.mjs',
   'test-title-multi-segment.mjs',
   'test-truncated-stream.mjs',
   'test-chat-busy.mjs',

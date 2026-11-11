@@ -40,3 +40,22 @@ export function logError(kind, err, data = {}) {
     stack: err?.stack,
   });
 }
+
+/**
+ * Verbose diagnostics, off unless the backend is started with `--debug`. This is a logging switch, not a
+ * configuration override: it never touches settings.json (baseUrl / model / key / port stay file-only).
+ * Callers must not pass secrets — the API key lives in the Authorization header, never in these payloads.
+ */
+export const debugEnabled = process.argv.includes('--debug');
+
+/** When --debug is on, echo a scoped record to stderr and persist it to the log file; otherwise a no-op. */
+export function debugLog(scope, data = {}) {
+  if (!debugEnabled) return;
+  const record = { scope, ...data };
+  try {
+    console.error(`[pageask:debug] ${scope} ${JSON.stringify(record)}`);
+  } catch {
+    /* a broken stderr must not break a conversation */
+  }
+  logEvent('debug', record);
+}

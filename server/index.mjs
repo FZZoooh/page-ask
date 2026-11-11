@@ -6,6 +6,7 @@
 //     The tool loop has no step cap — a turn ends only when the user hits "Stop" in the side panel.
 //
 // start: node server/index.mjs        (defaults to 127.0.0.1:8787)
+// debug: node server/index.mjs --debug (verbose diagnostics to stderr + pageask.log; logging only, not a config override)
 // config: settings.json (the backend serves /settings; open it from the tray menu or the extension settings page)
 // Every setting comes from settings.json: baseUrl / model / apiKey / state plus port, token and
 // dataDir. No environment variable and no startup argument may override it. The extension ID is
@@ -41,7 +42,7 @@ import {
   previousPageContext,
 } from './db.mjs';
 import { lifecycleInfo, markCleanExit, startLifecycle } from './lifecycle.mjs';
-import { logError, logEvent } from './log.mjs';
+import { debugEnabled, debugLog, logError, logEvent } from './log.mjs';
 import { fetchPublic, readBodyCapped } from './net.mjs';
 import { withV1 } from './upstream.mjs';
 import { errorPayload, normalizePdfCode, upstreamErrorCode } from './errors.mjs';
@@ -181,6 +182,7 @@ server.listen(PORT, HOST, () => {
   const s = readSettings();
   console.log(`[pageask] backend listening on http://${HOST}:${PORT}  model=${s.model}  db=${dbFile}`);
   console.log(`[pageask] settings page http://${HOST}:${PORT}/settings  (config file ${settingsFile})`);
+  if (debugEnabled) console.log('[pageask] debug logging on (--debug): verbose diagnostics go to stderr and pageask.log');
 });
 
 // Every catchable termination path ends in shutdown(): Ctrl+C (SIGINT), `stop` / SIGTERM,
@@ -573,53 +575,69 @@ async function downloadPdf(url) {
  * Only on the conversation's first question; any failure returns null, and the page title stays.
  */
 async function autoTitle({ conversationId, model, user, answer, locale = 'zh-CN' }) {
-  if (!answer || !answer.trim()) return null;
+  if (!answer || !answer.trim()) {
+    debugLog('auto-title', { conversationId, skipped: 'empty answer' });
+    return null;
+  }
   try {
     const stats = statsFor(conversationId);
     // Gate on the user count alone: one answer can span several assistant content rows (text emitted
     // between tool calls), so requiring exactly one assistant row wrongly skipped multi-segment answers.
-    if (stats.users !== 1) return null;
+    if (stats.users !== 1) {
+      debugLog('auto-title', { conversationId, skipped: 'not the first Q&A', stats });
+      return null;
+    }
 
     const language = locale === 'en-US' ? 'English' : 'Simplified Chinese';
     const cfg = readSettings();
-    const res = await fetch(`${withV1(cfg.baseUrl)}/responses`, {
+    const endpoint = `${withV1(cfg.baseUrl)}/responses`;
+    // The body carries no secret (the key is in the Authorization header), so it is safe to log in full.
+    const requestBody = {
+      model,
+      // a title is a local convenience; never let the upstream retain the first Q&A just for it
+      store: false,
+      instructions:
+        'You write a title for a conversation. Output only the title itself: at most 60 characters in English ' +
+        'or 14 characters in Chinese, no quotes, book-title marks, periods, no "Title:" prefix, no explanation. ' +
+        'Base it on what the user actually asked, not on the page or tab title. ' +
+        `Write the title in ${language}.`,
+      input: [
+        {
+          role: 'user',
+          content: [
+            { type: 'input_text', text: `User asked: ${user.slice(0, 300)}\n\nAssistant answered: ${answer.slice(0, 300)}` },
+          ],
+        },
+      ],
+      reasoning: { effort: 'low' },
+      // Reasoning tokens count against max_output_tokens: a tiny cap is spent on the chain-of-thought
+      // before any title text is emitted, so the response comes back incomplete with no message and we
+      // silently fall back to the page title. Leave room for low-effort reasoning plus the short title.
+      max_output_tokens: 1024,
+    };
+    debugLog('auto-title', { conversationId, phase: 'request', endpoint, body: requestBody });
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
-      body: JSON.stringify({
-        model,
-        // a title is a local convenience; never let the upstream retain the first Q&A just for it
-        store: false,
-        instructions:
-          'You write a title for a conversation. Output only the title itself: at most 60 characters in English ' +
-          'or 14 characters in Chinese, no quotes, book-title marks, periods, no "Title:" prefix, no explanation. ' +
-          'Base it on what the user actually asked, not on the page or tab title. ' +
-          `Write the title in ${language}.`,
-        input: [
-          {
-            role: 'user',
-            content: [
-              { type: 'input_text', text: `User asked: ${user.slice(0, 300)}\n\nAssistant answered: ${answer.slice(0, 300)}` },
-            ],
-          },
-        ],
-        reasoning: { effort: 'low' },
-        // Reasoning tokens count against max_output_tokens: a tiny cap is spent on the chain-of-thought
-        // before any title text is emitted, so the response comes back incomplete with no message and we
-        // silently fall back to the page title. Leave room for low-effort reasoning plus the short title.
-        max_output_tokens: 1024,
-      }),
+      body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(8000),
     });
+    // Read the body once as text so the full raw output can be logged even when it is not valid JSON.
+    const raw = await res.text();
+    debugLog('auto-title', { conversationId, phase: 'response', status: res.status, ok: res.ok, body: raw });
     if (!res.ok) {
       logEvent('auto_title_failed', { conversationId, status: res.status });
       return null;
     }
-    const json = await res.json();
-    const title = cleanTitle(messageText(json));
+    const json = JSON.parse(raw);
+    const extracted = messageText(json);
+    const title = cleanTitle(extracted);
+    debugLog('auto-title', { conversationId, phase: 'result', extracted, title: title || null, fellBack: !title });
     if (!title) return null;
     touchConversation(conversationId, { title });
     return title;
   } catch (err) {
+    debugLog('auto-title', { conversationId, phase: 'error', message: err?.message ?? String(err) });
     logError('auto_title', err, { conversationId });
     return null;
   }
@@ -939,6 +957,14 @@ async function handleChat(req, res) {
         });
         // title after the first Q&A round (failure doesn't block the flow); not for aborted/timed-out/truncated turns,
         // otherwise a half answer gets summarized and the title misleads.
+        debugLog('auto-title', {
+          conversationId: conv.id,
+          phase: 'gate',
+          eligible: !turn.aborted && !turn.timedOut && !turn.incomplete,
+          aborted: Boolean(turn.aborted),
+          timedOut: Boolean(turn.timedOut),
+          incomplete: Boolean(turn.incomplete),
+        });
         if (!turn.aborted && !turn.timedOut && !turn.incomplete) {
           // the answer is already stored: let DELETE/recover proceed while the title request finishes
           releaseChat();
