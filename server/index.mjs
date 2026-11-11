@@ -570,13 +570,15 @@ async function downloadPdf(url) {
 
 /**
  * Once the first user + assistant pair is persisted, let the model pick a short title.
- * Only when the conversation is exactly one Q and one A; any failure returns null, and the page title stays.
+ * Only on the conversation's first question; any failure returns null, and the page title stays.
  */
 async function autoTitle({ conversationId, model, user, answer, locale = 'zh-CN' }) {
   if (!answer || !answer.trim()) return null;
   try {
     const stats = statsFor(conversationId);
-    if (stats.users !== 1 || stats.answers !== 1) return null;
+    // Gate on the user count alone: one answer can span several assistant content rows (text emitted
+    // between tool calls), so requiring exactly one assistant row wrongly skipped multi-segment answers.
+    if (stats.users !== 1) return null;
 
     const language = locale === 'en-US' ? 'English' : 'Simplified Chinese';
     const cfg = readSettings();

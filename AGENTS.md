@@ -23,7 +23,7 @@ Display name: RightHandMan (renamed from PageAsk). The config dir (`~/.config/ri
 | `pnpm ext:key` | One-time: write `extension-key.json` (public, committed) + `~/.config/righthandman/extension-key.pem`; **changes the extension ID** |
 | `pnpm ext:id` | Print the extension ID derived from `extension-key.json` |
 | `pnpm compile` | `tsc --noEmit` + `scripts/check-syntax.mjs` (syntax check for `server/`, `scripts/` and `src/lib/` `.mjs`, plus UTF-8 BOM + PowerShell parser check for `.ps1`/`.psd1`), **must pass after every change** |
-| `pnpm test:server` | Runs the 34 fixed backend regression scripts via `scripts/run-server-tests.mjs` (180s per script; temp dirs + fake upstream, never touches real config) |
+| `pnpm test:server` | Runs the 35 fixed backend regression scripts via `scripts/run-server-tests.mjs` (180s per script; temp dirs + fake upstream, never touches real config) |
 | `pnpm verify` | `check:i18n` + `compile` + `test:server` + `build`; run this before committing |
 | `pnpm server` | Start the backend in the foreground (`node server/index.mjs`) |
 | `pnpm server:win` | Start the backend through the PowerShell script |
