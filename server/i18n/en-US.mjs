@@ -7,7 +7,7 @@ export const locale = 'en-US';
 export const messages = {
   // ---------------- Settings page ----------------
   'webui.title': 'RightHandMan Settings',
-  'webui.subtitle': 'RightHandMan backend {version} · changes apply immediately',
+  'webui.subtitle': 'RightHandMan backend {version} | changes apply immediately',
   'webui.apiKey': 'API Key',
   'webui.apiKeyPlaceholderMissing': 'Not set',
   'webui.apiKeyPlaceholderSet': 'Set: {masked}',

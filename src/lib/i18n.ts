@@ -121,7 +121,7 @@ export const zhCN = {
   'round.thinkOnly': '思考了 {secs} 秒',
 
   // 回答
-  'answer.usage': ' 累计输入 {in} tokens  输出 {out} tokens',
+  'answer.usage': ' 累计输入 {in} tokens 并输出 {out} tokens',
   'answer.stopped': '已停止生成',
   'answer.stoppedEmpty': '已停止',
 

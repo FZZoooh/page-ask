@@ -35,7 +35,7 @@ export const enUS = {
   'history.hint': 'Chats on this site',
   'history.empty': 'No chats yet',
   'history.untitled': 'Untitled',
-  'history.count': '· {count} turns',
+  'history.count': ', {count} turns',
   'history.titleWithCount': 'History {count}',
   'history.delete': 'Delete this chat',
   'history.deleteConfirm': 'Delete this chat? This cannot be undone.',
@@ -112,12 +112,12 @@ export const enUS = {
 
   // Collapsed reasoning + tool calls
   'round.running': 'Thinking and calling tools…',
-  'round.both': 'Thought for {secs}s · used {tools} tools',
+  'round.both': 'Thought for {secs}s, used {tools} tools',
   'round.toolsOnly': 'Used {tools} tools',
   'round.thinkOnly': 'Thought for {secs}s',
 
   // Answer
-  'answer.usage': ' total {in} input tokens · {out} output tokens',
+  'answer.usage': ' total {in} input tokens and {out} output tokens',
   'answer.stopped': 'Generation stopped',
   'answer.stoppedEmpty': 'Stopped',
 

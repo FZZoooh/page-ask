@@ -10,7 +10,7 @@ export const locale = 'zh-CN';
 export const messages = {
   // ---------------- 配置页 ----------------
   'webui.title': 'RightHandMan 配置',
-  'webui.subtitle': 'RightHandMan 后端 {version} · 保存后立即生效',
+  'webui.subtitle': 'RightHandMan 后端 {version} | 保存后立即生效',
   'webui.apiKey': 'API Key',
   'webui.apiKeyPlaceholderMissing': '未设置',
   'webui.apiKeyPlaceholderSet': '已设置：{masked}',
