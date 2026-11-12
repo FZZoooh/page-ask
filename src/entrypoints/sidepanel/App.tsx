@@ -61,6 +61,32 @@ const MAX_BOX_H = 156;
 /** Messages per history page; the backend clamps to 500 */
 const HISTORY_PAGE_SIZE = 200;
 
+/**
+ * URL whose latest conversation the user explicitly abandoned with "New chat". It has to outlive the
+ * panel document (a reload or closing/reopening the side panel remounts everything and would otherwise
+ * auto-resume the latest conversation again), so it lives in session storage: it survives panel
+ * reloads for the current browser session but not a browser restart, where resuming is expected again.
+ */
+const NEW_CHAT_KEY = 'pageask.newChatUrl';
+
+async function loadNewChatUrl(): Promise<string | null> {
+  try {
+    const stored = await browser.storage.session.get(NEW_CHAT_KEY);
+    const url = stored[NEW_CHAT_KEY];
+    return typeof url === 'string' ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveNewChatUrl(url: string | null): void {
+  // Fire-and-forget: losing the flag only restores the old auto-resume behavior.
+  const write = url
+    ? browser.storage.session.set({ [NEW_CHAT_KEY]: url })
+    : browser.storage.session.remove(NEW_CHAT_KEY);
+  void write.catch(() => {});
+}
+
 type PageState =
   | { kind: 'loading' }
   | { kind: 'ready'; page: ExtractedPage }
@@ -289,7 +315,10 @@ export default function App() {
   }, [pageState, configured]);
 
   useEffect(() => {
-    void loadSettings().then((next) => {
+    // Restore the "New chat" intent together with the settings: the tab effect below runs as soon as
+    // settings lands, and a restored intent must already be in place when it decides to auto-resume.
+    void Promise.all([loadSettings(), loadNewChatUrl()]).then(([next, newChatUrl]) => {
+      if (newChatUrl) suppressedResumeUrl.current = newChatUrl;
       setLocale(resolveLocale(next.locale));
       setSettings(next);
     });
@@ -321,7 +350,9 @@ export default function App() {
     if (!pageUrl || !settings) {
       // An unreadable page must not keep showing the previous page's answer.
       loadSeqRef.current += 1;
-      suppressedResumeUrl.current = null;
+      // Not cleared: pageState briefly drops to loading on a web-page reload, and the "New chat"
+      // intent for this URL must survive that cycle. The mismatch check below drops it on a real
+      // page change.
       setConversationId(null);
       setMessages([]);
       setHistoryOpen(false);
@@ -334,7 +365,10 @@ export default function App() {
 
     // After a tab/backend change the previous page's answer no longer belongs here. The server persists
     // whatever was generated, flagged aborted, but the new page must never receive the old run's events.
-    if (suppressedResumeUrl.current && suppressedResumeUrl.current !== pageUrl) suppressedResumeUrl.current = null;
+    if (suppressedResumeUrl.current && suppressedResumeUrl.current !== pageUrl) {
+      suppressedResumeUrl.current = null;
+      saveNewChatUrl(null);
+    }
     const mine = ++loadSeqRef.current;
     let cancelled = false;
     setConversationId(null);
@@ -917,7 +951,10 @@ export default function App() {
       const runId = ++runSeqRef.current;
       abortRef.current?.abort();
       sendingRef.current = true;
-      suppressedResumeUrl.current = null;
+      if (suppressedResumeUrl.current) {
+        suppressedResumeUrl.current = null;
+        saveNewChatUrl(null);
+      }
       if (!regenerate && !editingQuestion) {
         setInput('');
         if (editorRef.current) {
@@ -1464,6 +1501,7 @@ export default function App() {
     cancelScrollAnim();
     loadSeqRef.current += 1; // invalidate in-flight history loads so they can't refill the empty conversation
     suppressedResumeUrl.current = pageUrl;
+    saveNewChatUrl(pageUrl);
     pendingConversation.current = false;
     // conversationId may already be null (e.g. after a failed first send); reset the spacer here
     // as well so an empty new chat cannot keep the old blank space.
@@ -1489,6 +1527,7 @@ export default function App() {
       return;
     }
     suppressedResumeUrl.current = null;
+    saveNewChatUrl(null);
     const mine = ++loadSeqRef.current;
     try {
       const conv = await getConversation(settings, id, { limit: HISTORY_PAGE_SIZE });
