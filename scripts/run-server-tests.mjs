@@ -37,6 +37,7 @@ const TESTS = [
   'test-history-page.mjs',
   'test-hist-time.mjs',
   'test-markdown-stream.mjs',
+  'test-chat-stream.mjs',
   'test-edge-profile.mjs',
   'test-pdf-cancel.mjs',
   'test-upstream-error-cap.mjs',
@@ -48,7 +49,9 @@ const TESTS = [
 
 function runOne(script) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [join(ROOT, 'scripts', script)], {
+    const scriptPath = join(ROOT, 'scripts', script);
+    const args = script === 'test-chat-stream.mjs' ? ['--experimental-strip-types', scriptPath] : [scriptPath];
+    const child = spawn(process.execPath, args, {
       cwd: ROOT,
       env: process.env,
       stdio: 'inherit',

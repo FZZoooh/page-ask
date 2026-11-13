@@ -216,7 +216,7 @@ export async function recoverPendingQuestion(settings: Settings, id: string): Pr
 export interface ChatRequest {
   settings: Settings;
   conversationId?: string | null;
-  page: Pick<ExtractedPage, 'url' | 'title' | 'markdown' | 'viewport' | 'kind' | 'pages' | 'selection'> & {
+  page: Pick<ExtractedPage, 'url' | 'pageUrl' | 'title' | 'markdown' | 'viewport' | 'kind' | 'pages' | 'selection'> & {
     /** Selected text + the paragraph it sits in (lets the model judge tone and what "it" refers to) */
     selectionContext?: SelectionInfo | null;
   };
@@ -245,6 +245,7 @@ export async function* streamChat(req: ChatRequest): AsyncGenerator<ChatEvent> {
         locale: req.locale,
         page: {
           url: req.page.url,
+          pageUrl: req.page.pageUrl,
           title: req.page.title,
           markdown: req.page.markdown,
           viewport: req.page.viewport,

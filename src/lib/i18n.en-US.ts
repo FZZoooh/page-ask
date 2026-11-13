@@ -118,8 +118,7 @@ export const enUS = {
 
   // Answer
   'answer.usage': ' total {in} input tokens and {out} output tokens',
-  'answer.stopped': 'Generation stopped',
-  'answer.stoppedEmpty': 'Stopped',
+  'answer.stopped': 'Stopped',
 
   // Composer
   'composer.placeholder.noSettings': 'Configure settings first',

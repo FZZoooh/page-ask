@@ -33,7 +33,7 @@ export default defineConfig({
     description: '__MSG_extDescription__',
     // sidePanel.open() requires Chrome/Edge 116+
     minimum_chrome_version: '116',
-    permissions: ['sidePanel', 'scripting', 'activeTab', 'storage', 'contextMenus'],
+    permissions: ['sidePanel', 'scripting', 'activeTab', 'storage', 'contextMenus', 'webNavigation'],
     // Personal-use extension, never published: request permanent all-site read access.
     // If it ever ships to a store, switch to optional_host_permissions + per-site grants in the panel.
     host_permissions: ['<all_urls>'],

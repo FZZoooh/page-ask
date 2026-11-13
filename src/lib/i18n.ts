@@ -122,8 +122,7 @@ export const zhCN = {
 
   // 回答
   'answer.usage': ' 累计输入 {in} tokens 并输出 {out} tokens',
-  'answer.stopped': '已停止生成',
-  'answer.stoppedEmpty': '已停止',
+  'answer.stopped': '已停止',
 
   // 输入区
   'composer.placeholder.noSettings': '请先填写设置',

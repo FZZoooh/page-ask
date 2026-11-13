@@ -677,9 +677,12 @@ async function handleChat(req, res) {
   }
   // Normalize the client-controlled fields that reach the prompt. `pages`/`kind` were previously
   // interpolated as-is; a bad value could corrupt the system prompt rather than fail this request.
+  const currentUrl = rawPage.url.slice(0, 2048);
   const page = {
     ...rawPage,
-    url: rawPage.url.slice(0, 2048),
+    url: currentUrl,
+    pageUrl:
+      typeof rawPage.pageUrl === 'string' && rawPage.pageUrl ? rawPage.pageUrl.slice(0, 2048) : currentUrl,
     title: typeof rawPage.title === 'string' ? rawPage.title.slice(0, 500) : '',
     markdown: typeof rawPage.markdown === 'string' ? rawPage.markdown : '',
     kind: rawPage.kind === 'pdf' ? 'pdf' : 'web',
@@ -708,12 +711,12 @@ async function handleChat(req, res) {
     );
   }
 
-  // conversation: continue the given id, otherwise create one for the URL
+  // The current route can change during a soft navigation; pageUrl is the stable document identity.
   let conv = body.conversationId ? getConversation(body.conversationId) : null;
-  if (!conv) conv = createConversation({ url: page.url, title: page.title ?? '' });
-  else if (conv.url !== page.url) {
+  if (!conv) conv = createConversation({ url: page.pageUrl, title: page.title ?? '' });
+  else if (conv.url !== page.pageUrl) {
     // a conversation only continues on the same page, so pages never get mixed up
-    conv = createConversation({ url: page.url, title: page.title ?? '' });
+    conv = createConversation({ url: page.pageUrl, title: page.title ?? '' });
   }
 
   // One turn per conversation: a second panel, a double-clicked regenerate, or a delete during streaming

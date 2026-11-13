@@ -7,6 +7,8 @@ import { sameDocumentUrl } from '@/lib/settings';
 /** Whatever comes back from the target tab, untouched */
 export interface RawPage {
   url: string;
+  /** Stable conversation identity: the hard-navigation URL after a soft navigation */
+  pageUrl: string;
   title: string;
   html: string;
   selection: string;
@@ -23,7 +25,10 @@ export interface ViewportSnapshot {
 
 /** Parsed page text */
 export interface ExtractedPage {
+  /** Current route, used for page context and tab-matching */
   url: string;
+  /** Conversation identity; stays at the hard-navigation URL across soft navigations */
+  pageUrl: string;
   title: string;
   site: string;
   markdown: string;
@@ -56,6 +61,11 @@ export type ReadResult = { ok: true; page: ExtractedPage } | ({ ok: false } & Re
  * so it must be fully self-contained: no imports, no references to anything in module scope.
  */
 export function grabPage() {
+  const currentUrl = location.href;
+  // pushState and replaceState can change the URL for an SPA route or a passive scroll marker.
+  // The navigation entry belongs to the hard-loaded document and resets only on a real navigation.
+  const pageUrl = performance.getEntriesByType('navigation')[0]?.name || currentUrl;
+
   const DROP = 'script,style,noscript,iframe,svg,canvas,video,audio,object,embed';
   const clone = document.documentElement.cloneNode(true) as HTMLElement;
   clone.querySelectorAll(DROP).forEach((el) => el.remove());
@@ -104,7 +114,8 @@ export function grabPage() {
   }
 
   return {
-    url: location.href,
+    url: currentUrl,
+    pageUrl,
     title: document.title,
     html: clone.outerHTML,
     selection,
@@ -238,6 +249,7 @@ export function extract(raw: RawPage): ExtractedPage {
 
   return {
     url: raw.url,
+    pageUrl: raw.pageUrl,
     title,
     site,
     markdown,
@@ -528,6 +540,7 @@ async function readPdfTab(
       ok: true,
       page: {
         url,
+        pageUrl: url,
         title: fileName || (title ?? '').replace(/\.pdf$/i, '') || site || 'PDF',
         site,
         markdown: out.text,

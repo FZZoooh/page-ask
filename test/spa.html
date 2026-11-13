@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Soft navigation fixture</title>
+  </head>
+  <body>
+    <main>
+      <h1>Soft navigation fixture</h1>
+      <nav>
+        <button type="button" data-route="home">Initial route</button>
+        <button type="button" data-route="a">Route A</button>
+        <button type="button" data-route="b">Route B</button>
+        <a href="article.html">Hard navigation to the article</a>
+      </nav>
+      <article id="route-content">
+        <h2>Initial route</h2>
+        <p>This is the initial document. Its URL owns the conversation across every soft route.</p>
+      </article>
+      <p>Scroll down to make the page replace its URL with a passive scroll marker.</p>
+      <div style="height: 150vh"></div>
+    </main>
+    <script>
+      const content = document.querySelector('#route-content');
+      const routes = {
+        home: {
+          url: 'spa.html',
+          title: 'Initial route',
+          text: 'This is the initial document. Its URL owns the conversation across every soft route.',
+        },
+        a: {
+          url: 'spa.html?route=a',
+          title: 'Route A',
+          text: 'Route A replaced this article without loading a new document.',
+        },
+        b: {
+          url: 'spa.html?route=b',
+          title: 'Route B',
+          text: 'Route B is another soft navigation with different page content.',
+        },
+      };
+      document.querySelectorAll('button[data-route]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const route = routes[button.dataset.route];
+          history.pushState({}, '', route.url);
+          document.title = `Soft navigation fixture — ${route.title}`;
+          const heading = document.createElement('h2');
+          heading.textContent = route.title;
+          const paragraph = document.createElement('p');
+          paragraph.textContent = route.text;
+          content.replaceChildren(heading, paragraph);
+        });
+      });
+      let scrollTimer;
+      window.addEventListener('scroll', () => {
+        clearTimeout(scrollTimer);
+        scrollTimer = setTimeout(() => {
+          const marker = Math.floor(window.scrollY / 300);
+          history.replaceState({}, '', `spa.html?scroll=${marker}`);
+        }, 100);
+      });
+    </script>
+  </body>
+</html>

@@ -198,6 +198,29 @@ try {
   check('instructions are identical across every turn', new Set(streamBodies.map((b) => b.instructions)).size === 1);
   check('instructions pin no language', !streamBodies.some((b) => /Answer in (English|Simplified Chinese)/.test(b.instructions)));
 
+  const soft = await post(
+    firstMeta.conversationId,
+    page({ url: 'https://example.com/soft-route', pageUrl: 'https://example.com/context', title: 'Soft route' }),
+    '软导航',
+  );
+  const softSse = await soft.text();
+  const softMeta = metaOf(softSse);
+  const softNotice = developerTexts(streamBodies.at(-1)).at(-1) ?? '';
+  check('soft navigation keeps the conversation', soft.status === 200 && softMeta.conversationId === firstMeta.conversationId);
+  check('soft navigation still updates the current route', softNotice.includes('URL: https://example.com/soft-route'), softNotice);
+  const softHistory = await fetch(`${base}/conversations?url=${encodeURIComponent('https://example.com/context')}`);
+  const softList = await softHistory.json();
+  check('soft navigation is listed under the initial URL', softList.conversations.some((c) => c.id === firstMeta.conversationId));
+
+  const hard = await post(
+    firstMeta.conversationId,
+    page({ url: 'https://example.com/hard-route', pageUrl: 'https://example.com/hard-route' }),
+    '硬导航',
+  );
+  const hardSse = await hard.text();
+  const hardMeta = metaOf(hardSse);
+  check('a different document starts a new conversation', hard.status === 200 && hardMeta.conversationId !== firstMeta.conversationId);
+
   // Editing turn 2: refresh against turn 1's stored context, not against the newest turn.
   const editSecond = await post(
     firstMeta.conversationId,
