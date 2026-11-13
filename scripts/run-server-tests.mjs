@@ -45,6 +45,7 @@ const TESTS = [
   'test-migration.mjs',
   'test-cors-origin.mjs',
   'test-replace-sse.mjs',
+  'test-attachments.mjs',
 ];
 
 function runOne(script) {

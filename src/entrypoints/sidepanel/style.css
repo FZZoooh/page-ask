@@ -40,6 +40,15 @@
   --sb-thumb-hover: #5a5a5a;
   /* Answer text size; KaTeX sizes in em, so formulas follow the same value */
   --reading-size: 13px;
+  /* Attachment card icon tints, one per document family */
+  --att-pdf: #d93f3f;
+  --att-word: #2b65c9;
+  --att-excel: #1e8a4c;
+  --att-ppt: #c9601c;
+  --att-text: #5b6472;
+  --att-file: #6b7280;
+  /* Backdrop behind the full-size image preview */
+  --scrim: rgb(0 0 0 / 0.72);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -73,6 +82,13 @@
     --round-bg: #0d1014;
     --sb-thumb: #3c4046;
     --sb-thumb-hover: #5b626b;
+    --att-pdf: #f07a7a;
+    --att-word: #7fa8ff;
+    --att-excel: #55c78a;
+    --att-ppt: #f19a5e;
+    --att-text: #a7b3c2;
+    --att-file: #a3adba;
+    --scrim: rgb(0 0 0 / 0.82);
   }
 }
 
@@ -1155,11 +1171,35 @@ button.primary.save:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  padding: 6px 8px 6px 14px;
+  /* Left 44px = 8px inset + 30px "+" button + 6px gap; App.tsx SINGLE_ROW_INSET is 44 − 14 */
+  padding: 6px 8px 6px 44px;
   background: var(--input-bg);
   border: 1px solid var(--input-line);
   border-radius: 24px;
   transition: border-color 0.12s ease;
+}
+
+/* Two rows: text (and cards) on top, "+" and send on their own bottom row. The editor keeps its
+   right padding, so the text column ends where it did in one-row mode. */
+.box.multi {
+  padding: 6px 8px 40px 14px;
+}
+
+.box.drop {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
+}
+
+.drop-hint {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--input-bg) 82%, transparent);
+  color: var(--accent);
+  font-size: 12px;
+  pointer-events: none;
 }
 
 /* Keyboard focus only: a pointer click must not paint a ring around the whole composer.
@@ -1310,6 +1350,258 @@ button.primary.save:hover:not(:disabled) {
 
 .send.stop:hover:not(:disabled) {
   background: var(--fg);
+}
+
+/* "+" (attach): same 30px circle as send, mirrored to the bottom-left corner arc */
+.attach {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: color-mix(in srgb, var(--fg) 60%, transparent);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.attach:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  color: var(--fg);
+}
+
+.attach:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.attach:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.attach-box {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+}
+
+/* ---------- attachment cards ---------- */
+
+.att-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Inside the composer the cards sit 8px from the box edge, like the buttons below them */
+.att-strip.in-box {
+  margin: 2px 0 6px -6px;
+}
+
+.att-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 172px;
+  max-width: 100%;
+  padding: 5px 10px 5px 5px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--fg);
+  /* The card lives inside .bubble-wrap/.inline-edit; reset any inherited pre-wrap */
+  white-space: normal;
+}
+
+.att-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: transparent;
+}
+
+button.att-thumb {
+  cursor: zoom-in;
+}
+
+button.att-thumb:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.att-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.att-icon {
+  --att-color: var(--att-file);
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--att-color) 14%, transparent);
+  color: var(--att-color);
+}
+
+.att-icon.att-pdf { --att-color: var(--att-pdf); }
+.att-icon.att-docx { --att-color: var(--att-word); }
+.att-icon.att-xlsx { --att-color: var(--att-excel); }
+.att-icon.att-pptx { --att-color: var(--att-ppt); }
+.att-icon.att-text { --att-color: var(--att-text); }
+
+.att-icon .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.att-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+.att-card.uploading .att-thumb > :not(.att-spin) {
+  opacity: 0.45;
+}
+
+.att-spin {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+.att-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 16px;
+}
+
+.att-name {
+  font-size: 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.att-sub {
+  font-size: 11px;
+  color: var(--meta);
+  white-space: nowrap;
+}
+
+/* Remove "x": hidden until the card is hovered (or the button itself has keyboard focus) */
+.att-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--fg) 78%, var(--bg));
+  color: var(--bg);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+/* button.* specificity: the global `button:hover:not(:disabled)` would otherwise replace the solid fill
+   with its translucent tint and the badge would vanish into the card. */
+button.att-remove:hover:not(:disabled) {
+  background: var(--fg);
+}
+
+.att-remove .icon {
+  width: 10px;
+  height: 10px;
+}
+
+.att-card:hover .att-remove,
+.att-remove:focus-visible {
+  opacity: 1;
+}
+
+.att-remove:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Sent cards line up with the right-aligned bubble below them */
+.att-strip.sent {
+  justify-content: flex-end;
+  max-width: 100%;
+}
+
+/* Inline editor: "+" leads the action row, the pills stay on the right */
+.edit-attach {
+  margin-right: auto;
+  width: 32px;
+  height: 32px;
+}
+
+/* ---------- image preview ---------- */
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--scrim);
+  cursor: zoom-out;
+}
+
+.lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.lightbox-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.lightbox-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* ---------- conversation history ---------- */

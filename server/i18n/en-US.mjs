@@ -59,6 +59,7 @@ export const messages = {
   // ---------------- Tool events and model-facing hints ----------------
   'chat.stopped': 'Stopped',
   'tool.read_page': 'Read Page',
+  'tool.read_file': 'Read Attachment',
   'tool.screenshot': 'Screenshot',
   'tool.web_search': 'Web Search',
   'tool.fetch_url': 'Fetch URL',
@@ -118,6 +119,12 @@ export const messages = {
   'error.pdf.too_big': 'PDF is too large; the limit is 64 MB',
   'error.pdf.bad': 'Failed to parse PDF',
   'error.pdf.failed': 'Failed to parse PDF',
+  'error.attachment.too_large': 'Attachment is too large; the limit is {limitMb} MB',
+  'error.attachment.unsupported': 'This file format is not supported',
+  'error.attachment.no_text': 'This file contains no readable text',
+  'error.attachment.unreadable': 'Cannot read this file',
+  'error.attachment.not_found': 'Attachment is missing or expired; add it again',
+  'error.attachment.too_many': 'A message can have at most {max} attachments',
 };
 
 export default messages;

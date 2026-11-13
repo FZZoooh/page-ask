@@ -1,4 +1,4 @@
-// Tool implementations for RightHandMan: read_page, screenshot, web_search, fetch_url.
+// Tool implementations for RightHandMan: read_page, read_file, screenshot, web_search, fetch_url.
 // All tools are read-only. External content is encapsulated in <untrusted_content>
 // blocks and hard-capped at RESULT_CAP characters to prevent context overflow.
 
@@ -36,6 +36,29 @@ export const TOOL_SPECS = [
           offset: { type: 'integer', description: 'Optional. Zero-based character offset (default: 0).' },
           limit: { type: 'integer', description: 'Optional. Maximum characters to read (default: 4000, max: 8000).' },
         },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_file',
+      description:
+        'Reads the extracted text of a document the user attached to this conversation (PDF, Word, Excel, ' +
+        'PowerPoint or plain text). Identify it by the file_id from its <attachment> tag. ' +
+        'Supports offset/limit pagination and keyword search via query. Images are already in the user message.',
+      parameters: {
+        type: 'object',
+        properties: {
+          file_id: { type: 'string', description: 'The file_id attribute of the <attachment> tag.' },
+          query: {
+            type: 'string',
+            description: 'Optional. Keyword filter; returns only matching paragraphs.',
+          },
+          offset: { type: 'integer', description: 'Optional. Zero-based character offset (default: 0).' },
+          limit: { type: 'integer', description: 'Optional. Maximum characters to read (default: 4000, max: 8000).' },
+        },
+        required: ['file_id'],
       },
     },
   },
@@ -103,6 +126,8 @@ export async function runTool(name, args, ctx) {
   switch (name) {
     case 'read_page':
       return readPage(args, ctx);
+    case 'read_file':
+      return readFile(args, ctx);
     case 'web_search':
       return webSearch(args, ctx);
     case 'fetch_url':
@@ -111,7 +136,7 @@ export async function runTool(name, args, ctx) {
       return screenshot(args, ctx);
     default:
       return {
-        text: `Unknown tool "${name}". Supported tools: read_page, web_search, fetch_url, screenshot.`,
+        text: `Unknown tool "${name}". Supported tools: read_page, read_file, web_search, fetch_url, screenshot.`,
         label: name,
         detail: 'Unknown tool',
         failed: true,
@@ -193,14 +218,26 @@ function readPage(args, { page }) {
     };
   }
 
+  return readBody(args, {
+    body,
+    noun: isPdf ? 'PDF' : 'page',
+    suffix: pdfPages,
+    label: isPdf ? 'Read PDF' : 'Read Page',
+    envelope: (text) => wrap(page, text),
+  });
+}
+
+/** Shared query / offset+limit reader for the page body and uploaded documents. */
+function readBody(args, { body, noun, suffix, label, envelope }) {
+  const total = body.length;
   const query = typeof args?.query === 'string' ? args.query.trim() : '';
   if (query) {
     const hits = findParagraphs(body, query, 12);
-    const detail = `Search ${isPdf ? 'PDF' : 'page'}: "${query}"`;
+    const detail = `Search ${noun}: "${query}"`;
     if (!hits.length) {
       return {
-        text: wrap(page, `No paragraphs matching "${query}" found (${total} chars${pdfPages}). Consider searching without query or using alternative keywords.`),
-        label: isPdf ? 'Read PDF' : 'Read Page',
+        text: envelope(`No paragraphs matching "${query}" found (${total} chars${suffix}). Consider searching without query or using alternative keywords.`),
+        label,
         detail,
       };
     }
@@ -209,14 +246,14 @@ function readPage(args, { page }) {
       Math.max(Number.isFinite(args?.limit) ? Math.trunc(args.limit) : 4000, 200),
       RESULT_CAP,
     );
-    let text = `Found ${hits.length} paragraph(s) matching "${query}" in ${isPdf ? 'PDF' : 'page'}:\n\n` + hits.join('\n\n');
+    let text = `Found ${hits.length} paragraph(s) matching "${query}" in ${noun}:\n\n` + hits.join('\n\n');
     if (text.length > queryLimit) {
       text =
         text.slice(0, queryLimit) +
         `\n\n[Truncated to limit=${queryLimit}. Additional matches exist. Refine query or paginate without query via offset.]`;
     }
-    text = cap(text, `Total ${total} chars${pdfPages}; matching paragraphs only.`);
-    return { text: wrap(page, text), label: isPdf ? 'Read PDF' : 'Read Page', detail };
+    text = cap(text, `Total ${total} chars${suffix}; matching paragraphs only.`);
+    return { text: envelope(text), label, detail };
   }
 
   const rawOffset = Number.isFinite(args?.offset) ? Math.max(0, Math.trunc(args.offset)) : 0;
@@ -227,14 +264,68 @@ function readPage(args, { page }) {
   const end = offset + slice.length;
   const more = end < total;
 
-  let text = `(Document range: chars ${offset + 1}–${end} of ${total}${pdfPages})\n\n${slice}`;
+  let text = `(Document range: chars ${offset + 1}–${end} of ${total}${suffix})\n\n${slice}`;
   if (more) text += `\n\n[${total - end} chars remaining. Continue with offset=${end}]`;
 
   return {
-    text: wrap(page, cap(text, `Total ${total} chars${pdfPages}.`)),
-    label: isPdf ? 'Read PDF' : 'Read Page',
-    detail: `Chars ${offset + 1}–${end} / ${total}${pdfPages}`,
+    text: envelope(cap(text, `Total ${total} chars${suffix}.`)),
+    label,
+    detail: `Chars ${offset + 1}–${end} / ${total}${suffix}`,
   };
+}
+
+/* ---------------- read_file ---------------- */
+
+const FILE_FORMAT_LABELS = { pdf: 'PDF', docx: 'Word', xlsx: 'Excel', pptx: 'PowerPoint', text: 'text', image: 'image' };
+const FILE_PAGE_UNITS = { pdf: 'pages', pptx: 'slides', xlsx: 'sheets' };
+
+function readFile(args, { attachments }) {
+  const id = typeof args?.file_id === 'string' ? args.file_id.trim() : '';
+  const file = id && attachments ? attachments.get(id) : null;
+  if (!file) {
+    const list = attachments ? attachments.list() : [];
+    const lines = list.map((a) => `- ${a.id}: ${a.name} (${FILE_FORMAT_LABELS[a.format] ?? a.format})`);
+    const text = lines.length
+      ? `No attachment with file_id "${id}" in this conversation. Available attachments:\n${lines.join('\n')}`
+      : 'This conversation has no attachments.';
+    return {
+      text: untrusted('source="file_list"', text),
+      label: 'Read File',
+      detail: id ? `Unknown file: ${id}` : 'Missing file_id',
+      failed: true,
+    };
+  }
+
+  const attrs = `source="file" file_id="${escapeAttr(file.id)}" name="${escapeAttr(file.name)}"`;
+  if (file.kind === 'image') {
+    return {
+      text: untrusted(attrs, 'This attachment is an image; it is already included in the user message. Look at it directly.'),
+      label: 'Read File',
+      detail: file.name,
+    };
+  }
+
+  const body = file.text ?? '';
+  if (!body) {
+    return {
+      text: untrusted(attrs, 'This attachment has no extractable text.'),
+      label: 'Read File',
+      detail: file.name,
+      failed: true,
+    };
+  }
+
+  const unit = FILE_PAGE_UNITS[file.format];
+  let suffix = unit && file.pages ? ` · ${file.pages} ${unit} total` : '';
+  if (file.truncated) suffix += ' · text truncated at upload';
+  const out = readBody(args, {
+    body,
+    noun: 'file',
+    suffix,
+    label: 'Read File',
+    envelope: (text) => untrusted(attrs, text),
+  });
+  return { ...out, detail: `${file.name} · ${out.detail}` };
 }
 
 /* ---------------- web_search ---------------- */

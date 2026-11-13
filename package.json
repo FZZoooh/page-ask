@@ -36,6 +36,7 @@
   },
   "dependencies": {
     "defuddle": "^0.19.6",
+    "fflate": "^0.8.3",
     "katex": "0.16.47",
     "pdfjs-dist": "6.5.438",
     "react": "^19.3.1",

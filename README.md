@@ -70,6 +70,7 @@ pnpm tray:bg
 
 - **打开侧栏**：在任意网页或 PDF 阅读器中 **右键 → 选择“询问 RightHandMan”**，或直接点击浏览器工具栏的 RightHandMan 图标。
 - **提问交互**：直接在输入框中提问即可；支持就当前视口和选中的文字（PDF 支持受限）提问，可引用回复。
+- **附件**：点输入框左侧的 **+**，或把文件拖入 / 粘贴到输入区，即可附上图片、PDF、Word/Excel/PowerPoint（`.docx`/`.xlsx`/`.pptx`）和纯文本文件（每条消息最多 10 个，单个不超过 20 MB）。图片直接随消息发给模型，文档由模型按需读取；也可以只发附件不写文字。编辑消息时同样可以增删附件。附件保存在后端，删除会话时一并删除。
 - **系统托盘**：若使用 `pnpm tray:bg` 启动，系统托盘右键菜单提供服务启停、配置修改、开机自启切换以及日志查看等功能。
 
 ---
@@ -81,6 +82,7 @@ pnpm tray:bg
 | **前端扩展**   | WXT + React + TypeScript  | 采用 WXT 框架构建 Manifest V3 侧栏扩展；正文清洗基于 Defuddle。              |
 | **后端服务**   | Node.js 原生运行时        | 核心采用 `node:http` 与原生 `node:sqlite` 构建，保持轻量与零额外运行时开销。 |
 | **PDF 解析**   | `pdfjs-dist`              | 仅后端使用；扩展只负责取字节或交路径，文本层抽取在后端完成。                |
+| **Office 解析** | `fflate`                 | 仅后端使用；解压 `.docx`/`.xlsx`/`.pptx` 并抽取文本供模型读取。             |
 | **进程与托盘** | PowerShell / Windows Tray | 提供本地守护进程管理，异常崩溃自动恢复，支持随系统自启。                     |
 
 ---
@@ -90,7 +92,7 @@ pnpm tray:bg
 | 内容                          | 路径                                                |
 | :---------------------------- | :-------------------------------------------------- |
 | 基础配置（API Key、模型参数） | `%USERPROFILE%\.config\righthandman\settings.json`       |
-| 本地数据（会话库/截图/日志/运行标记） | `server\data\`（`righthandman.db`、`shots\`、`*.log`、`run.json`） |
+| 本地数据（会话库/截图/附件/日志/运行标记） | `server\data\`（`righthandman.db`、`shots\`、`attachments\`、`*.log`、`run.json`） |
 | 扩展构建产物                  | `.output\chrome-mv3\`                               |
 
 > 注：配置目录与数据库已迁移为 `righthandman`（旧的 `.config\pageask` 会在首次启动时自动复制一份，确认无误后可手动删除）。日志文件名、浏览器存储键、`[pageask]` 日志前缀和环境变量仍沿用旧名，属于内部标识符。
@@ -191,6 +193,7 @@ pnpm tray:bg
 
 - **Open the panel**: on any web page or PDF viewer, **right-click → "Ask RightHandMan"**, or click the RightHandMan icon in the toolbar.
 - **Asking questions**: simply type your question in the input box; supports asking about the current viewport and selected text (limited support for PDF), and quoting replies.
+- **Attachments**: click the **+** at the left of the input, or drag / paste files into the composer, to attach images, PDFs, Word/Excel/PowerPoint (`.docx`/`.xlsx`/`.pptx`) and plain-text files (up to 10 per message, 20 MB each). Images go to the model with the message; documents are read by the model on demand. A message may carry attachments without any text, and editing a message can add or remove them too. The backend keeps a copy of each file and deletes it with the conversation.
 - **System tray**: when started with `pnpm tray:bg`, the tray context menu offers service start/stop, configuration, start-at-login and log viewing.
 
 ---
@@ -202,6 +205,7 @@ pnpm tray:bg
 | **Extension**       | WXT + React + TypeScript  | Manifest V3 side panel built with WXT; content cleanup is based on Defuddle.                |
 | **Backend**         | Native Node.js runtime    | Built on `node:http` and native `node:sqlite`, keeping it lightweight with no extra runtime. |
 | **PDF parsing**     | `pdfjs-dist`              | Backend only; the extension just supplies bytes or a path, text extraction happens server-side. |
+| **Office parsing**  | `fflate`                  | Backend only; unzips `.docx`/`.xlsx`/`.pptx` and extracts their text for the model.         |
 | **Process & tray**  | PowerShell / Windows Tray | Local daemon management, automatic recovery after crashes, and start-at-login.              |
 
 ---
@@ -211,7 +215,7 @@ pnpm tray:bg
 | Content                                        | Path                                                          |
 | :--------------------------------------------- | :------------------------------------------------------------ |
 | Base config (API key, model parameters)        | `%USERPROFILE%\.config\righthandman\settings.json`                 |
-| Local data (conversations, screenshots, logs, run marker) | `server\data\` (`righthandman.db`, `shots\`, `*.log`, `run.json`) |
+| Local data (conversations, screenshots, attachments, logs, run marker) | `server\data\` (`righthandman.db`, `shots\`, `attachments\`, `*.log`, `run.json`) |
 | Extension build output                         | `.output\chrome-mv3\`                                         |
 
 > Note: the config directory and database were migrated to `righthandman` (the old `.config\pageask` is copied on first start; delete it once verified). The log filename, browser storage keys, `[pageask]` log prefix and environment variable still use the old name — internal identifiers.

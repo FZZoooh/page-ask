@@ -1,6 +1,7 @@
 import { t, type MessageKey } from '@/lib/i18n';
 import { clockTime, formatTime } from '@/lib/format-time.mjs';
 import type { StoredMessage, Usage } from '@/lib/chat';
+import type { Attachment } from '@/lib/attachments';
 
 export interface Message {
   id: string;
@@ -12,6 +13,7 @@ export interface Message {
   role: 'user' | 'assistant' | 'tool';
   content: string;
   selection?: string;
+  attachments?: Attachment[];
   reasoning?: string;
   /** Currently streaming in */
   streaming?: boolean;
@@ -183,6 +185,7 @@ export function roundEndAt(r: Round): number | null {
 
 const TOOL_LABEL_KEYS: Record<string, MessageKey> = {
   read_page: 'tool.read_page',
+  read_file: 'tool.read_file',
   web_search: 'tool.web_search',
   fetch_url: 'tool.fetch_url',
   screenshot: 'tool.screenshot',
@@ -198,8 +201,8 @@ export function toolLabel(name: string, pdf = false): string {
 /** One-line summary of tool args for the step rows */
 export function toolDetail(name: string, args: Record<string, unknown> | null): string {
   if (!args) return '';
-  if (name === 'read_page') {
-    if (args.scope === 'viewport') return t('tool.detail.viewport');
+  if (name === 'read_page' || name === 'read_file') {
+    if (name === 'read_page' && args.scope === 'viewport') return t('tool.detail.viewport');
     const q = typeof args.query === 'string' ? args.query : '';
     if (q) return t('tool.detail.search', { query: q });
     const offset = Number(args.offset) || 0;
@@ -232,6 +235,7 @@ export function toMessage(m: StoredMessage, pdf = false): Message | null {
     role: m.role,
     content: m.content,
     selection: m.selection,
+    attachments: m.attachments?.length ? m.attachments : undefined,
     reasoning: m.reasoning,
     ms: m.ms ?? undefined,
     processMs: m.processMs ?? undefined,

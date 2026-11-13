@@ -100,6 +100,7 @@ export const enUS = {
   // Tool steps
   'tool.read_page': 'Read page',
   'tool.read_pdf': 'Read PDF',
+  'tool.read_file': 'Read attachment',
   'tool.web_search': 'Web search',
   'tool.fetch_url': 'Fetch page',
   'tool.screenshot': 'Screenshot',
@@ -129,11 +130,27 @@ export const enUS = {
   'composer.send': 'Send',
   'composer.stop': 'Stop',
   'composer.inputAria': 'Message input',
-  'composer.textOnly': 'Only plain text can be dropped',
+  'composer.attach': 'Add attachments',
+  'composer.dropHint': 'Drop to attach',
+  'composer.uploading': 'Attachments are still uploading',
   // Selection hint on the composer's first line (also sent with the request)
   'composer.selection.aria': 'Web page selection: {text}',
   'composer.selection.explain': 'Explain',
   'composer.selection.explainPrompt': 'Please explain the selected content on the page.',
+
+  // Attachment cards
+  'attachment.remove': 'Remove attachment',
+  'attachment.uploading': 'Uploading…',
+  'attachment.uploadFailed': '{name} failed to upload: {message}',
+  'attachment.preview': 'View full size',
+  'attachment.previewClose': 'Close preview',
+  'attachment.type.image': 'Image',
+  'attachment.type.pdf': 'PDF',
+  'attachment.type.docx': 'Word',
+  'attachment.type.xlsx': 'Excel',
+  'attachment.type.pptx': 'PowerPoint',
+  'attachment.type.text': 'Text',
+  'attachment.type.file': 'File',
 
   // Quote popover
   'quote.action': 'Quote',
@@ -201,6 +218,12 @@ export const enUS = {
   'error.pdf.too_big': 'PDF is too large; the limit is 64 MB',
   'error.pdf.bad': 'Failed to parse PDF',
   'error.pdf.failed': 'Failed to parse PDF',
+  'error.attachment.too_large': 'Attachment is too large; the limit is {limitMb} MB',
+  'error.attachment.unsupported': 'This file format is not supported',
+  'error.attachment.no_text': 'This file contains no readable text',
+  'error.attachment.unreadable': 'Cannot read this file',
+  'error.attachment.not_found': 'Attachment is missing or expired; add it again',
+  'error.attachment.too_many': 'A message can have at most {max} attachments',
 
   // Settings panel
   'settings.title': 'Settings',

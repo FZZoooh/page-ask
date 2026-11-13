@@ -19,6 +19,7 @@ import {
   type ReadFailure,
 } from '@/lib/extract';
 import { getLocale, resolveLocale, setLocale, t, tError, type MessageKey } from '@/lib/i18n';
+import { transferFiles, type Attachment } from '@/lib/attachments';
 import {
   applyChatActions,
   createChatStreamState,
@@ -35,6 +36,8 @@ import {
 } from '@/lib/settings';
 import { SettingsPanel } from './SettingsPanel';
 import { Composer } from './Composer';
+import { AttachButton, AttachmentStrip, ImageLightbox, sentCards, type PreviewTarget } from './AttachmentCards';
+import { useAttachmentDrafts } from './useAttachmentDrafts';
 import { HistoryPanel } from './HistoryPanel';
 import { PageCard } from './PageCard';
 import { RoundPanel, ThinkingFade } from './RoundPanel';
@@ -66,6 +69,10 @@ import {
 
 /** Editor max height (beyond this it scrolls internally); must match .editor max-height in style.css */
 const MAX_BOX_H = 156;
+/** Single-line editor height (22px line + 2×6px padding); must match .editor in style.css */
+const SINGLE_LINE_H = 34;
+/** Extra left inset of the editor in one-row mode, where "+" sits beside it (.box vs .box.multi padding) */
+const SINGLE_ROW_INSET = 30;
 /** Messages per history page; the backend clamps to 500 */
 const HISTORY_PAGE_SIZE = 200;
 
@@ -170,6 +177,23 @@ export default function App() {
   const [selectionHint, setSelectionHint] = useState('');
   /** Floating "Quote" button when answer text is selected (viewport coords + the selected source text) */
   const [quoteMenu, setQuoteMenu] = useState<{ left: number; top: number; text: string } | null>(null);
+
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<number | null>(null);
+  const showToast = useCallback((message: string) => {
+    setToast(message);
+    if (toastTimer.current != null) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 2200);
+  }, []);
+
+  /** Attachment cards of the composer and of the inline question editor (independent drafts) */
+  const composerFiles = useAttachmentDrafts(settings, showToast);
+  const editFiles = useAttachmentDrafts(settings, showToast);
+  /** Composer two-row layout (wrapped text or attachments): see the auto-grow effect */
+  const [composerMulti, setComposerMulti] = useState(false);
+  const composerMultiRef = useRef(false);
+  const [preview, setPreview] = useState<PreviewTarget | null>(null);
+  const closePreview = useCallback(() => setPreview(null), []);
 
   const seq = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
@@ -444,13 +468,15 @@ export default function App() {
         if (sendingRef.current || messagesRef.current.length > 0) return;
         let stored = conv.messages;
         // A crash leaves a final user message unanswered: move it to the editor and drop it from history
-        if (!editorHasDraft()) {
+        if (!editorHasDraft() && !composerFiles.hasItems()) {
           const recovered = await recoverPendingQuestion(settings, conv.id).catch(() => null);
           if (cancelled || mine !== loadSeqRef.current) return;
           if (sendingRef.current || messagesRef.current.length > 0) return;
           if (recovered) {
             stored = stored.filter((m) => m.id !== recovered.messageId);
             fillEditor(recovered.text);
+            // Recovery returns the files to pending, so the composer owns them again
+            composerFiles.reset(recovered.attachments ?? [], true);
             void refreshConversations(pageUrl, settings);
           }
         }
@@ -468,7 +494,16 @@ export default function App() {
       cancelled = true;
     };
     // verbose is not a dep: toggling display must not reload the conversation; only tab/backend changes re-home
-  }, [pageUrl, settings?.backendUrl, refreshConversations, fillEditor, editorHasDraft, page?.kind]);
+  }, [
+    pageUrl,
+    settings?.backendUrl,
+    refreshConversations,
+    fillEditor,
+    editorHasDraft,
+    page?.kind,
+    composerFiles.hasItems,
+    composerFiles.reset,
+  ]);
 
   const {
     listRef,
@@ -643,15 +678,28 @@ export default function App() {
 
   /* ---------------- Sending ---------------- */
 
-  const canSend = configured && !busy && input.trim().length > 0;
+  const canSend =
+    configured &&
+    !busy &&
+    !composerFiles.uploading &&
+    (input.trim().length > 0 || composerFiles.items.length > 0);
 
   const send = useCallback(
-    async (raw?: string, opts?: { regenerate?: boolean; editMessageId?: string; editLocalId?: string }) => {
+    async (
+      raw?: string,
+      opts?: { regenerate?: boolean; editMessageId?: string; editLocalId?: string; attachments?: Attachment[] },
+    ) => {
       const editMessageId = opts?.editMessageId;
       const editingQuestion = Boolean(editMessageId);
       const regenerate = Boolean(opts?.regenerate) && !editingQuestion;
+      const fresh = !regenerate && !editingQuestion;
       const question = (raw ?? serialize()).trim();
-      if (!question || !settings || busy || sendingRef.current) return;
+      // A fresh send takes the composer's cards; an edit brings its own list (always sent, even empty,
+      // so removed files get unbound); a regenerate leaves the stored attachments alone.
+      const pendingFiles = fresh ? composerFiles.items : [];
+      if (fresh && composerFiles.uploading) return;
+      if (!question && !regenerate && !(editingQuestion ? opts?.attachments?.length : pendingFiles.length)) return;
+      if (!settings || busy || sendingRef.current) return;
       if (!isConfigured(settings) || !page) return;
       if ((regenerate || editingQuestion) && !conversationId) return;
       if (editingQuestion && !opts?.editLocalId) return;
@@ -663,7 +711,8 @@ export default function App() {
         suppressedResumeUrl.current = null;
         saveNewChatUrl(null);
       }
-      if (!regenerate && !editingQuestion) {
+      const files = editingQuestion ? (opts?.attachments ?? []) : fresh ? composerFiles.take() : [];
+      if (fresh) {
         setInput('');
         if (editorRef.current) {
           editorRef.current.innerHTML = '';
@@ -672,12 +721,13 @@ export default function App() {
         savedRange.current = null;
       }
       prepareSend({
-        center: !regenerate && !editingQuestion,
+        center: fresh,
         editing: editingQuestion,
         newConversation: !conversationId,
       });
 
       const firstAsstId = crypto.randomUUID();
+      const localAttachments = files.length ? files : undefined;
       // A fresh send keeps a local id until `meta` reports the DB id. Editing an existing row reuses
       // its local id (so the DOM stays stable) and already knows the DB id.
       const localUserId = editingQuestion ? (opts?.editLocalId ?? null) : regenerate ? null : crypto.randomUUID();
@@ -694,6 +744,7 @@ export default function App() {
               serverId: editMessageId,
               role: 'user' as const,
               content: question,
+              attachments: localAttachments,
               createdAt: Date.now(),
             },
             { id: firstAsstId, role: 'assistant', content: '', reasoning: '', streaming: true },
@@ -702,7 +753,15 @@ export default function App() {
         return [
           ...prev,
           ...(localUserId
-            ? [{ id: localUserId, role: 'user' as const, content: question, createdAt: Date.now() }]
+            ? [
+                {
+                  id: localUserId,
+                  role: 'user' as const,
+                  content: question,
+                  attachments: localAttachments,
+                  createdAt: Date.now(),
+                },
+              ]
             : []),
           { id: firstAsstId, role: 'assistant', content: '', reasoning: '', streaming: true },
         ];
@@ -791,6 +850,7 @@ export default function App() {
           },
           screenshot: shot,
           text: question,
+          attachments: regenerate ? undefined : editingQuestion || files.length ? files.map((a) => a.id) : undefined,
           regenerate,
           editMessageId,
           locale: getLocale(),
@@ -857,6 +917,7 @@ export default function App() {
     [
       busy,
       clearCenterLock,
+      composerFiles,
       conversationAssigned,
       conversationId,
       input,
@@ -871,13 +932,6 @@ export default function App() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   /** Separate from copiedId: a question and an answer are different buttons in the same turn */
   const [copiedUserId, setCopiedUserId] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
-  const toastTimer = useRef<number | null>(null);
-  const showToast = useCallback((message: string) => {
-    setToast(message);
-    if (toastTimer.current != null) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 2200);
-  }, []);
 
   // Fill and focus the inline editor once it is in the DOM. Content is rendered imperatively (quote
   // chips need real spans), so React must not own the children of this contenteditable.
@@ -902,7 +956,8 @@ export default function App() {
     clearCenterLock();
     setEditing(null);
     setEditDraft('');
-  }, [conversationId, pageUrl, clearCenterLock]);
+    editFiles.discardNew();
+  }, [conversationId, pageUrl, clearCenterLock, editFiles.discardNew]);
 
   const stop = () => abortRef.current?.abort();
 
@@ -950,10 +1005,11 @@ export default function App() {
       if (busy || sendingRef.current) return;
       // Editing takes over scrolling; a still-active send lock would snap the row back on open.
       clearCenterLock();
+      editFiles.reset(m.attachments ?? [], false);
       setEditing({ localId: m.id, serverId: m.serverId ?? m.id, content: m.content });
       setEditDraft(m.content);
     },
-    [busy, clearCenterLock],
+    [busy, clearCenterLock, editFiles.reset],
   );
 
   const cancelEdit = useCallback(() => {
@@ -961,7 +1017,8 @@ export default function App() {
     clearCenterLock();
     setEditing(null);
     setEditDraft('');
-  }, [clearCenterLock]);
+    editFiles.discardNew();
+  }, [clearCenterLock, editFiles.discardNew]);
 
   const onEditInput = useCallback(() => {
     setEditDraft(serializeEditor(inlineEditorRef.current));
@@ -971,21 +1028,33 @@ export default function App() {
     if (!editing) return;
     const el = inlineEditorRef.current;
     const text = (el ? serializeEditor(el) : editDraft).trim();
-    if (!text || busy || sendingRef.current) return;
+    if ((!text && !editFiles.items.length) || editFiles.uploading || busy || sendingRef.current) return;
     if (!settings || !isConfigured(settings) || !page || !conversationId) return;
     const { localId, serverId } = editing;
     setEditing(null);
     setEditDraft('');
-    void send(text, { editMessageId: serverId, editLocalId: localId });
-  }, [busy, conversationId, editDraft, editing, page, send, settings]);
+    const attachments = editFiles.take();
+    void send(text, { editMessageId: serverId, editLocalId: localId, attachments });
+  }, [busy, conversationId, editDraft, editFiles, editing, page, send, settings]);
 
   const onEditPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
     const text = e.clipboardData.getData('text/plain');
+    const files = transferFiles(e.clipboardData);
+    if (!text && files.length) {
+      editFiles.add(files);
+      return;
+    }
     const el = inlineEditorRef.current;
     if (!text || !el) return;
     insertTextInto(el, text, null);
     onEditInput();
+  };
+
+  const onEditDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const files = transferFiles(e.dataTransfer);
+    if (files.length) editFiles.add(files);
   };
 
   const onEditKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -1014,7 +1083,7 @@ export default function App() {
       // Check every send precondition first, or the UI truncates while no request goes out
       if (busy || sendingRef.current || !settings || !isConfigured(settings) || !page || !conversationId) return;
       const question = r.user?.content ?? '';
-      if (!question) return;
+      if (!question && !r.user?.attachments?.length) return;
       // Keep only the messages up to and including this user message
       const cutAt = r.user ? messages.findIndex((m) => m.id === r.user!.id) : messages.length;
       if (cutAt >= 0) setMessages((prev) => prev.slice(0, cutAt + 1));
@@ -1054,12 +1123,13 @@ export default function App() {
         return;
       }
       let stored = conv.messages;
-      if (!editorHasDraft()) {
+      if (!editorHasDraft() && !composerFiles.hasItems()) {
         const recovered = await recoverPendingQuestion(settings, conv.id).catch(() => null);
         if (mine !== loadSeqRef.current) return;
         if (recovered) {
           stored = stored.filter((m) => m.id !== recovered.messageId);
           fillEditor(recovered.text);
+          composerFiles.reset(recovered.attachments ?? [], true);
           if (pageUrl) void refreshConversations(pageUrl, settings);
         }
       }
@@ -1185,19 +1255,29 @@ export default function App() {
     });
   };
 
-  /** Accept plain-text paste only, so external HTML never enters the editor */
+  /** Plain text pastes as text (external HTML never enters the editor); a clipboard of files attaches them */
   const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
     const text = e.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
+    const files = transferFiles(e.clipboardData);
+    if (!text && files.length) {
+      composerFiles.add(files);
+      return;
+    }
     insertTextAtCaret(text);
   };
 
   /** Dragging text in would otherwise let the browser insert HTML (and remote <img> tags). */
   const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    if (!configured || pageState.kind !== 'ready') return;
+    const files = transferFiles(e.dataTransfer);
+    if (files.length) {
+      composerFiles.add(files);
+      return;
+    }
     const text = e.dataTransfer.getData('text/plain').replace(/\r\n?/g, '\n');
     if (text) insertTextAtCaret(text);
-    else if (e.dataTransfer.files.length > 0) showToast(t('composer.textOnly'));
   };
 
   /* ---------------- Miscellaneous ---------------- */
@@ -1235,6 +1315,20 @@ export default function App() {
     const from = el.offsetHeight;
     el.style.height = 'auto';
     const natural = el.scrollHeight;
+    // Two-row mode once the text wraps or cards are present. The editor is SINGLE_ROW_INSET wider in that
+    // mode, so a line that fits only the wider editor must keep it: leaving is judged at the single-row
+    // width. Otherwise enter → wider → fits → leave → narrower → wraps loops inside this layout effect.
+    let wraps = input.length > 0 && natural > SINGLE_LINE_H + 1;
+    if (composerMultiRef.current && !wraps && input.length > 0) {
+      el.style.width = `${el.offsetWidth - SINGLE_ROW_INSET}px`;
+      wraps = el.scrollHeight > SINGLE_LINE_H + 1;
+      el.style.width = '';
+    }
+    const multi = wraps || composerFiles.items.length > 0;
+    if (multi !== composerMultiRef.current) {
+      composerMultiRef.current = multi;
+      setComposerMulti(multi);
+    }
     const to = Math.min(natural, MAX_BOX_H);
     el.style.height = `${from || to}px`;
     el.style.overflowY = natural > MAX_BOX_H ? 'auto' : 'hidden';
@@ -1255,7 +1349,7 @@ export default function App() {
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [input, pageState.kind]);
+  }, [input, pageState.kind, composerMulti, composerFiles.items.length]);
 
   // Conversation title at top left, from the conversation list (the `title` event updates it in place)
   const currentTitle = useMemo(
@@ -1384,7 +1478,7 @@ export default function App() {
                     key={key}
                     className="suggest"
                     onClick={() => void send(t(key))}
-                    disabled={!configured || busy}
+                    disabled={!configured || busy || composerFiles.uploading}
                   >
                     {t(key)}
                   </button>
@@ -1423,6 +1517,8 @@ export default function App() {
           const prevEnd = roundIndex > 0 ? roundEndAt(rounds[roundIndex - 1]!) : null;
           const showSep = userAt != null && (prevEnd == null || userAt - prevEnd > TIME_SEP_GAP_MS);
           const userMsg = r.user;
+          // An attachment-only question has no bubble, just its cards
+          const hasBubble = Boolean(userMsg?.content || userMsg?.selection);
           return (
           <div key={r.key} className="turn">
             {userMsg && (
@@ -1430,7 +1526,13 @@ export default function App() {
                 {showSep && <div className="time-sep">{fmtTime(userAt)}</div>}
                 {editing?.localId === userMsg.id ? (
                   <div ref={editingUserRef} className="msg user editing">
-                    <div className="inline-edit">
+                    <div className="inline-edit" onDragOver={(e) => e.preventDefault()} onDrop={onEditDrop}>
+                      <AttachmentStrip
+                        items={editFiles.items}
+                        settings={settings}
+                        onRemove={editFiles.remove}
+                        onPreview={setPreview}
+                      />
                       <div
                         ref={inlineEditorRef}
                         className="inline-edit-input"
@@ -1442,16 +1544,17 @@ export default function App() {
                         onInput={onEditInput}
                         onKeyDown={onEditKeyDown}
                         onPaste={onEditPaste}
-                        onDrop={(e) => e.preventDefault()}
                       />
                       <div className="inline-edit-actions">
+                        <AttachButton className="edit-attach" onFiles={editFiles.add} />
                         <button type="button" className="edit-cancel" onClick={cancelEdit}>
                           {t('question.edit.cancel')}
                         </button>
                         <button
                           type="button"
                           className="edit-send"
-                          disabled={!editDraft.trim() || busy}
+                          title={editFiles.uploading ? t('composer.uploading') : undefined}
+                          disabled={(!editDraft.trim() && !editFiles.items.length) || editFiles.uploading || busy}
                           onClick={submitEdit}
                         >
                           {t('question.edit.send')}
@@ -1461,35 +1564,52 @@ export default function App() {
                   </div>
                 ) : (
                   <div ref={isLastRound ? latestUserRef : undefined} className="msg user">
-                    {/* Time outside the bubble follows its left edge (no drift when bubble widths differ) */}
-                    <div className="bubble-wrap">
-                      {!showSep && userAt != null && <span className="msg-time">{fmtClock(userAt)}</span>}
-                      <div className="bubble">
-                        {userMsg.selection && (
-                          <div
-                            className="sel-hint"
-                            role="note"
-                            title={userMsg.selection}
-                            aria-label={t('composer.selection.aria', { text: userMsg.selection })}
-                          >
-                            <span className="sel-hint-mark" aria-hidden="true">❝</span>
-                            <span className="sel-hint-text">{userMsg.selection}</span>
-                          </div>
+                    {userMsg.attachments && (
+                      <div className="bubble-wrap att-wrap">
+                        {!hasBubble && !showSep && userAt != null && (
+                          <span className="msg-time">{fmtClock(userAt)}</span>
                         )}
-                        {renderUserText(userMsg.content)}
+                        <AttachmentStrip
+                          items={sentCards(userMsg.attachments)}
+                          settings={settings}
+                          className="sent"
+                          onPreview={setPreview}
+                        />
                       </div>
-                    </div>
+                    )}
+                    {/* Time outside the bubble follows its left edge (no drift when bubble widths differ) */}
+                    {hasBubble && (
+                      <div className="bubble-wrap">
+                        {!showSep && userAt != null && <span className="msg-time">{fmtClock(userAt)}</span>}
+                        <div className="bubble">
+                          {userMsg.selection && (
+                            <div
+                              className="sel-hint"
+                              role="note"
+                              title={userMsg.selection}
+                              aria-label={t('composer.selection.aria', { text: userMsg.selection })}
+                            >
+                              <span className="sel-hint-mark" aria-hidden="true">❝</span>
+                              <span className="sel-hint-text">{userMsg.selection}</span>
+                            </div>
+                          )}
+                          {renderUserText(userMsg.content)}
+                        </div>
+                      </div>
+                    )}
                     {/* Same icon row as an answer's actions, mirrored to the bubble's right edge */}
                     <div className="msg-actions">
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        title={copiedUserId === userMsg.id ? t('question.copied') : t('question.copy')}
-                        aria-label={copiedUserId === userMsg.id ? t('question.copied') : t('question.copy')}
-                        onClick={() => copyQuestion(userMsg)}
-                      >
-                        {copiedUserId === userMsg.id ? <IconCheck /> : <IconCopy />}
-                      </button>
+                      {userMsg.content && (
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title={copiedUserId === userMsg.id ? t('question.copied') : t('question.copy')}
+                          aria-label={copiedUserId === userMsg.id ? t('question.copied') : t('question.copy')}
+                          onClick={() => copyQuestion(userMsg)}
+                        >
+                          {copiedUserId === userMsg.id ? <IconCheck /> : <IconCopy />}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="icon-btn"
@@ -1647,20 +1767,29 @@ export default function App() {
 
       <Composer
         editorRef={editorRef}
+        settings={settings}
         configured={configured}
         pageReady={pageState.kind === 'ready'}
         busy={busy}
         canSend={canSend}
+        multiline={composerMulti}
+        attachments={composerFiles.items}
+        uploading={composerFiles.uploading}
         selectionHint={selectionHint}
         onInput={onInput}
         onCompositionEnd={onCompositionEnd}
         onKeyDown={onKeyDown}
         onPaste={onPaste}
         onDrop={onDrop}
+        onAttach={composerFiles.add}
+        onRemoveAttachment={composerFiles.remove}
+        onPreview={setPreview}
         onSend={() => void send()}
         onExplainSelection={() => void send(t('composer.selection.explainPrompt'))}
         onStop={stop}
       />
+
+      {preview && <ImageLightbox target={preview} onClose={closePreview} />}
 
       {toast && (
         <div className="toast" role="status">

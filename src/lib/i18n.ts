@@ -104,6 +104,7 @@ export const zhCN = {
   // 工具步骤条（工具名由前端本地化，忽略后端 label）
   'tool.read_page': '读取页面',
   'tool.read_pdf': '读取 PDF',
+  'tool.read_file': '读取附件',
   'tool.web_search': '联网搜索',
   'tool.fetch_url': '抓取网页',
   'tool.screenshot': '截图',
@@ -133,11 +134,27 @@ export const zhCN = {
   'composer.send': '发送',
   'composer.stop': '停止',
   'composer.inputAria': '消息输入框',
-  'composer.textOnly': '只能拖入纯文本',
+  'composer.attach': '添加附件',
+  'composer.dropHint': '松开以添加附件',
+  'composer.uploading': '附件还在上传',
   // 输入框首行的网页选区提示（发送时会随请求带上）
   'composer.selection.aria': '网页选区：{text}',
   'composer.selection.explain': '解释',
   'composer.selection.explainPrompt': '请解释网页中选中的内容。',
+
+  // 附件卡片
+  'attachment.remove': '移除附件',
+  'attachment.uploading': '上传中…',
+  'attachment.uploadFailed': '{name} 上传失败：{message}',
+  'attachment.preview': '查看大图',
+  'attachment.previewClose': '关闭预览',
+  'attachment.type.image': '图片',
+  'attachment.type.pdf': 'PDF',
+  'attachment.type.docx': 'Word',
+  'attachment.type.xlsx': 'Excel',
+  'attachment.type.pptx': 'PowerPoint',
+  'attachment.type.text': '文本',
+  'attachment.type.file': '文件',
 
   // 选中回答里的文字时弹出的快捷菜单
   'quote.action': '引用',
@@ -205,6 +222,12 @@ export const zhCN = {
   'error.pdf.too_big': 'PDF 太大了，不应大于 64 MB',
   'error.pdf.bad': 'PDF 解析失败',
   'error.pdf.failed': 'PDF 解析失败',
+  'error.attachment.too_large': '附件太大了，不应大于 {limitMb} MB',
+  'error.attachment.unsupported': '不支持这种文件格式',
+  'error.attachment.no_text': '这个文件里没有可读取的文字',
+  'error.attachment.unreadable': '无法读取这个文件',
+  'error.attachment.not_found': '附件不存在或已失效，请重新添加',
+  'error.attachment.too_many': '一条消息最多 {max} 个附件',
 
   // 设置面板
   'settings.title': '设置',

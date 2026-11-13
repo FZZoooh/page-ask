@@ -109,6 +109,34 @@ db.exec(`
   }
 }
 
+// User attachments. A row is "pending" (both FKs NULL) from upload until a /chat binds it to a user
+// message; the original bytes live in data/attachments/<file>, extracted document text lives in `text`.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS attachments (
+    id              TEXT PRIMARY KEY,
+    conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE,
+    message_id      TEXT REFERENCES messages(id) ON DELETE CASCADE,
+    position        INTEGER NOT NULL DEFAULT 0,
+    name            TEXT NOT NULL,
+    mime            TEXT NOT NULL,
+    format          TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    size            INTEGER NOT NULL,
+    file            TEXT NOT NULL,
+    text            TEXT,
+    pages           INTEGER,
+    chars           INTEGER,
+    truncated       INTEGER NOT NULL DEFAULT 0,
+    created_at      INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_att_msg  ON attachments (message_id, position);
+  CREATE INDEX IF NOT EXISTS idx_att_conv ON attachments (conversation_id);
+`);
+
+/** Attachment landing directory: data/attachments/<id>.<ext> */
+export const attachmentsDir = join(dataDir, 'attachments');
+mkdirSync(attachmentsDir, { recursive: true });
+
 const now = () => Date.now();
 
 /* ---------------- conversations ---------------- */
@@ -120,7 +148,11 @@ export function listConversations(url) {
               -- Count rounds by user questions: tool calls add assistant segments, so user+assistant would overcount
               (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user') AS message_count,
               (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id) AS last_message_at,
-              (SELECT m.content FROM messages m
+              -- An attachment-only question has no text; show its first file name instead
+              (SELECT CASE WHEN TRIM(m.content) <> '' THEN m.content
+                           ELSE (SELECT a.name FROM attachments a WHERE a.message_id = m.id
+                                  ORDER BY a.position LIMIT 1) END
+                 FROM messages m
                 WHERE m.conversation_id = c.id AND m.role = 'user'
                 ORDER BY m.created_at DESC LIMIT 1) AS last_user_text
          FROM conversations c
@@ -167,7 +199,12 @@ export function getConversation(id, { limit = null, before = null } = {}) {
     rows.reverse();
   }
 
-  const messages = rows.map(toMessage);
+  const files = attachmentsByMessage(id);
+  const messages = rows.map((r) => {
+    const m = toMessage(r);
+    if (r.role === 'user') m.attachments = (files.get(r.id) ?? []).map(publicAttachment);
+    return m;
+  });
   return {
     ...toConversation(row),
     messages,
@@ -190,7 +227,10 @@ export function createConversation({ url, title = '' }) {
 }
 
 export function deleteConversation(id) {
-  return db.prepare('DELETE FROM conversations WHERE id = ?').run(id).changes > 0;
+  const files = db.prepare('SELECT file FROM attachments WHERE conversation_id = ?').all(id);
+  const removed = db.prepare('DELETE FROM conversations WHERE id = ?').run(id).changes > 0;
+  if (removed) removeAttachmentFiles(files.map((r) => r.file));
+  return removed;
 }
 
 export function touchConversation(id, { title } = {}) {
@@ -222,6 +262,7 @@ export function addMessage({
   responseId = null,
   aborted = false,
   pageContext = null,
+  attachmentIds = null,
 }) {
   const id = randomUUID();
   const ts = now();
@@ -256,6 +297,7 @@ export function addMessage({
       responseId,
       pageContext,
     );
+    if (attachmentIds?.length) bindAttachments(conversationId, id, attachmentIds);
     touchConversation(conversationId);
     db.exec('RELEASE add_message');
   } catch (err) {
@@ -366,8 +408,9 @@ export function truncateAfterLastUser(conversationId) {
  * where it was); later assistant/tool rows are discarded exactly like "regenerate".
  * Returns `{ id }`, or null when the id is not a user message of this conversation.
  */
-export function editUserMessage({ conversationId, messageId, content, pageContext = null }) {
+export function editUserMessage({ conversationId, messageId, content, pageContext = null, attachmentIds }) {
   let doomed = [];
+  let doomedFiles = [];
   db.exec('BEGIN IMMEDIATE');
   try {
     const row = db
@@ -382,12 +425,32 @@ export function editUserMessage({ conversationId, messageId, content, pageContex
       pageContext,
       messageId,
     );
+    // `undefined` keeps the current set (older clients); an array replaces it, dropping removed files.
+    if (Array.isArray(attachmentIds)) {
+      const keep = new Set(attachmentIds);
+      const dropped = db
+        .prepare('SELECT id, file FROM attachments WHERE message_id = ?')
+        .all(messageId)
+        .filter((a) => !keep.has(a.id));
+      for (const a of dropped) db.prepare('DELETE FROM attachments WHERE id = ?').run(a.id);
+      doomedFiles.push(...dropped.map((a) => a.file));
+      bindAttachments(conversationId, messageId, attachmentIds);
+    }
     // Read the doomed screenshots and the boundary inside the same transaction as the DELETE.
     doomed = db
       .prepare(
         'SELECT image_path FROM messages WHERE conversation_id = ? AND rowid > ? AND image_path IS NOT NULL',
       )
       .all(conversationId, row.rowid);
+    doomedFiles.push(
+      ...db
+        .prepare(
+          `SELECT a.file FROM attachments a JOIN messages m ON m.id = a.message_id
+            WHERE m.conversation_id = ? AND m.rowid > ?`,
+        )
+        .all(conversationId, row.rowid)
+        .map((r) => r.file),
+    );
     const boundary = db
       .prepare('SELECT COALESCE(MAX(rowid), 0) AS maxRowid FROM messages WHERE conversation_id = ?')
       .get(conversationId).maxRowid;
@@ -407,6 +470,7 @@ export function editUserMessage({ conversationId, messageId, content, pageContex
   }
 
   pruneShots(doomed.map((row) => row.image_path));
+  removeAttachmentFiles(doomedFiles);
   return { id: messageId };
 }
 
@@ -473,9 +537,16 @@ export function recoverLastUserMessage(conversationId) {
       db.exec('COMMIT');
       return null;
     }
+    // Attachments go back to pending so the composer can offer them again instead of losing the files.
+    const attachments = db
+      .prepare('SELECT * FROM attachments WHERE message_id = ? ORDER BY position')
+      .all(last.id);
+    db.prepare(
+      'UPDATE attachments SET message_id = NULL, conversation_id = NULL, position = 0, created_at = ? WHERE message_id = ?',
+    ).run(now(), last.id);
     db.prepare('DELETE FROM messages WHERE id = ?').run(last.id);
     db.exec('COMMIT');
-    return { id: last.id, content: last.content ?? '' };
+    return { id: last.id, content: last.content ?? '', attachments: attachments.map(publicAttachment) };
   } catch (err) {
     try {
       db.exec('ROLLBACK');
@@ -556,6 +627,24 @@ function rowsToItems(rows) {
     replayImages.set(r.id, image);
     imageChars += image.length;
   }
+  // User-attached images get their own, larger budget: they are part of the question, not a passing
+  // glance at the viewport, so they should stay visible for the whole conversation whenever possible.
+  const files = rows.length ? attachmentsByMessage(rows[0].conversation_id) : new Map();
+  const USER_IMAGE_MAX_COUNT = 20;
+  const USER_IMAGE_MAX_CHARS = 12_000_000;
+  const userImages = new Map();
+  let userImageChars = 0;
+  for (let i = rows.length - 1; i >= 0 && userImages.size < USER_IMAGE_MAX_COUNT; i--) {
+    const r = rows[i];
+    if (r.role !== 'user') continue;
+    for (const a of files.get(r.id) ?? []) {
+      if (a.kind !== 'image' || userImages.size >= USER_IMAGE_MAX_COUNT) continue;
+      const image = fileToDataUrl(attachmentsDir, a.file, a.mime);
+      if (!image || userImageChars + image.length > USER_IMAGE_MAX_CHARS) continue;
+      userImages.set(a.id, image);
+      userImageChars += image.length;
+    }
+  }
   // History may still hold dangling calls from older versions (old logic wrote the assistant row, then
   // each tool row). On replay keep only calls that have a real tool row: one missing record beats a 400.
   const answeredCalls = new Set();
@@ -604,15 +693,26 @@ function rowsToItems(rows) {
       }
       continue;
     }
-    if (!r.content) continue;
     if (r.role === 'user') {
+      const attached = files.get(r.id) ?? [];
+      if (!r.content && !attached.length) continue;
       // Replayed byte-for-byte on every later turn: prompt caching needs the developer notice to keep
       // the same position/content in the input prefix. Keep it on the user row so an edit can refresh it.
       const ctx = safeJson(r.page_context);
       if (ctx && typeof ctx.notice === 'string' && ctx.notice) {
         out.push({ role: 'developer', content: [{ type: 'input_text', text: ctx.notice }] });
       }
+      const tags = attached.map((a) => attachmentTag(a, a.kind === 'image' && !userImages.has(a.id)));
+      const text = [tags.join('\n'), r.content ?? ''].filter(Boolean).join('\n\n');
+      const content = [{ type: 'input_text', text }];
+      for (const a of attached) {
+        const image = userImages.get(a.id);
+        if (image) content.push({ type: 'input_image', image_url: image, detail: 'auto' });
+      }
+      out.push({ role: 'user', content });
+      continue;
     }
+    if (!r.content) continue;
     out.push({ role: r.role, content: [{ type: 'input_text', text: r.content }] });
   }
   return out;
@@ -642,25 +742,30 @@ function imageMime(buf) {
 }
 
 function shotToDataUrl(name) {
+  return fileToDataUrl(shotsDir, name, null);
+}
+
+function fileToDataUrl(dir, name, mime) {
   if (!name) return null;
-  if (shotCache.has(name)) {
+  const key = `${dir}\n${name}`;
+  if (shotCache.has(key)) {
     // LRU: move to the tail on a hit
-    const hit = shotCache.get(name);
-    shotCache.delete(name);
-    shotCache.set(name, hit);
+    const hit = shotCache.get(key);
+    shotCache.delete(key);
+    shotCache.set(key, hit);
     return hit;
   }
   let url = null;
   try {
-    const buf = readFileSync(join(shotsDir, name));
-    url = `data:${imageMime(buf)};base64,${buf.toString('base64')}`;
+    const buf = readFileSync(join(dir, name));
+    url = `data:${mime ?? imageMime(buf)};base64,${buf.toString('base64')}`;
   } catch {
     url = null;
   }
   // Do not cache a miss: a screenshot restored from backup (or a file created a moment later)
   // must become visible without restarting the backend.
   if (url) {
-    shotCache.set(name, url);
+    shotCache.set(key, url);
     if (shotCache.size > SHOT_CACHE_MAX) {
       const oldest = shotCache.keys().next().value;
       if (oldest !== undefined) shotCache.delete(oldest);
@@ -768,10 +873,208 @@ export function statsFor(conversationId) {
         "SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND role = ? AND TRIM(content) <> ''",
       )
       .get(conversationId, role).n;
+  // An attachment-only question still counts as a question
+  const users = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM messages m
+        WHERE m.conversation_id = ? AND m.role = 'user'
+          AND (TRIM(m.content) <> '' OR EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id))`,
+    )
+    .get(conversationId).n;
   return {
-    users: count('user'),
+    users,
     answers: count('assistant'),
   };
+}
+
+/* ---------------- attachments ---------------- */
+
+export class AttachmentBindError extends Error {
+  constructor(id) {
+    super(`attachment ${id} is not available`);
+    this.attachmentId = id;
+  }
+}
+
+export function createAttachment({
+  id,
+  name,
+  mime,
+  format,
+  kind,
+  size,
+  file,
+  text = null,
+  pages = null,
+  chars = null,
+  truncated = false,
+}) {
+  db.prepare(
+    `INSERT INTO attachments (id, name, mime, format, kind, size, file, text, pages, chars, truncated, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, name, mime, format, kind, size, file, text, pages, chars, truncated ? 1 : 0, now());
+  return publicAttachment({ id, name, mime, format, kind, size, pages, chars, truncated });
+}
+
+/** Metadata + file name, no extracted text (for serving the original bytes) */
+export function getAttachment(id) {
+  return (
+    db
+      .prepare('SELECT id, conversation_id, message_id, name, mime, format, kind, size, file FROM attachments WHERE id = ?')
+      .get(id) ?? null
+  );
+}
+
+/**
+ * First id that cannot go on the message, or null when all can: a new message only takes pending
+ * uploads, an edit of `messageId` may also keep the ones already on it.
+ */
+export function unavailableAttachment(ids, messageId = null) {
+  for (const id of ids) {
+    const row = db.prepare('SELECT message_id FROM attachments WHERE id = ?').get(id);
+    if (!row) return id;
+    if (row.message_id !== null && row.message_id !== messageId) return id;
+  }
+  return null;
+}
+
+function bindAttachments(conversationId, messageId, ids) {
+  ids.forEach((id, position) => {
+    const { changes } = db
+      .prepare(
+        `UPDATE attachments SET conversation_id = ?, message_id = ?, position = ?
+          WHERE id = ? AND (message_id IS NULL OR message_id = ?)`,
+      )
+      .run(conversationId, messageId, position, id, messageId);
+    // Checked again here: another /chat may have claimed the upload after the caller's pre-check.
+    if (!changes) throw new AttachmentBindError(id);
+  });
+}
+
+/** Remove an upload that was never sent; bound attachments only go away with their message. */
+export function deletePendingAttachment(id) {
+  const row = db.prepare('SELECT file FROM attachments WHERE id = ? AND message_id IS NULL').get(id);
+  if (!row) return false;
+  db.prepare('DELETE FROM attachments WHERE id = ?').run(id);
+  removeAttachmentFiles([row.file]);
+  return true;
+}
+
+/** One attachment of a conversation, extracted text included (read_file) */
+export function conversationAttachment(conversationId, id) {
+  return db.prepare('SELECT * FROM attachments WHERE id = ? AND conversation_id = ?').get(id, conversationId) ?? null;
+}
+
+/** Every attachment the conversation's messages carry, oldest first, without text */
+export function conversationAttachments(conversationId) {
+  return db
+    .prepare(
+      `SELECT a.id, a.name, a.format, a.kind, a.pages, a.chars FROM attachments a
+         JOIN messages m ON m.id = a.message_id
+        WHERE a.conversation_id = ?
+        ORDER BY m.rowid, a.position`,
+    )
+    .all(conversationId);
+}
+
+function attachmentsByMessage(conversationId) {
+  const rows = db
+    .prepare(
+      `SELECT id, message_id, name, mime, format, kind, size, file, pages, chars, truncated FROM attachments
+        WHERE conversation_id = ? AND message_id IS NOT NULL ORDER BY position`,
+    )
+    .all(conversationId);
+  const map = new Map();
+  for (const r of rows) {
+    const list = map.get(r.message_id);
+    if (list) list.push(r);
+    else map.set(r.message_id, [r]);
+  }
+  return map;
+}
+
+/** Drop uploads nobody sent (closed panel, crashed tab). Returns how many were removed. */
+export function cleanupPendingAttachments({ maxAgeMs = 24 * 60 * 60 * 1000 } = {}) {
+  const rows = db
+    .prepare('SELECT id, file FROM attachments WHERE message_id IS NULL AND created_at < ?')
+    .all(now() - maxAgeMs);
+  for (const r of rows) db.prepare('DELETE FROM attachments WHERE id = ?').run(r.id);
+  removeAttachmentFiles(rows.map((r) => r.file));
+  return rows.length;
+}
+
+/** Same rule as cleanupOrphanShots: only files older than the age window, so in-flight uploads survive. */
+export function cleanupOrphanAttachmentFiles({ maxAgeMs = 60 * 60 * 1000 } = {}) {
+  const referenced = new Set(db.prepare('SELECT file FROM attachments').all().map((r) => r.file));
+  let names = [];
+  try {
+    names = readdirSync(attachmentsDir);
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  const ts = now();
+  for (const name of names) {
+    const full = join(attachmentsDir, name);
+    try {
+      const st = statSync(full);
+      if (!st.isFile() || ts - st.mtimeMs < maxAgeMs || referenced.has(name)) continue;
+      unlinkSync(full);
+      removed++;
+    } catch {
+      /* deleted concurrently; skip */
+    }
+  }
+  return removed;
+}
+
+export function removeAttachmentFiles(files) {
+  for (const file of files) {
+    if (!file) continue;
+    shotCache.delete(`${attachmentsDir}\n${file}`);
+    try {
+      unlinkSync(join(attachmentsDir, file));
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
+export function publicAttachment(r) {
+  return {
+    id: r.id,
+    name: r.name,
+    mime: r.mime,
+    format: r.format,
+    kind: r.kind,
+    size: r.size,
+    pages: r.pages ?? null,
+    chars: r.chars ?? null,
+    truncated: Boolean(r.truncated),
+  };
+}
+
+const FORMAT_LABELS = { pdf: 'PDF', docx: 'Word', xlsx: 'Excel', pptx: 'PowerPoint', text: 'text' };
+
+/**
+ * The model-facing reference to an attachment, prepended to the user text. Deterministic on purpose:
+ * the same row must render the same bytes on every later turn for prompt caching.
+ */
+function attachmentTag(a, imageOmitted) {
+  const name = String(a.name ?? '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/[&"<>]/g, (c) => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' })[c]);
+  const attrs = [`file_id="${a.id}"`, `name="${name}"`];
+  if (a.kind === 'image') {
+    attrs.push('type="image"');
+    if (imageOmitted) attrs.push('note="image no longer resent to save space"');
+  } else {
+    attrs.push(`type="${FORMAT_LABELS[a.format] ?? a.format}"`);
+    if (a.pages) attrs.push(`pages="${a.pages}"`);
+    if (a.chars != null) attrs.push(`chars="${a.chars}"`);
+    if (a.truncated) attrs.push('truncated="true"');
+  }
+  return `<attachment ${attrs.join(' ')}/>`;
 }
 
 /* ---------------- rows → objects ---------------- */

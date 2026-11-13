@@ -102,3 +102,31 @@ export function IconCheck(_props: Props) {
     </svg>
   );
 }
+
+/** Attach: plus sign */
+export function IconPlus(_props: Props) {
+  return (
+    <svg {...base} stroke="currentColor" strokeWidth={1.7} fill="none">
+      <path d="M8 3v10M3 8h10" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Remove: small cross */
+export function IconClose(_props: Props) {
+  return (
+    <svg {...base} stroke="currentColor" strokeWidth={1.8} fill="none">
+      <path d="m4.4 4.4 7.2 7.2M11.6 4.4l-7.2 7.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Document: page with a folded corner */
+export function IconFile(_props: Props) {
+  return (
+    <svg {...base} stroke="currentColor" strokeWidth={1.3} fill="none">
+      <path d="M4 1.8h5l3.2 3.2v8.2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2.8a1 1 0 0 1 1-1Z" strokeLinejoin="round" />
+      <path d="M9 1.8V5h3.2" strokeLinejoin="round" />
+    </svg>
+  );
+}

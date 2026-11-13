@@ -60,6 +60,7 @@ export const messages = {
   // ---------------- 工具事件与模型侧提示 ----------------
   'chat.stopped': '已停止',
   'tool.read_page': '读取页面',
+  'tool.read_file': '读取附件',
   'tool.screenshot': '截图',
   'tool.web_search': '联网搜索',
   'tool.fetch_url': '抓取网页',
@@ -116,6 +117,12 @@ export const messages = {
   'error.pdf.too_big': 'PDF 太大了，不应大于 64 MB',
   'error.pdf.bad': 'PDF 解析失败',
   'error.pdf.failed': 'PDF 解析失败',
+  'error.attachment.too_large': '附件太大了，不应大于 {limitMb} MB',
+  'error.attachment.unsupported': '不支持这种文件格式',
+  'error.attachment.no_text': '这个文件里没有可读取的文字',
+  'error.attachment.unreadable': '无法读取这个文件',
+  'error.attachment.not_found': '附件不存在或已失效，请重新添加',
+  'error.attachment.too_many': '一条消息最多 {max} 个附件',
 };
 
 export default messages;

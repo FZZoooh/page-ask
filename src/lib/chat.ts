@@ -1,5 +1,6 @@
 // Backend API client: conversation read/write + streaming chat.
 // Backend lives at 127.0.0.1:8787 and only accepts chrome-extension://<this extension> origins.
+import type { Attachment } from './attachments';
 import type { ExtractedPage, SelectionInfo } from './extract';
 import { t, tError } from './i18n';
 import { baseUrl, type Settings } from './settings';
@@ -36,6 +37,8 @@ export interface StoredMessage {
   toolName?: string | null;
   toolArgs?: Record<string, unknown> | null;
   aborted?: boolean;
+  /** User rows only: files sent with this question, in display order */
+  attachments?: Attachment[];
 }
 
 export interface ToolCall {
@@ -107,12 +110,12 @@ export type ChatEvent =
 
 /* ---------------- Basic requests ---------------- */
 
-function endpoint(settings: Settings, path: string): string {
+export function endpoint(settings: Settings, path: string): string {
   return `${baseUrl(settings)}${path}`;
 }
 
 /** When the backend's settings.json sets a token, every request must carry the same token */
-function authHeaders(settings: Settings): Record<string, string> {
+export function authHeaders(settings: Settings): Record<string, string> {
   const token = settings.token?.trim();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
@@ -125,7 +128,7 @@ interface ApiErrorBody {
 }
 
 /** Backend error bodies are always { error, message, code, params }: code picks local copy, else status. */
-async function backendErrorText(res: Response): Promise<string> {
+export async function backendErrorText(res: Response): Promise<string> {
   const raw = await res.text().catch(() => '');
   let body: ApiErrorBody | null = null;
   try {
@@ -190,6 +193,8 @@ export async function deleteConversation(settings: Settings, id: string): Promis
 export interface RecoveredQuestion {
   text: string;
   messageId: string;
+  /** Files of the recovered question; the backend returns them to the pending state */
+  attachments?: Attachment[];
 }
 
 /**
@@ -224,6 +229,8 @@ export interface ChatRequest {
   /** Screenshot (data URL); used when the model calls the screenshot tool */
   screenshot?: { dataUrl: string; width: number; height: number } | null;
   text: string;
+  /** Uploaded attachment ids in display order; omitted on regenerate (the question keeps its files) */
+  attachments?: string[];
   /** Regenerate: the backend drops the previous answer (rows after the last user message) and reruns */
   regenerate?: boolean;
   /** Inline edit: the backend rewrites this user message and drops every later row, then reruns from it */
@@ -259,6 +266,7 @@ export async function* streamChat(req: ChatRequest): AsyncGenerator<ChatEvent> {
           screenshotHeight: req.screenshot?.height,
         },
         text: req.text,
+        attachments: req.attachments,
       }),
       signal: req.signal,
     });

@@ -1,14 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, RefObject } from 'react';
 import { IconSend, IconStop } from '@/components/icons';
+import { hasTransferFiles, type DraftAttachment } from '@/lib/attachments';
 import { t } from '@/lib/i18n';
+import type { Settings } from '@/lib/settings';
+import { AttachButton, AttachmentStrip, type PreviewTarget } from './AttachmentCards';
 
 interface ComposerProps {
   editorRef: RefObject<HTMLDivElement | null>;
+  settings: Settings | null;
   configured: boolean;
   pageReady: boolean;
   busy: boolean;
   canSend: boolean;
+  /** Two-row layout: editor on top, attach + send on a bottom row */
+  multiline: boolean;
+  attachments: DraftAttachment[];
+  uploading: boolean;
   /** Current page selection; an empty string means nothing is selected */
   selectionHint: string;
   onInput: (e: FormEvent<HTMLDivElement>) => void;
@@ -16,24 +24,37 @@ interface ComposerProps {
   onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => void;
   onPaste: (e: ClipboardEvent<HTMLDivElement>) => void;
   onDrop: (e: DragEvent<HTMLDivElement>) => void;
+  onAttach: (files: File[]) => void;
+  onRemoveAttachment: (key: string) => void;
+  onPreview: (target: PreviewTarget) => void;
   onSend: () => void;
   onExplainSelection: () => void;
   onStop: () => void;
 }
 
-/** Composer: a pill on one line, growing smoothly into a rounded rectangle as it fills */
+/**
+ * Composer: a pill on one line ("+" left, send right), switching to a rounded rectangle with the
+ * buttons on their own bottom row once the text wraps or attachments are added.
+ */
 export function Composer({
   editorRef,
+  settings,
   configured,
   pageReady,
   busy,
   canSend,
+  multiline,
+  attachments,
+  uploading,
   selectionHint,
   onInput,
   onCompositionEnd,
   onKeyDown,
   onPaste,
   onDrop,
+  onAttach,
+  onRemoveAttachment,
+  onPreview,
   onSend,
   onExplainSelection,
   onStop,
@@ -43,12 +64,16 @@ export function Composer({
     : !pageReady
       ? t('composer.placeholder.noPage')
       : t('composer.placeholder.ready');
+  const canAttach = configured && pageReady;
 
   // :focus-visible cannot tell a pointer click from keyboard focus for contenteditable:
   // Chrome treats editable text as keyboard-editable and keeps the ring on mouse focus.
   // Track the last input modality ourselves so only Tab navigation paints the composer ring.
   const keyboardNav = useRef(false);
   const [keyboardRing, setKeyboardRing] = useState(false);
+  const [dropping, setDropping] = useState(false);
+  /** dragenter/dragleave fire for every child crossed, so count depth instead of trusting one event */
+  const dragDepth = useRef(0);
 
   useEffect(() => {
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
@@ -65,14 +90,36 @@ export function Composer({
     };
   }, []);
 
+  const boxClass = ['box', multiline && 'multi', keyboardRing && 'kb-focus', dropping && 'drop'].filter(Boolean).join(' ');
+
   return (
-    <div className="composer">
+    <div
+      className="composer"
+      onDragEnter={(e) => {
+        if (!canAttach || !hasTransferFiles(e.dataTransfer)) return;
+        dragDepth.current += 1;
+        setDropping(true);
+      }}
+      onDragOver={(e) => {
+        // Without preventDefault the drop never fires (and the browser would navigate to the file)
+        e.preventDefault();
+        e.dataTransfer.dropEffect = !hasTransferFiles(e.dataTransfer) || canAttach ? 'copy' : 'none';
+      }}
+      onDragLeave={() => {
+        if (dragDepth.current > 0 && --dragDepth.current === 0) setDropping(false);
+      }}
+      onDrop={(e) => {
+        dragDepth.current = 0;
+        setDropping(false);
+        onDrop(e);
+      }}
+    >
       {selectionHint && (
         <div className="selection-actions">
           <button
             type="button"
             className="suggest"
-            disabled={busy || !configured || !pageReady}
+            disabled={busy || uploading || !configured || !pageReady}
             onClick={onExplainSelection}
           >
             {t('composer.selection.explain')}
@@ -80,7 +127,7 @@ export function Composer({
         </div>
       )}
       <div
-        className={keyboardRing ? 'box kb-focus' : 'box'}
+        className={boxClass}
         onFocusCapture={() => setKeyboardRing(keyboardNav.current)}
         onBlurCapture={() => setKeyboardRing(false)}
         onPointerDownCapture={() => {
@@ -88,6 +135,13 @@ export function Composer({
           setKeyboardRing(false);
         }}
       >
+        <AttachmentStrip
+          items={attachments}
+          settings={settings}
+          className="in-box"
+          onRemove={onRemoveAttachment}
+          onPreview={onPreview}
+        />
         {selectionHint && (
           <div
             className="sel-hint"
@@ -115,9 +169,8 @@ export function Composer({
           onCompositionEnd={onCompositionEnd}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={onDrop}
         />
+        <AttachButton className="attach-box" disabled={!canAttach} onFiles={onAttach} />
         {busy ? (
           <button className="send stop" onClick={onStop} title={t('composer.stop')} aria-label={t('composer.stop')}>
             <IconStop />
@@ -127,11 +180,16 @@ export function Composer({
             className="send"
             onClick={onSend}
             disabled={!canSend}
-            title={t('composer.send')}
+            title={uploading ? t('composer.uploading') : t('composer.send')}
             aria-label={t('composer.send')}
           >
             <IconSend />
           </button>
+        )}
+        {dropping && (
+          <div className="drop-hint" aria-hidden="true">
+            {t('composer.dropHint')}
+          </div>
         )}
       </div>
     </div>
