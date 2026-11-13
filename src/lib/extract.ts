@@ -209,7 +209,7 @@ export function extract(raw: RawPage): ExtractedPage {
   // `separateMarkdown` is required: the core `defuddle` entry never converts HTML to Markdown
   // (`contentMarkdown` only exists in the full build), and `markdown: true` would overwrite the
   // HTML that the fallback below needs.
-  const options = { url: raw.url, separateMarkdown: true, useAsync: false };
+  const options = { url: raw.url, separateMarkdown: true, useAsync: false, removeLowScoring: false };
 
   try {
     const res = new Defuddle(doc, options).parse();
