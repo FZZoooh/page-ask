@@ -136,6 +136,8 @@ export const zhCN = {
   'composer.textOnly': '只能拖入纯文本',
   // 输入框首行的网页选区提示（发送时会随请求带上）
   'composer.selection.aria': '网页选区：{text}',
+  'composer.selection.explain': '解释',
+  'composer.selection.explainPrompt': '请解释网页中选中的内容。',
 
   // 选中回答里的文字时弹出的快捷菜单
   'quote.action': '引用',

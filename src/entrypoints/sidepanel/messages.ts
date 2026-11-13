@@ -11,6 +11,7 @@ export interface Message {
   serverId?: string;
   role: 'user' | 'assistant' | 'tool';
   content: string;
+  selection?: string;
   reasoning?: string;
   /** Currently streaming in */
   streaming?: boolean;
@@ -230,6 +231,7 @@ export function toMessage(m: StoredMessage, pdf = false): Message | null {
     id: m.id,
     role: m.role,
     content: m.content,
+    selection: m.selection,
     reasoning: m.reasoning,
     ms: m.ms ?? undefined,
     processMs: m.processMs ?? undefined,

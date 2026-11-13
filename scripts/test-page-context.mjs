@@ -195,6 +195,11 @@ try {
   const body5 = streamBodies.at(-1);
   check('fifth turn completes', fifth.status === 200 && fifthSse.includes('event: done'));
   check('no developer message when nothing changed and nothing is selected', developerTexts(body5).length === 4, String(developerTexts(body5).length));
+  const stored = await (await fetch(`${base}/conversations/${firstMeta.conversationId}`)).json();
+  const storedUsers = stored.messages.filter((m) => m.role === 'user');
+  check('history exposes each turn selection independently', storedUsers.map((m) => m.selection).join('|') === 'alpha||beta||');
+  check('selection is not inserted into the question text', storedUsers[0]?.content === '第一问');
+  check('assistant rows do not carry a selection', stored.messages.filter((m) => m.role === 'assistant').every((m) => m.selection === undefined));
   check('instructions are identical across every turn', new Set(streamBodies.map((b) => b.instructions)).size === 1);
   check('instructions pin no language', !streamBodies.some((b) => /Answer in (English|Simplified Chinese)/.test(b.instructions)));
 
@@ -236,6 +241,8 @@ try {
   check('the edit builds its update against turn one', noticeEdit2.includes('<page_context_update>') && noticeEdit2.includes('Title: T3'), noticeEdit2);
   check('the edit turn carries the new selection', noticeEdit2.includes('«gamma»'), noticeEdit2);
   check('only turn one and the edited turn remain', userTexts(bodyEdit2).join('|') === '第一问|第二问（改）', userTexts(bodyEdit2).join('|'));
+  const editedHistory = await (await fetch(`${base}/conversations/${firstMeta.conversationId}`)).json();
+  check('editing refreshes the displayed selection without changing earlier turns', editedHistory.messages.filter((m) => m.role === 'user').map((m) => m.selection).join('|') === 'alpha|gamma');
 
   // Editing the first turn has no predecessor: send a full page_context again.
   const editFirst = await post(

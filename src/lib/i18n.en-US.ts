@@ -132,6 +132,8 @@ export const enUS = {
   'composer.textOnly': 'Only plain text can be dropped',
   // Selection hint on the composer's first line (also sent with the request)
   'composer.selection.aria': 'Web page selection: {text}',
+  'composer.selection.explain': 'Explain',
+  'composer.selection.explainPrompt': 'Please explain the selected content on the page.',
 
   // Quote popover
   'quote.action': 'Quote',

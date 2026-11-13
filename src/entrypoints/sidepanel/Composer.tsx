@@ -17,6 +17,7 @@ interface ComposerProps {
   onPaste: (e: ClipboardEvent<HTMLDivElement>) => void;
   onDrop: (e: DragEvent<HTMLDivElement>) => void;
   onSend: () => void;
+  onExplainSelection: () => void;
   onStop: () => void;
 }
 
@@ -34,6 +35,7 @@ export function Composer({
   onPaste,
   onDrop,
   onSend,
+  onExplainSelection,
   onStop,
 }: ComposerProps) {
   const placeholder = !configured
@@ -65,6 +67,18 @@ export function Composer({
 
   return (
     <div className="composer">
+      {selectionHint && (
+        <div className="selection-actions">
+          <button
+            type="button"
+            className="suggest"
+            disabled={busy || !configured || !pageReady}
+            onClick={onExplainSelection}
+          >
+            {t('composer.selection.explain')}
+          </button>
+        </div>
+      )}
       <div
         className={keyboardRing ? 'box kb-focus' : 'box'}
         onFocusCapture={() => setKeyboardRing(keyboardNav.current)}

@@ -769,7 +769,11 @@ export default function App() {
           readSelection(snapshot.url),
           snapshot.kind === 'pdf' ? Promise.resolve(null) : readViewport(snapshot.url),
         ]);
-        const selected = sel?.text || snapshot.selection || '';
+        const selected = (sel?.text || snapshot.selection || '').trim();
+        if (runSeqRef.current !== runId || controller.signal.aborted) return;
+        if (localUserId) {
+          setMessages((prev) => prev.map((m) => m.id === localUserId ? { ...m, selection: selected } : m));
+        }
 
         for await (const ev of streamChat({
           settings,
@@ -1460,7 +1464,20 @@ export default function App() {
                     {/* Time outside the bubble follows its left edge (no drift when bubble widths differ) */}
                     <div className="bubble-wrap">
                       {!showSep && userAt != null && <span className="msg-time">{fmtClock(userAt)}</span>}
-                      <div className="bubble">{renderUserText(userMsg.content)}</div>
+                      <div className="bubble">
+                        {userMsg.selection && (
+                          <div
+                            className="sel-hint"
+                            role="note"
+                            title={userMsg.selection}
+                            aria-label={t('composer.selection.aria', { text: userMsg.selection })}
+                          >
+                            <span className="sel-hint-mark" aria-hidden="true">❝</span>
+                            <span className="sel-hint-text">{userMsg.selection}</span>
+                          </div>
+                        )}
+                        {renderUserText(userMsg.content)}
+                      </div>
                     </div>
                     {/* Same icon row as an answer's actions, mirrored to the bubble's right edge */}
                     <div className="msg-actions">
@@ -1641,6 +1658,7 @@ export default function App() {
         onPaste={onPaste}
         onDrop={onDrop}
         onSend={() => void send()}
+        onExplainSelection={() => void send(t('composer.selection.explainPrompt'))}
         onStop={stop}
       />
 

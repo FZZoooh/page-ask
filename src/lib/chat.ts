@@ -20,6 +20,7 @@ export interface StoredMessage {
   id: string;
   role: 'user' | 'assistant' | 'tool';
   content: string;
+  selection?: string;
   reasoning: string;
   createdAt: number;
   tokensIn: number | null;

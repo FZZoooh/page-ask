@@ -1142,6 +1142,12 @@ button.primary.save:hover:not(:disabled) {
   background: var(--bg);
 }
 
+.selection-actions {
+  display: flex;
+  padding-left: 12px;
+  margin-bottom: 6px;
+}
+
 /* The radius is constant (= half the single-line height): a pill while single-line, and the same radius
    reads as a rounded rectangle once it grows. Only the height animates; the radius never does. */
 .box {
@@ -1216,6 +1222,12 @@ button.primary.save:hover:not(:disabled) {
   color: color-mix(in srgb, var(--link) 72%, var(--fg));
   font-size: 12px;
   line-height: 18px;
+}
+
+.bubble .sel-hint {
+  max-width: 60vw;
+  margin: 0 0 6px;
+  white-space: normal;
 }
 
 .sel-hint-mark {

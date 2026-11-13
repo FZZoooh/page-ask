@@ -796,6 +796,7 @@ function toMessage(row) {
     id: row.id,
     role: row.role,
     content: row.content,
+    ...(row.role === 'user' ? { selection: safeJson(row.page_context)?.snapshot?.selection ?? '' } : {}),
     reasoning: row.reasoning,
     createdAt: row.created_at,
     tokensIn: row.tokens_in,
