@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { checkHealth } from '@/lib/chat';
 import { t, type MessageKey } from '@/lib/i18n';
-import { DEFAULT_SETTINGS, saveSettings, type Settings } from '@/lib/settings';
+import { DEFAULT_SETTINGS, saveSettings, validPasteBytes, type Settings } from '@/lib/settings';
 
 interface Props {
   value: Settings;
@@ -31,11 +31,15 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 
 export function SettingsPanel({ value, onDone, onClose }: Props) {
   const [draft, setDraft] = useState<Settings>(value);
+  const [pasteBytesText, setPasteBytesText] = useState(String(value.pasteAsFileBytes));
   const [saving, setSaving] = useState(false);
   const [probe, setProbe] = useState<Probe | null>(null);
   const [probing, setProbing] = useState(false);
 
   const patch = (p: Partial<Settings>) => setDraft((d) => ({ ...d, ...p }));
+
+  const pasteBytes = /^\d+$/.test(pasteBytesText.trim()) ? Number(pasteBytesText.trim()) : NaN;
+  const pasteBytesOk = validPasteBytes(pasteBytes);
 
   const normalized = (): Settings => {
     const raw = draft.backendUrl.trim() || DEFAULT_SETTINGS.backendUrl;
@@ -47,6 +51,8 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
       token: draft.token.trim(),
       locale: draft.locale,
       fontSize: draft.fontSize,
+      pasteAsFile: draft.pasteAsFile,
+      pasteAsFileBytes: pasteBytesOk ? pasteBytes : value.pasteAsFileBytes,
     };
   };
 
@@ -63,6 +69,10 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
   const handleSave = async () => {
     const parsed = validated();
     if (!parsed) return;
+    if (draft.pasteAsFile && !pasteBytesOk) {
+      setProbe({ ok: false, text: t('settings.pasteAsFileBytesInvalid') });
+      return;
+    }
     if (!LOOPBACK_HOSTS.has(parsed.hostname) && !window.confirm(t('settings.remoteConfirm', { host: parsed.host }))) {
       return;
     }
@@ -166,6 +176,30 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
         <span>{t('settings.verbose')}</span>
       </label>
 
+      <label className="check" title={t('settings.pasteAsFileHint')}>
+        <input
+          type="checkbox"
+          checked={draft.pasteAsFile}
+          onChange={(e) => patch({ pasteAsFile: e.target.checked })}
+        />
+        <span>{t('settings.pasteAsFile')}</span>
+      </label>
+
+      <label className="field">
+        <span>{t('settings.pasteAsFileBytes')}</span>
+        <input
+          type="number"
+          min={1}
+          step={1}
+          inputMode="numeric"
+          value={pasteBytesText}
+          disabled={!draft.pasteAsFile}
+          aria-invalid={draft.pasteAsFile && !pasteBytesOk}
+          onChange={(e) => setPasteBytesText(e.target.value)}
+        />
+        <small>{t('settings.pasteAsFileBytesHint')}</small>
+      </label>
+
       <div className="row actions">
         <button className="primary save" onClick={() => void handleSave()} disabled={saving}>
           {saving ? t('settings.saving') : t('settings.save')}
@@ -173,7 +207,13 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
         <button className="ghost" onClick={() => void handleTest()} disabled={probing}>
           {probing ? t('settings.testing') : t('settings.test')}
         </button>
-        <button className="ghost" onClick={() => setDraft({ ...DEFAULT_SETTINGS })}>
+        <button
+          className="ghost"
+          onClick={() => {
+            setDraft({ ...DEFAULT_SETTINGS });
+            setPasteBytesText(String(DEFAULT_SETTINGS.pasteAsFileBytes));
+          }}
+        >
           {t('settings.reset')}
         </button>
       </div>

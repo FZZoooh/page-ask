@@ -19,7 +19,7 @@ import {
   type ReadFailure,
 } from '@/lib/extract';
 import { getLocale, resolveLocale, setLocale, t, tError, type MessageKey } from '@/lib/i18n';
-import { transferFiles, type Attachment } from '@/lib/attachments';
+import { pastedTextFile, transferFiles, type Attachment } from '@/lib/attachments';
 import {
   applyChatActions,
   createChatStreamState,
@@ -1045,6 +1045,11 @@ export default function App() {
       editFiles.add(files);
       return;
     }
+    const asFile = settings ? pastedTextFile(settings, text.replace(/\r\n?/g, '\n')) : null;
+    if (asFile) {
+      editFiles.add([asFile]);
+      return;
+    }
     const el = inlineEditorRef.current;
     if (!text || !el) return;
     insertTextInto(el, text, null);
@@ -1255,13 +1260,21 @@ export default function App() {
     });
   };
 
-  /** Plain text pastes as text (external HTML never enters the editor); a clipboard of files attaches them */
+  /**
+   * Plain text pastes as text (external HTML never enters the editor); a clipboard of files attaches them,
+   * and so does text past the paste-as-file threshold, once attaching is possible at all.
+   */
   const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
     const text = e.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
     const files = transferFiles(e.clipboardData);
     if (!text && files.length) {
       composerFiles.add(files);
+      return;
+    }
+    const asFile = configured && pageState.kind === 'ready' ? pastedTextFile(settings, text) : null;
+    if (asFile) {
+      composerFiles.add([asFile]);
       return;
     }
     insertTextAtCaret(text);

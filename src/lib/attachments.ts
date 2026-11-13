@@ -94,6 +94,18 @@ export function transferFiles(dt: DataTransfer | null): File[] {
   return dt ? Array.from(dt.files) : [];
 }
 
+/** The pasted text as a .txt attachment when the setting is on and it reaches the threshold; else null */
+export function pastedTextFile(settings: Settings, text: string): File | null {
+  if (!settings.pasteAsFile || !text.trim()) return null;
+  // Cheap pre-check: UTF-8 never uses fewer bytes than UTF-16 code units, nor more than three per unit.
+  if (text.length * 3 < settings.pasteAsFileBytes) return null;
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.length < settings.pasteAsFileBytes) return null;
+  const now = new Date();
+  const time = [now.getHours(), now.getMinutes(), now.getSeconds()].map((n) => String(n).padStart(2, '0')).join('-');
+  return new File([bytes], t('attachment.pastedName', { time }), { type: 'text/plain' });
+}
+
 const KEEP_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
 /**

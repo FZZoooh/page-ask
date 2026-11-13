@@ -15,6 +15,9 @@ export interface Settings {
   locale: LocalePreference;
   /** Answer text size; KaTeX is em-based, so formulas grow/shrink with the same value */
   fontSize: FontSize;
+  /** A plain-text paste of at least pasteAsFileBytes (UTF-8) becomes a .txt attachment instead of text */
+  pasteAsFile: boolean;
+  pasteAsFileBytes: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -23,7 +26,13 @@ export const DEFAULT_SETTINGS: Settings = {
   token: '',
   locale: 'auto',
   fontSize: 'normal',
+  pasteAsFile: true,
+  pasteAsFileBytes: 10000,
 };
+
+export function validPasteBytes(n: unknown): n is number {
+  return typeof n === 'number' && Number.isSafeInteger(n) && n > 0;
+}
 
 const KEY = 'pageask.settings.v2';
 const LEGACY_KEY = 'pageask.settings.v1'; // P1's {baseUrl, model, apiKey}; read for migration only
@@ -31,12 +40,15 @@ const LEGACY_KEY = 'pageask.settings.v1'; // P1's {baseUrl, model, apiKey}; read
 /** Known fields only: leftovers such as the old model key never reach state */
 function pick(raw: Partial<Settings> | undefined): Settings {
   const fontSize = raw?.fontSize;
+  const pasteBytes = raw?.pasteAsFileBytes;
   return {
     backendUrl: raw?.backendUrl?.trim() || DEFAULT_SETTINGS.backendUrl,
     verbose: raw?.verbose !== false,
     token: raw?.token?.trim() ?? '',
     locale: raw?.locale === 'zh-CN' || raw?.locale === 'en-US' ? raw.locale : 'auto',
     fontSize: fontSize === 'small' || fontSize === 'large' || fontSize === 'xlarge' ? fontSize : 'normal',
+    pasteAsFile: raw?.pasteAsFile !== false,
+    pasteAsFileBytes: validPasteBytes(pasteBytes) ? pasteBytes : DEFAULT_SETTINGS.pasteAsFileBytes,
   };
 }
 

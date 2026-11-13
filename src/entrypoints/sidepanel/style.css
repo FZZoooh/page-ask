@@ -1850,6 +1850,15 @@ button.lightbox-close:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
 }
 
+.field input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.field input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
 .field small {
   color: var(--muted);
   font-size: 11px;
