@@ -1,11 +1,10 @@
-// Tool implementations for RightHandMan: read_page, read_file, screenshot, web_search, fetch_url.
-// All tools are read-only. External content is encapsulated in <untrusted_content>
-// blocks and hard-capped at RESULT_CAP characters to prevent context overflow.
-
 import { assertPublicHttpUrl, fetchPublic, readBodyCapped } from './net.mjs';
 import { extractPdfText } from './pdf.mjs';
 import { findParagraphs } from './text.mjs';
 import { withV1 } from './upstream.mjs';
+import { WorkspaceError } from './workspace.mjs';
+import { logError } from './log.mjs';
+import { t } from './i18n/index.mjs';
 
 export const RESULT_CAP = 8000;
 
@@ -59,6 +58,75 @@ export const TOOL_SPECS = [
           limit: { type: 'integer', description: 'Optional. Maximum characters to read (default: 4000, max: 8000).' },
         },
         required: ['file_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_files',
+      description: 'Lists names, UTF-8 byte sizes and modification times of generated text files ' +
+        'in this conversation workspace. No paths or folders.',
+      parameters: {
+        type: 'object',
+        properties: {
+          offset: { type: 'integer', description: 'Optional zero-based file offset (default: 0).' },
+          limit: { type: 'integer', description: 'Optional number of files (default: 20, max: 20).' },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_workspace_file',
+      description: 'Reads a generated text file in this conversation workspace by filename, not a path. Supports query and offset/limit pagination. Use read_file for user attachments instead.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Flat filename including a text extension, e.g. report.md.' },
+          query: { type: 'string', description: 'Optional keyword search.' },
+          offset: { type: 'integer', description: 'Optional zero-based character offset (default: 0).' },
+          limit: { type: 'integer', description: 'Optional character limit (default: 4000, max: 8000).' },
+        },
+        required: ['name'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'write_file',
+      description: 'Creates a UTF-8 text file in this conversation workspace. Set overwrite=true to replace an existing file. Only flat filenames and text formats (txt, md, html, code, JSON, CSV etc.) are allowed; no paths, folders, binaries or Office files. Max 1 MiB/file, 100 files and 10 MiB/workspace. Never executes code.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Flat filename including a supported text extension.' },
+          content: { type: 'string', description: 'Complete UTF-8 text content; may be empty.' },
+          overwrite: { type: 'boolean', description: 'Optional; default false. Explicitly allow replacing an existing file.' },
+        },
+        required: ['name', 'content'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'edit_file',
+      description: 'Edits a workspace text file by exact literal replacement. old_text must be nonempty and match exactly once unless replace_all=true. No shell, paths, directories or execution.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Flat filename of an existing workspace text file.' },
+          old_text: { type: 'string', description: 'Exact nonempty text to replace.' },
+          new_text: { type: 'string', description: 'Replacement text; may be empty to remove the match.' },
+          replace_all: { type: 'boolean', description: 'Optional; default false. Replace all occurrences.' },
+        },
+        required: ['name', 'old_text', 'new_text'],
+        additionalProperties: false,
       },
     },
   },
@@ -128,6 +196,11 @@ export async function runTool(name, args, ctx) {
       return readPage(args, ctx);
     case 'read_file':
       return readFile(args, ctx);
+    case 'list_files':
+    case 'read_workspace_file':
+    case 'write_file':
+    case 'edit_file':
+      return workspaceTool(name, args, ctx);
     case 'web_search':
       return webSearch(args, ctx);
     case 'fetch_url':
@@ -136,11 +209,61 @@ export async function runTool(name, args, ctx) {
       return screenshot(args, ctx);
     default:
       return {
-        text: `Unknown tool "${name}". Supported tools: read_page, read_file, web_search, fetch_url, screenshot.`,
+        text: untrusted('source="tool_error"', `Unknown tool "${name}". Supported tools: ${RESPONSES_TOOLS.map((tool) => tool.name).join(', ')}.`),
         label: name,
         detail: 'Unknown tool',
         failed: true,
       };
+  }
+}
+
+const WORKSPACE_LABELS = {
+  list_files: 'List Files',
+  read_workspace_file: 'Read File',
+  write_file: 'Write File',
+  edit_file: 'Edit File',
+};
+
+function workspaceTool(name, args, { workspace }) {
+  const label = WORKSPACE_LABELS[name];
+  const envelope = (text) => untrusted('source="workspace"', text);
+  try {
+    if (name === 'list_files') {
+      const files = workspace.list();
+      const offset = Number.isInteger(args?.offset) ? Math.min(files.length, Math.max(0, args.offset)) : 0;
+      const limit = Number.isInteger(args?.limit) ? Math.min(20, Math.max(1, args.limit)) : 20;
+      const shown = files.slice(offset, offset + limit);
+      const next = offset + shown.length;
+      return {
+        text: envelope(JSON.stringify({ files: shown, total: files.length, next_offset: next < files.length ? next : null })),
+        label,
+        detail: `${files.length} files`,
+      };
+    }
+    if (name === 'read_workspace_file') {
+      const body = workspace.read(args?.name);
+      const out = readBody(args, { body, noun: 'file', suffix: '', label, envelope });
+      return { ...out, detail: `${args.name} · ${out.detail}` };
+    }
+    if ((args?.overwrite !== undefined && typeof args.overwrite !== 'boolean') ||
+        (args?.replace_all !== undefined && typeof args.replace_all !== 'boolean')) {
+      return { text: envelope('Boolean options must be true or false.'), label, failed: true };
+    }
+    const file = name === 'write_file'
+      ? workspace.write(args?.name, args?.content, { overwrite: args?.overwrite ?? false })
+      : workspace.edit(args?.name, args?.old_text, args?.new_text, { replaceAll: args?.replace_all ?? false });
+    return {
+      text: envelope(`${JSON.stringify(file)}\nFile saved. To show a downloadable card, put <artifact name="${file.name}"/> on its own line in your answer, outside code fences. The card always reads the current file contents.`),
+      label,
+      detail: file.name,
+    };
+  } catch (err) {
+    if (!(err instanceof WorkspaceError)) logError('workspace_tool', err, { tool: name });
+    return {
+      text: envelope(err instanceof WorkspaceError ? `${err.code}: ${t(`error.${err.code}`, undefined, 'en-US')}` : 'Workspace operation failed.'),
+      label,
+      failed: true,
+    };
   }
 }
 

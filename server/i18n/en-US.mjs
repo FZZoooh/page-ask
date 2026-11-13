@@ -60,6 +60,10 @@ export const messages = {
   'chat.stopped': 'Stopped',
   'tool.read_page': 'Read Page',
   'tool.read_file': 'Read Attachment',
+  'tool.list_files': 'List Files',
+  'tool.read_workspace_file': 'Read File',
+  'tool.write_file': 'Write File',
+  'tool.edit_file': 'Edit File',
   'tool.screenshot': 'Screenshot',
   'tool.web_search': 'Web Search',
   'tool.fetch_url': 'Fetch URL',
@@ -125,6 +129,16 @@ export const messages = {
   'error.attachment.unreadable': 'Cannot read this file',
   'error.attachment.not_found': 'Attachment is missing or expired; add it again',
   'error.attachment.too_many': 'A message can have at most {max} attachments',
+  'error.workspace.invalid_name': 'Use a plain filename, not a path',
+  'error.workspace.unsupported': 'Only text file formats are supported',
+  'error.workspace.invalid_text': 'The file must contain plain text',
+  'error.workspace.too_large': 'A workspace file can be at most 1 MiB',
+  'error.workspace.full': 'A workspace can hold at most 100 files and 10 MiB',
+  'error.workspace.not_found': 'The generated file was not found',
+  'error.workspace.unsafe_entry': 'The workspace contains an unsafe file or directory',
+  'error.workspace.exists': 'The file already exists; explicitly allow overwrite to replace it',
+  'error.workspace.no_match': 'The text to replace was not found',
+  'error.workspace.ambiguous': 'The text to replace occurs more than once',
 };
 
 export default messages;

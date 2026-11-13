@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { dataDir } from './settings.mjs';
+import { removeWorkspace } from './workspace.mjs';
 
 const DB_FILE = join(dataDir, 'righthandman.db');
 const LEGACY_DB_FILE = join(dataDir, 'pageask.db');
@@ -227,7 +228,10 @@ export function createConversation({ url, title = '' }) {
 }
 
 export function deleteConversation(id) {
+  if (!db.prepare('SELECT 1 FROM conversations WHERE id = ?').get(id)) return false;
   const files = db.prepare('SELECT file FROM attachments WHERE conversation_id = ?').all(id);
+  // Keep the conversation reachable if workspace cleanup fails, so deletion can be retried.
+  removeWorkspace(id);
   const removed = db.prepare('DELETE FROM conversations WHERE id = ?').run(id).changes > 0;
   if (removed) removeAttachmentFiles(files.map((r) => r.file));
   return removed;
