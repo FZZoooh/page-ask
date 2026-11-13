@@ -1120,7 +1120,6 @@ export default function App() {
 
   const removeConversation = async (id: string) => {
     if (!settings || busy) return;
-    if (!window.confirm(t('history.deleteConfirm'))) return;
     try {
       await deleteConversation(settings, id);
       setConversations((prev) => prev.filter((c) => c.id !== id));

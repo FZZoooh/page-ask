@@ -39,6 +39,8 @@ export const enUS = {
   'history.titleWithCount': 'History {count}',
   'history.delete': 'Delete this chat',
   'history.deleteConfirm': 'Delete this chat? This cannot be undone.',
+  'history.deleteCancel': 'Cancel',
+  'history.deleteAction': 'Delete',
   'history.loadEarlier': 'Load earlier messages',
   'history.loadingEarlier': 'Loading…',
   'history.yesterday': 'Yesterday',

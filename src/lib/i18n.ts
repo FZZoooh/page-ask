@@ -41,6 +41,8 @@ export const zhCN = {
   'history.titleWithCount': '历史 {count}',
   'history.delete': '删除这段对话',
   'history.deleteConfirm': '删除这段对话？操作不可撤销',
+  'history.deleteCancel': '取消',
+  'history.deleteAction': '删除',
   'history.loadEarlier': '加载更早的消息',
   'history.loadingEarlier': '正在加载…',
   // 时间显示：今天只显时间，昨天/周内/更早分别是「昨天」「周X」「月/日」
