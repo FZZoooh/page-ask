@@ -52,6 +52,7 @@ import { publicSettings, readSettings, settingsFile, STATE_MODES, writeSettings 
 import { resolveExtensionId } from './extension-id.mjs';
 import { RESPONSES_TOOLS, runTool, ToolError } from './tools.mjs';
 import { settingsPageHtml } from './webui.mjs';
+import { findSelectionRange } from './text.mjs';
 
 const VERSION = (() => {
   try {
@@ -1576,6 +1577,12 @@ function buildPageContext(page, previousRaw) {
       );
     } else {
       lines.push(`Selected text: ${escapeUntrusted(snapshot.selection)}`);
+    }
+    const range = findSelectionRange(page.markdown, snapshot.selection, sc);
+    if (range) {
+      lines.push(
+        `Selection range in read_page(scope="page"): offset=${range.offset}, end=${range.end} (zero-based UTF-16 character offsets; end exclusive).`,
+      );
     }
     lines.push('</untrusted_content>');
     lines.push(

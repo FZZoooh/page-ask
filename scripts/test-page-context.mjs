@@ -259,6 +259,42 @@ try {
   check('editing the first turn sends a full page_context', noticeEdit1.includes('<page_context>') && !noticeEdit1.includes('_update'), noticeEdit1);
   check('the edited first turn carries the current page', noticeEdit1.includes('Title: T4') && noticeEdit1.includes('«delta»'), noticeEdit1);
   check('the edited first turn leaves one user message', userTexts(bodyEdit1).join('|') === '第一问（改）', userTexts(bodyEdit1).join('|'));
+
+  const ranges = [
+    { name: 'unique selection', markdown: 'Intro\n\none alpha two', text: 'alpha', context: 'one alpha two', raw: 'alpha' },
+    { name: 'paragraph disambiguates repeated words', markdown: 'one alpha two\n\nx alpha y', text: 'alpha', context: 'x alpha y', raw: 'alpha', last: true },
+    { name: 'markdown formatting around selection', markdown: 'one **alpha** two', text: 'alpha', context: 'one alpha two', raw: 'alpha' },
+    { name: 'normalized whitespace keeps original offsets', markdown: '# Heading\n\none alpha\n   beta two', text: 'alpha beta', context: 'one alpha beta two', raw: 'alpha\n   beta' },
+    { name: 'UTF-16 matches read_page after emoji', markdown: '😀 Intro\n\none alpha two', text: 'alpha', context: 'one alpha two', raw: 'alpha' },
+    { name: 'regex punctuation stays literal', markdown: 'Intro\n\n$5 [value].', text: '$5 [value].', context: '$5 [value].', raw: '$5 [value].' },
+    { name: 'ambiguous selection has no guessed offset', markdown: 'alpha alpha', text: 'alpha', context: 'alpha', raw: null },
+    { name: 'overlapping matches are ambiguous', markdown: 'ababa', text: 'aba', context: 'aba', raw: null },
+    { name: 'selection outside extracted content has no offset', markdown: 'Article text', text: 'Navigation link', context: 'Navigation link', raw: null },
+  ];
+  let rangedMeta;
+  let rangedNotice;
+  for (const test of ranges) {
+    const testPage = page({ markdown: test.markdown, ...selection(test.text, test.context) });
+    const response = await post(null, testPage, 'Explain the selection');
+    const sse = await response.text();
+    const notice = developerTexts(streamBodies.at(-1)).at(-1) ?? '';
+    const match = /Selection range in read_page\(scope="page"\): offset=(\d+), end=(\d+)/.exec(notice);
+    check(`${test.name}: turn completes`, response.ok && sse.includes('event: done'));
+    if (test.raw === null) {
+      check(test.name, !match, notice);
+    } else {
+      const expected = test.last ? test.markdown.lastIndexOf(test.raw) : test.markdown.indexOf(test.raw);
+      check(test.name, Number(match?.[1]) === expected && Number(match?.[2]) === expected + test.raw.length, notice);
+      check(`${test.name}: offset slices original markdown`, Boolean(match) && test.markdown.slice(Number(match[1]), Number(match[2])) === test.raw);
+    }
+    if (!rangedMeta) {
+      rangedMeta = metaOf(sse);
+      rangedNotice = notice;
+    }
+  }
+  const replay = await post(rangedMeta.conversationId, page(), 'Continue');
+  await replay.text();
+  check('selection offsets replay verbatim from history', developerTexts(streamBodies.at(-1))[0] === rangedNotice);
 } finally {
   child.kill();
   await new Promise((r) => {

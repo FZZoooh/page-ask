@@ -26,6 +26,34 @@ export function findParagraphs(body, query, max = 12) {
   return hits;
 }
 
+export function findSelectionRange(body, text, selectionContext) {
+  if (!text) return null;
+  const pattern = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+  const selected = `(?<selected>${pattern(text)})`;
+  const patterns = [];
+  const ctx = selectionContext?.context;
+  const start = selectionContext?.start;
+  const end = selectionContext?.end;
+  if (
+    typeof ctx === 'string' && Number.isInteger(start) && Number.isInteger(end) &&
+    start >= 0 && end > start && end <= ctx.length && ctx.slice(start, end) === text
+  ) {
+    patterns.push(pattern(ctx.slice(0, start)) + selected + pattern(ctx.slice(end)));
+  }
+  patterns.push(selected);
+  for (const source of patterns) {
+    const regex = new RegExp(source, 'dg');
+    const match = regex.exec(body);
+    if (!match) continue;
+    // Check overlapping matches too; a repeated selection must never silently pick the first occurrence.
+    regex.lastIndex = match.index + 1;
+    if (regex.exec(body)) continue;
+    const [offset, end] = match.indices.groups.selected;
+    return { offset, end };
+  }
+  return null;
+}
+
 /** take a slice centred on the match inside a long block */
 function excerpt(block, needle, size) {
   const at = block.toLowerCase().indexOf(needle);
