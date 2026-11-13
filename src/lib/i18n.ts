@@ -135,6 +135,8 @@ export const zhCN = {
   'composer.stop': '停止',
   'composer.inputAria': '消息输入框',
   'composer.attach': '添加附件',
+  'composer.expand': '展开输入框',
+  'composer.collapse': '收起输入框',
   'composer.dropHint': '松开以添加附件',
   'composer.uploading': '附件还在上传',
   // 输入框首行的网页选区提示（发送时会随请求带上）

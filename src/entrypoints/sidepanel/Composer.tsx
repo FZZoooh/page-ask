@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, RefObject } from 'react';
-import { IconSend, IconStop } from '@/components/icons';
+import { IconExpand, IconSend, IconStop } from '@/components/icons';
 import { hasTransferFiles, type DraftAttachment } from '@/lib/attachments';
 import { t } from '@/lib/i18n';
 import type { Settings } from '@/lib/settings';
@@ -15,6 +15,9 @@ interface ComposerProps {
   canSend: boolean;
   /** Two-row layout: editor on top, attach + send on a bottom row */
   multiline: boolean;
+  expanded: boolean;
+  floating: boolean;
+  onToggleExpanded: () => void;
   attachments: DraftAttachment[];
   uploading: boolean;
   /** Current page selection; an empty string means nothing is selected */
@@ -44,6 +47,9 @@ export function Composer({
   busy,
   canSend,
   multiline,
+  expanded,
+  floating,
+  onToggleExpanded,
   attachments,
   uploading,
   selectionHint,
@@ -90,11 +96,14 @@ export function Composer({
     };
   }, []);
 
-  const boxClass = ['box', multiline && 'multi', keyboardRing && 'kb-focus', dropping && 'drop'].filter(Boolean).join(' ');
+  const boxClass = ['box', (multiline || expanded) && 'multi', keyboardRing && 'kb-focus', dropping && 'drop']
+    .filter(Boolean).join(' ');
+  const composerClass = ['composer', expanded && 'expanded', floating && 'floating'].filter(Boolean).join(' ');
+  const expandLabel = t(expanded ? 'composer.collapse' : 'composer.expand');
 
   return (
     <div
-      className="composer"
+      className={composerClass}
       onDragEnter={(e) => {
         if (!canAttach || !hasTransferFiles(e.dataTransfer)) return;
         dragDepth.current += 1;
@@ -170,6 +179,19 @@ export function Composer({
           onKeyDown={onKeyDown}
           onPaste={onPaste}
         />
+        {(multiline || expanded) && (
+          <button
+            type="button"
+            className="composer-expand"
+            title={expandLabel}
+            aria-label={expandLabel}
+            aria-expanded={expanded}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onToggleExpanded}
+          >
+            <IconExpand expanded={expanded} />
+          </button>
+        )}
         <AttachButton className="attach-box" disabled={!canAttach} onFiles={onAttach} />
         {busy ? (
           <button className="send stop" onClick={onStop} title={t('composer.stop')} aria-label={t('composer.stop')}>

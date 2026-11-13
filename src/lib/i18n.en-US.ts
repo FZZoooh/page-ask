@@ -131,6 +131,8 @@ export const enUS = {
   'composer.stop': 'Stop',
   'composer.inputAria': 'Message input',
   'composer.attach': 'Add attachments',
+  'composer.expand': 'Expand input',
+  'composer.collapse': 'Collapse input',
   'composer.dropHint': 'Drop to attach',
   'composer.uploading': 'Attachments are still uploading',
   // Selection hint on the composer's first line (also sent with the request)

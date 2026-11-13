@@ -193,6 +193,30 @@ export default function App() {
   const [composerMulti, setComposerMulti] = useState(false);
   const composerMultiRef = useRef(false);
   const growAnimRef = useRef(0);
+  const [composerExpanded, setComposerExpanded] = useState(false);
+  const [composerFloating, setComposerFloating] = useState(false);
+  const composerExpandedRef = useRef(false);
+  const composerTransitionRef = useRef<{ height: number; backdrop: number } | null>(null);
+  const composerExpandingRef = useRef(false);
+  const composerModeFromRef = useRef<number | null>(null);
+  const headerRef = useRef<HTMLElement | null>(null);
+  const [composerSpace, setComposerSpace] = useState({ height: 0, width: 0 });
+  const requestComposerExpanded = useCallback((next: boolean) => {
+    if (next === composerExpandedRef.current) return;
+    const box = editorRef.current?.parentElement;
+    const composer = box?.parentElement;
+    if (!box || !composer) return;
+    composerTransitionRef.current = {
+      height: box.getBoundingClientRect().height,
+      backdrop: Number(composer.style.getPropertyValue('--composer-backdrop')),
+    };
+    // Keep the list's viewport unchanged while the editor floats above it.
+    if (next && !composer.style.height) composer.style.height = `${composer.getBoundingClientRect().height}px`;
+    composerExpandingRef.current = true;
+    composerExpandedRef.current = next;
+    setComposerFloating(true);
+    setComposerExpanded(next);
+  }, []);
   const [preview, setPreview] = useState<PreviewTarget | null>(null);
   const closePreview = useCallback(() => setPreview(null), []);
 
@@ -269,11 +293,12 @@ export default function App() {
   );
 
   const toggleHistory = useCallback(() => {
+    requestComposerExpanded(false);
     const next = !historyOpen;
     setHistoryOpen(next);
     // Opening the panel is also a retry: a backend that was down when the tab loaded may be back now.
     if (next && pageUrl && settings) void refreshConversations(pageUrl, settings);
-  }, [historyOpen, pageUrl, settings, refreshConversations]);
+  }, [historyOpen, pageUrl, settings, refreshConversations, requestComposerExpanded]);
 
   /* ---------------- Page loading ---------------- */
 
@@ -714,6 +739,7 @@ export default function App() {
       }
       const files = editingQuestion ? (opts?.attachments ?? []) : fresh ? composerFiles.take() : [];
       if (fresh) {
+        requestComposerExpanded(false);
         setInput('');
         if (editorRef.current) {
           editorRef.current.innerHTML = '';
@@ -924,6 +950,7 @@ export default function App() {
       input,
       page,
       prepareSend,
+      requestComposerExpanded,
       refreshConversations,
       serialize,
       settings,
@@ -1320,24 +1347,43 @@ export default function App() {
     document.addEventListener('selectionchange', onSel);
     return () => document.removeEventListener('selectionchange', onSel);
   }, []);
-  // Editor auto-grow. The corner radius is fixed (= half a single-line box), so only height changes shape.
-  // Only the single ↔ multi switch animates, and it animates the whole box: the switch mostly changes the
-  // box's bottom padding (the buttons move to their own row), often with no editor height change at all
-  // because the editor also gets wider. Line changes within multi mode snap. Done frame by frame in JS
-  // because measuring the natural height needs height:auto, which CSS transitions cannot interpolate.
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    const app = header?.parentElement;
+    if (!header || !app) return;
+    const measure = () => {
+      const top = header.offsetTop + header.offsetHeight + 8;
+      app.style.setProperty('--composer-top', `${top}px`);
+      const height = Math.max(0, app.clientHeight - top - 12);
+      const width = app.clientWidth;
+      setComposerSpace((prev) => prev.height === height && prev.width === width ? prev : { height, width });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(app);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+
+  // Measure natural text height before applying flex fill or interpolating the whole box.
   useLayoutEffect(() => {
     const el = editorRef.current;
     const box = el?.parentElement;
-    if (!el || !box) return;
-    const boxFrom = box.offsetHeight;
+    const composer = box?.parentElement;
+    if (!el || !box || !composer) return;
+    const transition = composerTransitionRef.current;
+    composerTransitionRef.current = null;
+    const modeFrom = composerModeFromRef.current;
+    composerModeFromRef.current = null;
+    const from = transition?.height ?? modeFrom ?? box.getBoundingClientRect().height;
+    const backdropFrom = transition?.backdrop ?? Number(composer.style.getPropertyValue('--composer-backdrop'));
+    const scrollTop = el.scrollTop;
     box.style.height = '';
     box.style.overflow = '';
-    el.style.flex = '';
+    el.style.flex = '0 0 auto';
     el.style.height = 'auto';
     const natural = el.scrollHeight;
-    // Two-row mode once the text wraps or cards are present. The editor is SINGLE_ROW_INSET wider in that
-    // mode, so a line that fits only the wider editor must keep it: leaving is judged at the single-row
-    // width. Otherwise enter → wider → fits → leave → narrower → wraps loops inside this layout effect.
+    // Judge leaving multi mode at single-row width to avoid a wrap/un-wrap layout loop.
     let wraps = input.length > 0 && natural > SINGLE_LINE_H + 1;
     if (composerMultiRef.current && !wraps && input.length > 0) {
       el.style.width = `${el.offsetWidth - SINGLE_ROW_INSET}px`;
@@ -1350,47 +1396,65 @@ export default function App() {
       composerMultiRef.current = multi;
       setComposerMulti(multi);
     }
-    el.style.height = `${Math.min(natural, MAX_BOX_H)}px`;
-    el.style.overflowY = natural > MAX_BOX_H ? 'auto' : 'hidden';
-    const boxTo = box.offsetHeight;
-
-    // The switch re-runs this effect via setComposerMulti before paint (only that run sees the new padding),
-    // and typing can land mid-animation, so a running animation is retargeted: the cleanup cancels the
-    // frame but leaves its id as the "animating" marker.
-    const animating = growAnimRef.current !== 0;
-    growAnimRef.current = 0;
-    if (!boxFrom) return;
-    if (switched) {
-      // The new padding only applies on the re-render setComposerMulti triggers, which re-runs this effect
-      // before paint: pin the start height for that run and mark it with -1 (not a frame id) so it animates.
-      box.style.height = `${boxFrom}px`;
-      growAnimRef.current = -1;
+    if (composerExpanded && !multi) {
+      box.style.height = `${from}px`;
+      requestComposerExpanded(false);
       return;
     }
-    if (!animating || Math.abs(boxTo - boxFrom) < 1) return;
-
-    // A fixed-height flex column would squash or stretch the editor; pin it to its own height meanwhile
-    el.style.flex = '0 0 auto';
-    box.style.overflow = 'hidden';
-    box.style.height = `${boxFrom}px`;
-    const started = performance.now();
-    const duration = 170;
-    const step = (now: number) => {
-      const p = Math.min(1, (now - started) / duration);
-      const eased = 1 - (1 - p) ** 3;
-      box.style.height = `${boxFrom + (boxTo - boxFrom) * eased}px`;
-      if (p < 1) {
-        growAnimRef.current = requestAnimationFrame(step);
-        return;
-      }
+    el.style.height = `${Math.min(natural, MAX_BOX_H)}px`;
+    el.style.overflowY = natural > MAX_BOX_H ? 'auto' : 'hidden';
+    const to = composerExpanded ? composerSpace.height : box.getBoundingClientRect().height;
+    if (composerExpanded) {
+      el.style.height = '0px';
+      el.style.flex = '1 1 auto';
+      el.style.overflowY = 'auto';
+    }
+    if (switched) {
+      // Preserve the old height until React applies the new padding before paint.
+      composerModeFromRef.current = from;
+      box.style.height = `${from}px`;
+      if (transition) composerTransitionRef.current = transition;
+      el.scrollTop = scrollTop;
+      return;
+    }
+    const expanding = composerExpandingRef.current;
+    const finish = () => {
       growAnimRef.current = 0;
-      box.style.height = '';
+      composerExpandingRef.current = false;
+      box.style.height = composerExpanded ? `${to}px` : '';
       box.style.overflow = '';
-      el.style.flex = '';
+      el.style.flex = composerExpanded ? '1 1 auto' : '';
+      el.scrollTop = scrollTop;
+      composer.style.setProperty('--composer-backdrop', composerExpanded ? '1' : '0');
+      if (!composerExpanded && composerFloating) {
+        composer.style.height = '';
+        setComposerFloating(false);
+      }
+    };
+    if ((!expanding && modeFrom === null) || Math.abs(to - from) < 1) {
+      finish();
+      return;
+    }
+    box.style.overflow = 'hidden';
+    box.style.height = `${from}px`;
+    el.scrollTop = scrollTop;
+    const started = performance.now();
+    const duration = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 170;
+    const step = (now: number) => {
+      const p = duration ? Math.max(0, Math.min(1, (now - started) / duration)) : 1;
+      const eased = 1 - (1 - p) ** 3;
+      box.style.height = `${from + (to - from) * eased}px`;
+      if (expanding) {
+        const backdropTo = composerExpanded ? 1 : 0;
+        composer.style.setProperty('--composer-backdrop', `${backdropFrom + (backdropTo - backdropFrom) * eased}`);
+      }
+      if (p < 1) growAnimRef.current = requestAnimationFrame(step);
+      else finish();
     };
     growAnimRef.current = requestAnimationFrame(step);
     return () => cancelAnimationFrame(growAnimRef.current);
-  }, [input, pageState.kind, composerMulti, composerFiles.items.length]);
+  }, [input, pageState.kind, composerMulti, composerFiles.items.length, selectionHint, composerExpanded,
+    composerFloating, composerSpace, requestComposerExpanded]);
 
   // Conversation title at top left, from the conversation list (the `title` event updates it in place)
   const currentTitle = useMemo(
@@ -1403,7 +1467,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="hd">
+      <header ref={headerRef} className="hd">
         {/* Top left: current conversation title (auto-title writes it after the first answer; blank until then) */}
         <div className={`hd-title${titlePulse ? " in" : ""}`} title={currentTitle} onAnimationEnd={() => setTitlePulse(false)}>
           {currentTitle}
@@ -1429,7 +1493,10 @@ export default function App() {
           </button>
           <button
             className={`ghost ${settingsOpen ? 'on' : ''}`}
-            onClick={() => setSettingsOpen((v) => !v)}
+            onClick={() => {
+              requestComposerExpanded(false);
+              setSettingsOpen((v) => !v);
+            }}
             title={t('header.settings.title')}
           >
             {t('header.settings')}
@@ -1814,6 +1881,12 @@ export default function App() {
         busy={busy}
         canSend={canSend}
         multiline={composerMulti}
+        expanded={composerExpanded}
+        floating={composerFloating}
+        onToggleExpanded={() => {
+          requestComposerExpanded(!composerExpanded);
+          editorRef.current?.focus();
+        }}
         attachments={composerFiles.items}
         uploading={composerFiles.uploading}
         selectionHint={selectionHint}

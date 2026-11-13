@@ -45,6 +45,18 @@ export function IconSend(_props: Props) {
   );
 }
 
+export function IconExpand({ expanded }: { expanded: boolean }) {
+  return (
+    <svg {...base} stroke="currentColor" strokeWidth={1.4} fill="none">
+      <path
+        d={expanded ? 'M13 3 9.5 6.5m0-3.5v3.5H13M3 13l3.5-3.5M3 9.5h3.5V13' : 'M9 7l4-4m-4 0h4v4M7 9l-4 4m0-4v4h4'}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /** Stop: rounded square */
 export function IconStop(_props: Props) {
   return (
