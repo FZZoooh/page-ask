@@ -105,6 +105,10 @@ export const zhCN = {
   'tool.read_page': '读取页面',
   'tool.read_pdf': '读取 PDF',
   'tool.read_file': '读取附件',
+  'tool.list_files': '列出文件',
+  'tool.read_workspace_file': '读取文件',
+  'tool.write_file': '写入文件',
+  'tool.edit_file': '修改文件',
   'tool.web_search': '联网搜索',
   'tool.fetch_url': '抓取网页',
   'tool.screenshot': '截图',
@@ -158,6 +162,19 @@ export const zhCN = {
   'attachment.type.pptx': 'PowerPoint',
   'attachment.type.text': '文本',
   'attachment.type.file': '文件',
+
+  // Artifact cards
+  'artifact.download': '下载',
+  'artifact.preview': '预览',
+  'artifact.close': '关闭预览',
+  'artifact.loading': '加载中…',
+  'artifact.previewTitle': '预览：{name}',
+  'artifact.checking': '检查中…',
+  'artifact.unavailable': '未获取到文件',
+  'artifact.invalidTable': '无法解析表格文件，请检查分隔符和引号格式',
+  'artifact.empty': '文件没有内容',
+  'artifact.tableLimited': '仅显示前 500 行和 100 列，下载可查看完整文件',
+  'artifact.highlightLimited': '仅前 100,000 个字符提供语法高亮，全文仍可查看',
 
   // 选中回答里的文字时弹出的快捷菜单
   'quote.action': '引用',
@@ -231,6 +248,16 @@ export const zhCN = {
   'error.attachment.unreadable': '无法读取这个文件',
   'error.attachment.not_found': '附件不存在或已失效，请重新添加',
   'error.attachment.too_many': '一条消息最多 {max} 个附件',
+  'error.workspace.invalid_name': '请使用普通文件名，不允许路径',
+  'error.workspace.unsupported': '工作区只支持纯文本文件格式',
+  'error.workspace.invalid_text': '文件内容必须是纯文本',
+  'error.workspace.too_large': '工作区单个文件不能超过 1 MiB',
+  'error.workspace.full': '工作区最多容纳 100 个文件及 10 MiB 内容',
+  'error.workspace.not_found': '生成的文件不存在',
+  'error.workspace.unsafe_entry': '工作区包含不安全的文件或目录',
+  'error.workspace.exists': '文件已存在，替换需要明确允许覆盖',
+  'error.workspace.no_match': '找不到要替换的文本',
+  'error.workspace.ambiguous': '要替换的文本出现多次',
 
   // 设置面板
   'settings.title': '设置',

@@ -17,12 +17,17 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import { splitStreamingMarkdown, normalizeDisplayMath } from '@/lib/markdown-stream.mjs';
 import { t } from '@/lib/i18n';
+import { remarkArtifactTags, splitArtifactMarkdown } from '@/lib/artifact-tags.mjs';
+import type { ArtifactContext } from '@/lib/artifacts';
+import { ArtifactCard } from './ArtifactCard';
 
 // Keep the MathML annotation: it carries the original TeX, which the formula menu copies and quotes.
 const remarkPlugins = [remarkGfm, remarkMath, remarkBreaks];
 const rehypePlugins = [[rehypeKatex, { throwOnError: false, strict: false, output: 'htmlAndMathml' }]] as const;
 
 const BaseUrlContext = createContext<string | undefined>(undefined);
+const ArtifactRenderContext = createContext<ArtifactContext | undefined>(undefined);
+const artifactRemarkPlugins = [remarkArtifactTags, ...remarkPlugins];
 
 /**
  * Allow only protocols that are safe to open; `javascript:` / `data:` / `blob:` fall back to plain text.
@@ -70,13 +75,26 @@ const components: Components = {
   ),
 };
 
+const artifactComponents: Components = {
+  ...components,
+  div: ({ node, children }) => {
+    const artifacts = useContext(ArtifactRenderContext);
+    const name = node?.properties['data-artifact-name'];
+    return artifacts && typeof name === 'string' ? <ArtifactCard name={name} artifacts={artifacts} /> : <div>{children}</div>;
+  },
+};
+
 /** Completed blocks are immutable while streaming, so memo prevents re-parsing earlier answers. */
-const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
+const MarkdownBlock = memo(function MarkdownBlock({ text, artifacts = false }: { text: string; artifacts?: boolean }) {
   // Normalize on the block (not inside splitStreamingMarkdown) so the unfinished plain-text tail
   // stays byte-for-byte what the model sent until it is complete.
   const source = useMemo(() => normalizeDisplayMath(text), [text]);
   return (
-    <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins as never} components={components}>
+    <Markdown
+      remarkPlugins={artifacts ? artifactRemarkPlugins : remarkPlugins}
+      rehypePlugins={rehypePlugins as never}
+      components={artifacts ? artifactComponents : components}
+    >
       {source}
     </Markdown>
   );
@@ -94,6 +112,7 @@ export const MarkdownView = memo(function MarkdownView({
   streaming = false,
   baseUrl,
   onQuoteMath,
+  artifacts,
 }: {
   text: string;
   streaming?: boolean;
@@ -101,10 +120,22 @@ export const MarkdownView = memo(function MarkdownView({
   baseUrl?: string;
   /** Insert a formula quote; the source keeps its `$…$` delimiters and the chip shows Unicode */
   onQuoteMath?: (source: string) => void;
+  /** Supply only for assistant answers; protocol tags elsewhere remain ordinary Markdown. */
+  artifacts?: ArtifactContext;
 }) {
   // Split both live and finished text with the same rules so the blocks parsed during streaming
   // keep their memo at completion; only the final tail needs a fresh parse.
-  const split = useMemo(() => splitStreamingMarkdown(text), [text]);
+  const artifactsEnabled = artifacts !== undefined;
+  const split = useMemo(
+    () => artifactsEnabled ? splitArtifactMarkdown(text) : splitStreamingMarkdown(text),
+    [text, artifactsEnabled],
+  );
+  const artifactContext = useMemo(
+    () => artifacts ? {
+      settings: artifacts.settings, conversationId: artifacts.conversationId, showToast: artifacts.showToast,
+    } : undefined,
+    [artifacts?.settings, artifacts?.conversationId, artifacts?.showToast],
+  );
   const [menu, setMenu] = useState<MathMenu | null>(null);
   const [copied, setCopied] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -189,14 +220,17 @@ export const MarkdownView = memo(function MarkdownView({
 
   return (
     <BaseUrlContext.Provider value={baseUrl}>
-      <div className="md" onContextMenu={onContextMenu}>
-        {split.blocks.map((block, index) => (
-          <MarkdownBlock key={index} text={block} />
-        ))}
-        {split.tail ? (
-          streaming ? <span className="md-tail">{split.tail}</span> : <MarkdownBlock key="tail" text={split.tail} />
-        ) : null}
-      </div>
+      <ArtifactRenderContext.Provider value={artifactContext}>
+        <div className="md" onContextMenu={onContextMenu}>
+          {split.blocks.map((block, index) => (
+            <MarkdownBlock key={index} text={block} artifacts={artifactsEnabled} />
+          ))}
+          {split.tail ? (
+            streaming ? <span className="md-tail">{split.tail}</span> :
+              <MarkdownBlock key="tail" text={split.tail} artifacts={artifactsEnabled} />
+          ) : null}
+        </div>
+      </ArtifactRenderContext.Provider>
       {menu &&
         createPortal(
           <div

@@ -133,6 +133,61 @@ export function IconClose(_props: Props) {
   );
 }
 
+export function IconDownload(_props: Props) {
+  return (
+    <svg {...base} stroke="currentColor" strokeWidth={1.5} fill="none">
+      <path d="M8 2.2v7.4m-2.8-2.8L8 9.6l2.8-2.8M3 10.5v2.3a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function IconPreview(_props: Props) {
+  return (
+    <svg {...base} stroke="currentColor" strokeWidth={1.4} fill="none">
+      <path d="M1.4 8s2.4-4.2 6.6-4.2S14.6 8 14.6 8s-2.4 4.2-6.6 4.2S1.4 8 1.4 8Z" strokeLinejoin="round" />
+      <circle cx="8" cy="8" r="2" />
+    </svg>
+  );
+}
+
+const FILE_ICON_KINDS: Record<string, string> = {
+  md: 'markdown', markdown: 'markdown',
+  html: 'html', htm: 'html', xml: 'html',
+  css: 'style',
+  json: 'json',
+  csv: 'table', tsv: 'table', sql: 'table',
+  yaml: 'config', yml: 'config', toml: 'config', ini: 'config',
+  js: 'code', mjs: 'code', jsx: 'code', ts: 'code', tsx: 'code', py: 'code',
+  rs: 'code', go: 'code', java: 'code', c: 'code', cpp: 'code', h: 'code',
+};
+
+export function IconArtifactFile({ extension }: { extension: string }) {
+  const kind = FILE_ICON_KINDS[extension.toLowerCase()] ?? 'text';
+  return (
+    <svg className="artifact-file" viewBox="0 0 60 78" width="60" height="78" aria-hidden="true" focusable="false" data-kind={kind}>
+      <path className="artifact-paper" d="M8 2h28l18 18v54a3 3 0 0 1-3 3H8a5 5 0 0 1-5-5V7a5 5 0 0 1 5-5Z" />
+      <path className="artifact-fold" d="M36 2v13a5 5 0 0 0 5 5h13Z" />
+      <rect className="artifact-badge" x="14" y="34" width="30" height="25" rx="2.5" />
+      <g className="artifact-mark" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        {kind === 'markdown' && <path d="M19 51V42l4 5 4-5v9m9-9v9m-3-3 3 3 3-3" />}
+        {(kind === 'html' || kind === 'code') && <path d="m23 42-4 4.5 4 4.5m12-9 4 4.5-4 4.5m-5-10-3 11" />}
+        {kind === 'style' && <path d="m26 40-2 13m10-13-2 13m-11-9h16m-17 5h16" />}
+        {kind === 'json' && <path d="M25 40h-2v4l-3 2.5 3 2.5v4h2m8-13h2v4l3 2.5-3 2.5v4h-2" />}
+        {kind === 'table' && <>
+          <rect x="20" y="40" width="18" height="13" rx="1" />
+          <path d="M20 44h18m-18 4.5h18m-12-8.5v13" />
+        </>}
+        {kind === 'config' && <>
+          <path d="M20 42h18m-18 9h18" />
+          <circle cx="25" cy="42" r="2" className="artifact-knob" />
+          <circle cx="33" cy="51" r="2" className="artifact-knob" />
+        </>}
+        {kind === 'text' && <path d="M21 41h16m-16 5.5h16M21 52h11" />}
+      </g>
+    </svg>
+  );
+}
+
 /** Document: page with a folded corner */
 export function IconFile(_props: Props) {
   return (

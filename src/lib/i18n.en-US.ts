@@ -101,6 +101,10 @@ export const enUS = {
   'tool.read_page': 'Read page',
   'tool.read_pdf': 'Read PDF',
   'tool.read_file': 'Read attachment',
+  'tool.list_files': 'List files',
+  'tool.read_workspace_file': 'Read file',
+  'tool.write_file': 'Write file',
+  'tool.edit_file': 'Edit file',
   'tool.web_search': 'Web search',
   'tool.fetch_url': 'Fetch page',
   'tool.screenshot': 'Screenshot',
@@ -154,6 +158,19 @@ export const enUS = {
   'attachment.type.pptx': 'PowerPoint',
   'attachment.type.text': 'Text',
   'attachment.type.file': 'File',
+
+  // Artifact cards
+  'artifact.download': 'Download',
+  'artifact.preview': 'Preview',
+  'artifact.close': 'Close preview',
+  'artifact.loading': 'Loading…',
+  'artifact.previewTitle': 'Preview: {name}',
+  'artifact.checking': 'Checking…',
+  'artifact.unavailable': 'File unavailable',
+  'artifact.invalidTable': 'Cannot parse this table; check delimiters and quoting',
+  'artifact.empty': 'This file is empty',
+  'artifact.tableLimited': 'Showing the first 500 rows and 100 columns; download for the full file',
+  'artifact.highlightLimited': 'Only the first 100,000 characters are highlighted; the full text is visible',
 
   // Quote popover
   'quote.action': 'Quote',
@@ -227,6 +244,16 @@ export const enUS = {
   'error.attachment.unreadable': 'Cannot read this file',
   'error.attachment.not_found': 'Attachment is missing or expired; add it again',
   'error.attachment.too_many': 'A message can have at most {max} attachments',
+  'error.workspace.invalid_name': 'Use a plain filename, not a path',
+  'error.workspace.unsupported': 'Only text file formats are supported',
+  'error.workspace.invalid_text': 'The file must contain plain text',
+  'error.workspace.too_large': 'A workspace file can be at most 1 MiB',
+  'error.workspace.full': 'A workspace can hold at most 100 files and 10 MiB',
+  'error.workspace.not_found': 'The generated file was not found',
+  'error.workspace.unsafe_entry': 'The workspace contains an unsafe file or directory',
+  'error.workspace.exists': 'The file already exists; explicitly allow overwrite to replace it',
+  'error.workspace.no_match': 'The text to replace was not found',
+  'error.workspace.ambiguous': 'The text to replace occurs more than once',
 
   // Settings panel
   'settings.title': 'Settings',

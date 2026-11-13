@@ -1791,6 +1791,7 @@ export default function App() {
                               streaming={m.streaming}
                               baseUrl={page?.url}
                               onQuoteMath={insertQuoteChip}
+                              artifacts={settings && conversationId ? { settings, conversationId, showToast } : undefined}
                             />
                           </div>
                         ) : null}
