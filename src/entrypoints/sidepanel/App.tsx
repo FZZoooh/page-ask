@@ -192,6 +192,7 @@ export default function App() {
   /** Composer two-row layout (wrapped text or attachments): see the auto-grow effect */
   const [composerMulti, setComposerMulti] = useState(false);
   const composerMultiRef = useRef(false);
+  const growAnimRef = useRef(0);
   const [preview, setPreview] = useState<PreviewTarget | null>(null);
   const closePreview = useCallback(() => setPreview(null), []);
 
@@ -1319,13 +1320,19 @@ export default function App() {
     document.addEventListener('selectionchange', onSel);
     return () => document.removeEventListener('selectionchange', onSel);
   }, []);
-  // Editor auto-grow. The corner radius is fixed (= half a single-line box), so only height changes shape;
-  // animate height frame by frame in JS (CSS transitions are unreliable here: measuring natural height
-  // needs height:auto first, and auto isn't interpolable, so browsers drop the transition and it jumps).
+  // Editor auto-grow. The corner radius is fixed (= half a single-line box), so only height changes shape.
+  // Only the single ↔ multi switch animates, and it animates the whole box: the switch mostly changes the
+  // box's bottom padding (the buttons move to their own row), often with no editor height change at all
+  // because the editor also gets wider. Line changes within multi mode snap. Done frame by frame in JS
+  // because measuring the natural height needs height:auto, which CSS transitions cannot interpolate.
   useLayoutEffect(() => {
     const el = editorRef.current;
-    if (!el) return;
-    const from = el.offsetHeight;
+    const box = el?.parentElement;
+    if (!el || !box) return;
+    const boxFrom = box.offsetHeight;
+    box.style.height = '';
+    box.style.overflow = '';
+    el.style.flex = '';
     el.style.height = 'auto';
     const natural = el.scrollHeight;
     // Two-row mode once the text wraps or cards are present. The editor is SINGLE_ROW_INSET wider in that
@@ -1338,30 +1345,51 @@ export default function App() {
       el.style.width = '';
     }
     const multi = wraps || composerFiles.items.length > 0;
-    if (multi !== composerMultiRef.current) {
+    const switched = multi !== composerMultiRef.current;
+    if (switched) {
       composerMultiRef.current = multi;
       setComposerMulti(multi);
     }
-    const to = Math.min(natural, MAX_BOX_H);
-    el.style.height = `${from || to}px`;
+    el.style.height = `${Math.min(natural, MAX_BOX_H)}px`;
     el.style.overflowY = natural > MAX_BOX_H ? 'auto' : 'hidden';
+    const boxTo = box.offsetHeight;
 
-    if (!from || Math.abs(to - from) < 1) {
-      el.style.height = `${to}px`;
+    // The switch re-runs this effect via setComposerMulti before paint (only that run sees the new padding),
+    // and typing can land mid-animation, so a running animation is retargeted: the cleanup cancels the
+    // frame but leaves its id as the "animating" marker.
+    const animating = growAnimRef.current !== 0;
+    growAnimRef.current = 0;
+    if (!boxFrom) return;
+    if (switched) {
+      // The new padding only applies on the re-render setComposerMulti triggers, which re-runs this effect
+      // before paint: pin the start height for that run and mark it with -1 (not a frame id) so it animates.
+      box.style.height = `${boxFrom}px`;
+      growAnimRef.current = -1;
       return;
     }
+    if (!animating || Math.abs(boxTo - boxFrom) < 1) return;
 
+    // A fixed-height flex column would squash or stretch the editor; pin it to its own height meanwhile
+    el.style.flex = '0 0 auto';
+    box.style.overflow = 'hidden';
+    box.style.height = `${boxFrom}px`;
     const started = performance.now();
     const duration = 170;
-    let raf = 0;
     const step = (now: number) => {
       const p = Math.min(1, (now - started) / duration);
       const eased = 1 - (1 - p) ** 3;
-      el.style.height = `${from + (to - from) * eased}px`;
-      if (p < 1) raf = requestAnimationFrame(step);
+      box.style.height = `${boxFrom + (boxTo - boxFrom) * eased}px`;
+      if (p < 1) {
+        growAnimRef.current = requestAnimationFrame(step);
+        return;
+      }
+      growAnimRef.current = 0;
+      box.style.height = '';
+      box.style.overflow = '';
+      el.style.flex = '';
     };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
+    growAnimRef.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(growAnimRef.current);
   }, [input, pageState.kind, composerMulti, composerFiles.items.length]);
 
   // Conversation title at top left, from the conversation list (the `title` event updates it in place)
