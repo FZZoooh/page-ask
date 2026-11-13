@@ -1594,9 +1594,14 @@ button.att-remove:hover:not(:disabled) {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  background: var(--bg);
   color: var(--fg);
   cursor: pointer;
+}
+
+/* button.* specificity: the global `button:hover:not(:disabled)` tint would otherwise turn it see-through */
+button.lightbox-close:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fg) 12%, var(--bg));
 }
 
 .lightbox-close:focus-visible {
