@@ -1315,7 +1315,9 @@ button.primary.save:hover:not(:disabled) {
   margin: 1px 0 3px;
   padding: 1px 7px;
   border-left: 3px solid color-mix(in srgb, var(--link) 55%, transparent);
-  border-radius: 0 6px 6px 0;
+  /* Rounded on every side, like the composer capsule: the accent rule follows the curve around
+     the left cap instead of ending in a square shoulder */
+  border-radius: 6px;
   background: color-mix(in srgb, var(--link) 9%, transparent);
   color: color-mix(in srgb, var(--link) 72%, var(--fg));
   font-size: 12px;
