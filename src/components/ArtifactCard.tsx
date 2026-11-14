@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { IconArtifactFile, IconClose, IconDownload, IconPreview } from './icons';
+import { IconArtifactFile, IconClose, IconDownload, IconQuote } from './icons';
 import { buildArtifactPreview, fetchArtifact, type ArtifactContext, type ArtifactPreviewContent } from '@/lib/artifacts';
 import { t } from '@/lib/i18n';
 
@@ -62,6 +62,9 @@ function ArtifactPreview({ name, content, restoreFocus, onClose }: {
     <div
       className="artifact-overlay"
       onClick={(event) => {
+        // React portals bubble synthetic clicks through the component tree, not the DOM tree:
+        // without this stop, a close/backdrop click would re-trigger the card's preview onClick.
+        event.stopPropagation();
         if (event.target === event.currentTarget) onClose();
       }}
     >
@@ -138,7 +141,7 @@ function ArtifactPreview({ name, content, restoreFocus, onClose }: {
 }
 
 export const ArtifactCard = memo(function ArtifactCard({ name, artifacts }: { name: string; artifacts: ArtifactContext }) {
-  const { settings, conversationId, showToast } = artifacts;
+  const { settings, conversationId, showToast, quoteFile } = artifacts;
   const fileKey = JSON.stringify([settings.backendUrl, settings.token, conversationId, name]);
   const [busy, setBusy] = useState(false);
   const [check, setCheck] = useState<{ key: string; status: 'checking' | 'ready' | 'unavailable' }>({
@@ -146,7 +149,7 @@ export const ArtifactCard = memo(function ArtifactCard({ name, artifacts }: { na
   });
   const [preview, setPreview] = useState<{ key: string; content: ArtifactPreviewContent } | null>(null);
   const requestRef = useRef<AbortController | null>(null);
-  const openerRef = useRef<HTMLButtonElement | null>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
   const urlsRef = useRef(new Map<string, number>());
   const closePreview = useCallback(() => setPreview(null), []);
   const extension = name.slice(name.lastIndexOf('.') + 1).toUpperCase();
@@ -174,7 +177,7 @@ export const ArtifactCard = memo(function ArtifactCard({ name, artifacts }: { na
     };
   }, [fileKey]);
 
-  const open = async (action: 'download' | 'preview', opener: HTMLButtonElement) => {
+  const open = async (action: 'download' | 'preview', opener: HTMLElement) => {
     if (requestRef.current || status !== 'ready') return;
     // Disabling a loading button can blur it before the modal mounts; remember the actual trigger.
     openerRef.current = opener;
@@ -221,7 +224,24 @@ export const ArtifactCard = memo(function ArtifactCard({ name, artifacts }: { na
   };
 
   return (
-    <div className={`artifact-card ${status}`} aria-busy={busy || status === 'checking'}>
+    <div
+      className={`artifact-card ${status}`}
+      aria-busy={busy || status === 'checking'}
+      // The card itself opens the preview; only announce it as a button while that action can run.
+      role={status === 'ready' ? 'button' : undefined}
+      tabIndex={status === 'ready' ? 0 : undefined}
+      aria-disabled={status === 'ready' && busy ? true : undefined}
+      aria-label={status === 'ready' ? t('artifact.previewTitle', { name }) : undefined}
+      title={status === 'ready' ? t('artifact.previewTitle', { name }) : undefined}
+      onClick={(event) => void open('preview', event.currentTarget)}
+      onKeyDown={(event) => {
+        // Key events bubble from the nested action buttons; preview only when the card itself is focused.
+        if (event.target !== event.currentTarget) return;
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        void open('preview', event.currentTarget);
+      }}
+    >
       <div className="artifact-card-row">
         <span className="artifact-icon" aria-hidden="true"><IconArtifactFile extension={extension} /></span>
         <div className="artifact-info">
@@ -235,18 +255,23 @@ export const ArtifactCard = memo(function ArtifactCard({ name, artifacts }: { na
           <button
             type="button"
             className="artifact-action"
-            disabled={busy || status !== 'ready'}
-            onClick={(event) => void open('preview', event.currentTarget)}
-            title={t('artifact.preview')}
-            aria-label={t('artifact.preview')}
+            onClick={(event) => {
+              event.stopPropagation();
+              quoteFile(name);
+            }}
+            title={t('artifact.quote')}
+            aria-label={t('artifact.quote')}
           >
-            <IconPreview />
+            <IconQuote />
           </button>
           <button
             type="button"
             className="artifact-action"
             disabled={busy || status !== 'ready'}
-            onClick={(event) => void open('download', event.currentTarget)}
+            onClick={(event) => {
+              event.stopPropagation();
+              void open('download', event.currentTarget);
+            }}
             title={t('artifact.download')}
             aria-label={t('artifact.download')}
           >

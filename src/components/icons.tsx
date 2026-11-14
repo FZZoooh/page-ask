@@ -157,15 +157,6 @@ export function IconDownload(_props: Props) {
   );
 }
 
-export function IconPreview(_props: Props) {
-  return (
-    <svg {...base} stroke="currentColor" strokeWidth={1.4} fill="none">
-      <path d="M1.4 8s2.4-4.2 6.6-4.2S14.6 8 14.6 8s-2.4 4.2-6.6 4.2S1.4 8 1.4 8Z" strokeLinejoin="round" />
-      <circle cx="8" cy="8" r="2" />
-    </svg>
-  );
-}
-
 const FILE_ICON_KINDS: Record<string, string> = {
   md: 'markdown', markdown: 'markdown',
   html: 'html', htm: 'html', xml: 'html',

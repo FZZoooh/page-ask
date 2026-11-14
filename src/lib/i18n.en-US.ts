@@ -163,7 +163,7 @@ export const enUS = {
 
   // Artifact cards
   'artifact.download': 'Download',
-  'artifact.preview': 'Preview',
+  'artifact.quote': 'Quote',
   'artifact.close': 'Close preview',
   'artifact.loading': 'Loading…',
   'artifact.previewTitle': 'Preview: {name}',

@@ -167,7 +167,7 @@ export const zhCN = {
 
   // Artifact cards
   'artifact.download': '下载',
-  'artifact.preview': '预览',
+  'artifact.quote': '引用',
   'artifact.close': '关闭预览',
   'artifact.loading': '加载中…',
   'artifact.previewTitle': '预览：{name}',

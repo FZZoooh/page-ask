@@ -1808,6 +1808,16 @@ button.artifact-close:focus-visible {
   border-color: color-mix(in srgb, var(--fg) 25%, var(--line));
 }
 
+/* The ready card is itself the preview trigger */
+.artifact-card.ready {
+  cursor: pointer;
+}
+
+.artifact-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 @media (hover: hover) {
   .artifact-card.ready:hover {
     border-color: color-mix(in srgb, var(--fg) 25%, var(--line));
