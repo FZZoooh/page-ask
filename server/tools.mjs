@@ -624,7 +624,8 @@ function copyWorkspaceFile(args, { workspace }) {
     return {
       text: envelope(`${JSON.stringify(saved)}\nCopied ${source} to ${saved.name}; the original is untouched. ${artifactHint(saved.name)}`),
       label: COPY_FILE_LABEL,
-      detail: saved.name,
+      // The end event overrides the streaming detail (see toolEnd), so both sides show the same shape.
+      detail: `${source} → ${saved.name}`,
     };
   } catch (err) {
     return workspaceFailure(err, COPY_FILE_LABEL, 'copy_file');

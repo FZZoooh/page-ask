@@ -180,9 +180,11 @@ try {
     { name: 'copy_file', args: { name, new_name: 'copy-target.txt' } },
     { name: 'copy_file', args: { name, new_name: 'copy-target.txt' } },
   ] }, { text: 'Copied' });
-  await chat(a.id);
+  const copyFrames = await chat(a.id);
   const copies = outputs(requests.at(-1)).slice(-5);
   assert.equal(copies.length, 5);
+  // The tool-end detail replaces the streaming one, so the server must carry the same source → target shape.
+  assert.match(copyFrames, /"detail":"季度报告\.md → 季度报告 \(2\)\.md"/);
   assert.match(copies[0], /Copied 季度报告\.md to 季度报告 \(2\)\.md; the original is untouched/);
   assert.match(copies[1], /A copy needs a name different from the source/);
   assert.match(copies[2], /No workspace file named "missing\.txt"/);
