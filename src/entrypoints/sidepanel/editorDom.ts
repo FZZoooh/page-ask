@@ -39,8 +39,14 @@ export function serializeEditor(el: HTMLElement | null): string {
 }
 
 /**
- * Insert plain text at the caret (\n → <br>); no document selection → fallback (last editor caret).
- * Line breaks no longer pass through here: Shift+Enter uses native insertLineBreak, avoiding placeholder-at-EOL.
+ * Insert plain text at the caret; no document selection → fallback (last editor caret). The insert
+ * must go through execCommand (insertText per line, insertLineBreak between them): direct DOM
+ * mutations like Range.insertNode never enter Chromium's contenteditable undo stack, so Ctrl+Z
+ * could not remove a paste. One insertText for the whole text is not an option either — it builds
+ * <div> blocks, which serializeEditor cannot turn back into newlines — while insertLineBreak keeps
+ * the exact structure Shift+Enter already produces. Re-setting the selection looks redundant but
+ * closes the open typing transaction, so the paste becomes its own undo entry instead of merging
+ * with the text typed just before it.
  */
 export function insertTextAtCaret(el: HTMLElement, text: string, fallback: Range | null): void {
   el.focus();
@@ -56,23 +62,12 @@ export function insertTextAtCaret(el: HTMLElement, text: string, fallback: Range
     range.selectNodeContents(el);
     range.collapse(false);
   }
-  range.deleteContents();
-  const frag = document.createDocumentFragment();
-  text.split('\n').forEach((line, i) => {
-    if (i > 0) frag.appendChild(document.createElement('br'));
-    if (line) frag.appendChild(document.createTextNode(line));
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+  text.replace(/\r\n?/g, '\n').split('\n').forEach((line, i) => {
+    if (i > 0) document.execCommand('insertLineBreak');
+    if (line) document.execCommand('insertText', false, line);
   });
-  const tail = frag.lastChild;
-  range.insertNode(frag);
-  if (tail) {
-    const after = document.createRange();
-    after.setStartAfter(tail);
-    after.collapse(true);
-    if (sel) {
-      sel.removeAllRanges();
-      sel.addRange(after);
-    }
-  }
 }
 
 /**

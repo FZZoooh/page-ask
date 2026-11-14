@@ -646,7 +646,7 @@ export default function App() {
     return text;
   }, []);
 
-  /** Used for plain-text paste; line breaks are left to Shift+Enter's native command */
+  /** Plain-text insert for paste/drop; runs through the native editor commands so Ctrl+Z can undo it */
   const insertTextAtCaret = useCallback((text: string) => {
     const el = editorRef.current;
     if (!el) return;
