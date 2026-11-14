@@ -60,12 +60,12 @@ for await (const chunk of res.body) {
     }
     if (ev === 'tool') {
       const mark = data.phase === 'start' ? '→' : data.ok === false ? '✗' : '✓';
-      if (data.phase !== 'start') out.push(`${mark} ${data.label ?? data.name}${data.detail ? ' · ' + data.detail : ''}`);
+      if (data.phase !== 'start') out.push(`${mark} ${data.label ?? data.name}${data.detail ? ' ' + data.detail : ''}`);
       else out.push(`→ ${data.label ?? data.name} started`);
     } else if (ev === 'content') {
       answer += data.delta ?? '';
     } else if (ev === 'done') {
-      out.push(`done · in=${data.usage?.input_tokens} out=${data.usage?.output_tokens}`);
+      out.push(`done in=${data.usage?.input_tokens} out=${data.usage?.output_tokens}`);
     }
   }
 }

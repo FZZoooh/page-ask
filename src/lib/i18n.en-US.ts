@@ -59,7 +59,7 @@ export const enUS = {
   'page.chars': '{count} chars',
   'page.tokens': '~{count} tokens',
   'page.tookMS': '{count} ms',
-  'page.pdf': 'PDF · {pages} pages',
+  'page.pdf': 'PDF {pages} pages',
   'page.longWarning': 'Long page — will be read in sections',
   'page.text.title': 'Extracted content',
   'page.copy': 'Copy Markdown',

@@ -379,7 +379,7 @@ async function handle(req, res) {
       // it is untrusted, may contain HTML/JSON internals, and the localized error code says enough.
       // Cap the drain: /models is normally tiny, but a broken endpoint must not stream forever.
       await readErrorDetail(r);
-      const detail = `HTTP ${r.status} · ${Date.now() - started} ms`;
+      const detail = `HTTP ${r.status}, ${Date.now() - started} ms`;
       // body.model comes straight from JSON: a number/object must fall back, not crash on .trim().
       const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : current.model;
       const failure = r.ok ? {} : { code: 'upstream.status', params: { status: r.status } };

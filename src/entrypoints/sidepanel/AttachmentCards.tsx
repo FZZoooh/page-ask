@@ -54,7 +54,7 @@ function AttachmentCard({ item, settings, onRemove, onPreview }: CardProps) {
   const sub = uploading
     ? t('attachment.uploading')
     : size != null
-      ? `${attachmentTypeLabel(item.format)} · ${formatSize(size)}`
+      ? `${attachmentTypeLabel(item.format)}, ${formatSize(size)}`
       : attachmentTypeLabel(item.format);
 
   const thumb = url ? (

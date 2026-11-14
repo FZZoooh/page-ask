@@ -4,8 +4,8 @@
   AppName                = 'RightHandMan'
   TrayTooltip            = 'RightHandMan 后端'
 
-  StatusRunning          = '运行中 · 127.0.0.1:{0}{1}'
-  StatusModelSuffix      = ' · {0}'
+  StatusRunning          = '运行中 127.0.0.1:{0}{1}'
+  StatusModelSuffix      = ' {0}'
   NotifyRunning          = 'RightHandMan 后端：运行中'
   StatusPortForeign      = '端口 {0} 被其他程序占用'
   NotifyPortForeign      = 'RightHandMan：端口被占用'

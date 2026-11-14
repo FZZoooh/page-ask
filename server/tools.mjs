@@ -310,7 +310,7 @@ function workspaceTool(name, args, { workspace }) {
     if (name === 'read_workspace_file') {
       const body = workspace.read(args?.name);
       const out = readBody(args, { body, noun: 'file', suffix: '', label, envelope });
-      return { ...out, detail: `${args.name} · ${out.detail}` };
+      return { ...out, detail: `${args.name}: ${out.detail}` };
     }
     if ((args?.overwrite !== undefined && typeof args.overwrite !== 'boolean') ||
         (args?.replace_all !== undefined && typeof args.replace_all !== 'boolean')) {
@@ -390,7 +390,7 @@ function readPage(args, { page }) {
   const body = page?.markdown ?? '';
   const total = body.length;
   const isPdf = page?.kind === 'pdf';
-  const pdfPages = page?.pages ? ` · ${page.pages} pages total` : '';
+  const pdfPages = page?.pages ? `, ${page.pages} pages total` : '';
 
   if (!total) {
     return {
@@ -501,8 +501,8 @@ function readFile(args, { attachments }) {
   }
 
   const unit = FILE_PAGE_UNITS[file.format];
-  let suffix = unit && file.pages ? ` · ${file.pages} ${unit} total` : '';
-  if (file.truncated) suffix += ' · text truncated at upload';
+  let suffix = unit && file.pages ? `, ${file.pages} ${unit} total` : '';
+  if (file.truncated) suffix += ', text truncated at upload';
   const out = readBody(args, {
     body,
     noun: 'file',
@@ -510,7 +510,7 @@ function readFile(args, { attachments }) {
     label: 'Read File',
     envelope: (text) => untrusted(attrs, text),
   });
-  return { ...out, detail: `${file.name} · ${out.detail}` };
+  return { ...out, detail: `${file.name}: ${out.detail}` };
 }
 
 /* ---------------- copy_attachment ---------------- */
@@ -650,7 +650,7 @@ async function webSearch(args, { apiKey, baseUrl, signal }) {
     const head = `${i + 1}. ${r.title || '(Untitled)'} — ${r.url}`;
     const meta = [r.site_name, r.date ? String(r.date).slice(0, 10) : '', typeof r.rerank_score === 'number' ? `score ${r.rerank_score}` : '']
       .filter(Boolean)
-      .join(' · ');
+      .join(', ');
     const body = needContent && r.content ? r.content : r.summary || r.snippet || '';
     return [head, meta ? `   ${meta}` : '', body ? `   ${body}` : ''].filter(Boolean).join('\n');
   });
@@ -686,7 +686,7 @@ async function fetchUrl(args, { apiKey, baseUrl, signal }) {
     return {
       text: untrusted(`source="fetch_url" url="${escapeAttr(url)}" kind="pdf"`, `${note}\n\n${text}`),
       label: 'Read PDF',
-      detail: `${out.pageCount} pages · ${out.chars} chars`,
+      detail: `${out.pageCount} pages, ${out.chars} chars`,
     };
   }
 

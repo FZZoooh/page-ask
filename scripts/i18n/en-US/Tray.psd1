@@ -4,8 +4,8 @@
   AppName                = 'RightHandMan'
   TrayTooltip            = 'RightHandMan backend'
 
-  StatusRunning          = 'Running · 127.0.0.1:{0}{1}'
-  StatusModelSuffix      = ' · {0}'
+  StatusRunning          = 'Running 127.0.0.1:{0}{1}'
+  StatusModelSuffix      = ' {0}'
   NotifyRunning          = 'RightHandMan backend: running'
   StatusPortForeign      = 'Port {0} is in use by another program'
   NotifyPortForeign      = 'RightHandMan: port in use'
