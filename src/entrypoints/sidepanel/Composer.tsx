@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, RefObject } from 'react';
-import { IconExpand, IconSend, IconStop } from '@/components/icons';
+import { IconExpand, IconQuoteMark, IconSend, IconStop } from '@/components/icons';
 import { hasTransferFiles, type DraftAttachment } from '@/lib/attachments';
 import { t } from '@/lib/i18n';
 import type { Settings } from '@/lib/settings';
@@ -139,9 +139,7 @@ export function Composer({
             title={selectionHint}
             aria-label={t('composer.selection.aria', { text: selectionHint })}
           >
-            <span className="sel-hint-mark" aria-hidden="true">
-              ❝
-            </span>
+            <IconQuoteMark className="sel-hint-mark" />
             {/* Always one line: CSS truncates it, so a long selection cannot stretch the row */}
             <span className="sel-hint-text">{selectionHint}</span>
           </div>

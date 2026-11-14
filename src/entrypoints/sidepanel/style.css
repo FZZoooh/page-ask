@@ -1332,7 +1332,13 @@ button.primary.save:hover:not(:disabled) {
 
 .sel-hint-mark {
   flex: 0 0 auto;
-  opacity: 0.75;
+  /* IconQuoteMark (drawn SVG): tinted like the hint's accent rule rather than the darker text
+     color (the svg's fill is currentColor), and 0.7em ≈ the height of a letter H — noticeably
+     below the full CJK character height. width:auto derives from the viewBox ratio (230:206),
+     and .sel-hint's flex centering keeps it on the text's optical middle */
+  height: 0.7em;
+  width: auto;
+  color: color-mix(in srgb, var(--link) 55%, transparent);
 }
 
 .sel-hint-text {

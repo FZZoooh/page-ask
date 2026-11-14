@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { MarkdownView } from '@/components/MarkdownView';
-import { IconArrowDown, IconCheck, IconCopy, IconEdit, IconQuote, IconReload } from '@/components/icons';
+import { IconArrowDown, IconCheck, IconCopy, IconEdit, IconQuote, IconQuoteMark, IconReload } from '@/components/icons';
 import {
   getConversation,
   deleteConversation,
@@ -1702,7 +1702,7 @@ export default function App() {
                               title={userMsg.selection}
                               aria-label={t('composer.selection.aria', { text: userMsg.selection })}
                             >
-                              <span className="sel-hint-mark" aria-hidden="true">❝</span>
+                              <IconQuoteMark className="sel-hint-mark" />
                               <span className="sel-hint-text">{userMsg.selection}</span>
                             </div>
                           )}

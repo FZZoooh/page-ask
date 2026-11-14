@@ -35,6 +35,22 @@ export function IconQuote(_props: Props) {
   );
 }
 
+/** Heavy double opening quote drawn after the reference art: solid 66 shapes with a domed tip at
+ * the top right, a long sweep down-left into a solid block, and the crook opening to the right.
+ * Deviates from the shared 16×16 base on purpose: the glyph keeps the art's proportions (with the
+ * inter-mark gap tightened from the art's 0.58 mark-widths to ~0.28), is sized by CSS
+ * (.sel-hint-mark renders it at letter height), and must not inherit the 16px .icon size. */
+export function IconQuoteMark({ className }: { className: string }) {
+  const d =
+    'M76 3C78 0 84 0 86 3L89 13 93 21 97 29 101 37 101 41 93 45 76 53 66 61 59 69 55 77 52 85 50 93 49 101 49 111 93 113 93 205 0 205 0 111L2 101 3 93 5 85 7 77 9 69 13 61 18 53 23 45 30 37 38 29 48 21 60 13Z';
+  return (
+    <svg className={className} viewBox="0 0 230 206" width={230} height={206} aria-hidden="true" focusable={false}>
+      <path d={d} fill="currentColor" />
+      <path d={d} fill="currentColor" transform="translate(129 0)" />
+    </svg>
+  );
+}
+
 /** Send: arrow pointing up */
 export function IconSend(_props: Props) {
   return (
