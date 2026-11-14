@@ -51,6 +51,7 @@ const TESTS = [
   'test-workspace.mjs',
   'test-artifact-tags.mjs',
   'test-artifact-preview.mjs',
+  'test-quote-chips.mjs',
 ];
 
 function runOne(script) {

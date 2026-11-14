@@ -84,7 +84,8 @@ db.exec(`
     tokens_in       INTEGER,
     tokens_out      INTEGER,
     ms              INTEGER,
-    page_context    TEXT
+    page_context    TEXT,
+    format_version  INTEGER
   );
   CREATE INDEX IF NOT EXISTS idx_conv_url  ON conversations (url, updated_at DESC);
   CREATE INDEX IF NOT EXISTS idx_msg_conv  ON messages (conversation_id, created_at);
@@ -104,11 +105,22 @@ db.exec(`
     ['process_ms', 'INTEGER'],
     ['response_id', 'TEXT'],
     ['page_context', 'TEXT'],
+    ['format_version', 'INTEGER'],
   ];
   for (const [name, ddl] of wanted) {
     if (!have.has(name)) db.exec(`ALTER TABLE messages ADD COLUMN ${name} ${ddl}`);
   }
 }
+
+/**
+ * Content-encoding version stamped on every newly written message row (messages.format_version).
+ * NULL rows predate versioning: their user content may carry the old bare <q> chip tag, which
+ * nothing parses any more — it reads as plain text everywhere. 1 = quote chips stored as
+ * <pageask-quote>/<pageask-file>, converted to Markdown blockquotes only when the upstream request
+ * is built (rowsToItems). Bump this when the stored format ever changes again, so readers can
+ * branch on the column instead of guessing from the content.
+ */
+const MESSAGE_FORMAT_VERSION = 1;
 
 // User attachments. A row is "pending" (both FKs NULL) from upload until a /chat binds it to a user
 // message; the original bytes live in data/attachments/<file>, extracted document text lives in `text`.
@@ -278,8 +290,8 @@ export function addMessage({
       `INSERT INTO messages
          (id, conversation_id, role, content, reasoning, created_at,
           tokens_in, tokens_out, ms, process_ms, tool_calls, tool_call_id, tool_name, tool_args,
-          aborted, tool_failed, image_path, response_id, page_context)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          aborted, tool_failed, image_path, response_id, page_context, format_version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       conversationId,
@@ -300,6 +312,7 @@ export function addMessage({
       imagePath,
       responseId,
       pageContext,
+      MESSAGE_FORMAT_VERSION,
     );
     if (attachmentIds?.length) bindAttachments(conversationId, id, attachmentIds);
     touchConversation(conversationId);
@@ -424,9 +437,11 @@ export function editUserMessage({ conversationId, messageId, content, pageContex
       db.exec('COMMIT');
       return null;
     }
-    db.prepare('UPDATE messages SET content = ?, page_context = ? WHERE id = ?').run(
+    // An edit rewrites the content with the current serializer, so the row is re-stamped too.
+    db.prepare('UPDATE messages SET content = ?, page_context = ?, format_version = ? WHERE id = ?').run(
       content,
       pageContext,
+      MESSAGE_FORMAT_VERSION,
       messageId,
     );
     // `undefined` keeps the current set (older clients); an array replaces it, dropping removed files.
@@ -613,6 +628,31 @@ export function historyItemsSince(conversationId, anchorRowid) {
  * use this function. The `id` is a local placeholder and `summary: []` is only an empty schema field for
  * OpenAI compatibility; never put a real summary or encrypted_content here.
  */
+const decodeQuoteEntities = (text) => text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+
+/**
+ * Quote chips are UI markup stored verbatim in user rows; the model never sees the tags. Text and
+ * formula chips become Markdown blockquotes ("\\n\\n> …"), artifact references become "> file: name",
+ * which the prompt-free workspace context makes self-explanatory. Entity escapes are undone here so
+ * the upstream text is the user's real content.
+ */
+export function quoteChipsToMarkdown(text) {
+  return text
+    .replace(/<pageask-quote>([\s\S]*?)<\/pageask-quote>/g, (_all, quote) => {
+      // Prefix every line, blank ones included, so a multiline quote stays one blockquote.
+      const content = decodeQuoteEntities(quote);
+      return `\n\n> ${content.split('\n').join('\n> ')}\n\n`;
+    })
+    .replace(/<pageask-file>([\s\S]*?)<\/pageask-file>/g, (_all, name) => `\n\n> file: ${decodeQuoteEntities(name)}\n\n`);
+}
+
+/** Same chips flattened for plain-text consumers (conversation title fallback, the title model) */
+export function quoteChipsToPlainText(text) {
+  return text
+    .replace(/<pageask-quote>([\s\S]*?)<\/pageask-quote>/g, (_all, quote) => decodeQuoteEntities(quote))
+    .replace(/<pageask-file>([\s\S]*?)<\/pageask-file>/g, (_all, name) => decodeQuoteEntities(name));
+}
+
 function rowsToItems(rows) {
   const out = [];
   // Stateless replay resends the entire history, and every screenshot is base64. Keep only the newest few
@@ -707,7 +747,7 @@ function rowsToItems(rows) {
         out.push({ role: 'developer', content: [{ type: 'input_text', text: ctx.notice }] });
       }
       const tags = attached.map((a) => attachmentTag(a, a.kind === 'image' && !userImages.has(a.id)));
-      const text = [tags.join('\n'), r.content ?? ''].filter(Boolean).join('\n\n');
+      const text = [tags.join('\n'), quoteChipsToMarkdown(r.content ?? '')].filter(Boolean).join('\n\n');
       const content = [{ type: 'input_text', text }];
       for (const a of attached) {
         const image = userImages.get(a.id);

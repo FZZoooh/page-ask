@@ -2,7 +2,7 @@
 
 import { latexToUnicode } from '@/lib/latex-to-unicode.mjs';
 
-/** Escape quote text so a pasted `</q>` cannot terminate the serialized quote early */
+/** Escape quote text so a pasted `</pageask-quote>` cannot terminate the serialized quote early */
 export function encodeQuote(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -12,7 +12,12 @@ export function decodeQuote(text: string): string {
   return text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 }
 
-/** Serialize contenteditable content to message text: quote chips become <q>…</q>, everything else stays literal */
+/**
+ * Serialize contenteditable content to message text: quote chips become <pageask-quote>…</pageask-quote>
+ * (artifact references <pageask-file>…</pageask-file>), everything else stays literal. Both tag names
+ * are deliberately outside the HTML spec — see fillEditor. Storage keeps the tags; only the backend
+ * converts them to Markdown blockquotes when building the upstream request.
+ */
 export function serializeEditor(el: HTMLElement | null): string {
   if (!el) return '';
   const out = { s: '' };
@@ -25,7 +30,9 @@ export function serializeEditor(el: HTMLElement | null): string {
     const e = node as HTMLElement;
     const q = e.dataset?.quote;
     if (q != null) {
-      out.s += `<q>${encodeQuote(q)}</q>`;
+      out.s += e.dataset?.quoteFile != null
+        ? `<pageask-file>${encodeQuote(q)}</pageask-file>`
+        : `<pageask-quote>${encodeQuote(q)}</pageask-quote>`;
       return;
     }
     if (e.tagName === 'BR') {
@@ -100,12 +107,14 @@ export function quoteChipLabel(text: string): string {
   return rest ? `${head}…` : head;
 }
 
-/** Build the non-editable quote chip shared by insertion and recovery; CSS caps its width */
-export function createQuoteChip(text: string): HTMLElement {
+/** Build the non-editable quote chip shared by insertion and recovery; CSS caps its width.
+ *  file=true marks an artifact reference, stored as <pageask-file> instead of <pageask-quote>. */
+export function createQuoteChip(text: string, file = false): HTMLElement {
   const chip = document.createElement('span');
   chip.className = 'q-chip';
   chip.contentEditable = 'false';
   chip.dataset.quote = text;
+  if (file) chip.dataset.quoteFile = '1';
   chip.title = text;
   const label = document.createElement('span');
   label.className = 'q-chip-label';
@@ -114,17 +123,21 @@ export function createQuoteChip(text: string): HTMLElement {
   return chip;
 }
 
-/** Put a recovered question back into the editor; serialized <q>…</q> becomes quote chips again */
+/**
+ * Put a recovered question back into the editor; stored chips become quote chips again.
+ * Both chip tags carry the pageask prefix deliberately: a user discussing HTML can type a real
+ * tag like <q> literally and it stays plain text — nothing parses it as a chip any more.
+ */
 export function fillEditor(el: HTMLElement, text: string): void {
   el.innerHTML = '';
-  for (const part of text.split(/(<q>[\s\S]*?<\/q>)/g)) {
+  for (const part of text.split(/(<pageask-quote>[\s\S]*?<\/pageask-quote>|<pageask-file>[\s\S]*?<\/pageask-file>)/g)) {
     if (!part) continue;
-    const m = /^<q>([\s\S]*)<\/q>$/.exec(part);
+    const m = /^<(pageask-quote|pageask-file)>([\s\S]*)<\/\1>$/.exec(part);
     if (!m) {
       el.appendChild(document.createTextNode(part));
       continue;
     }
-    el.appendChild(createQuoteChip(decodeQuote(m[1] ?? '')));
+    el.appendChild(createQuoteChip(decodeQuote(m[2] ?? ''), m[1] === 'pageask-file'));
   }
   syncEditorEmptyState(el);
 }

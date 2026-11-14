@@ -49,6 +49,7 @@ import {
   unavailableAttachment,
   editUserMessage,
   previousPageContext,
+  quoteChipsToPlainText,
 } from './db.mjs';
 import {
   AttachmentError,
@@ -928,8 +929,10 @@ async function handleChat(req, res) {
     if (err instanceof AttachmentBindError) return sendJson(res, 400, errorPayload('attachment.not_found'));
     throw err;
   }
-  // The title model needs something to go on when the question is only files
-  const titleUser = text || conversationAttachments(conv.id).map((a) => a.name).join(', ');
+  // The title model and the title fallback need plain text: quote chips are UI markup and would
+  // leak their tags into both, so flatten them (the attachment-name branch carries no chips).
+  const titleUser =
+    quoteChipsToPlainText(text) || conversationAttachments(conv.id).map((a) => a.name).join(', ');
   const chatEvent = editMessageId ? 'chat_edit' : body.regenerate ? 'chat_regenerate' : 'chat_start';
   logEvent(chatEvent, {
     conversationId: conv.id,

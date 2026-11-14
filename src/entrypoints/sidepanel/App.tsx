@@ -134,11 +134,17 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** Render <q>…</q> fragments in user bubbles as inline quotes; everything else stays plain text */
+/**
+ * Render quote chips in user bubbles as inline quotes; everything else stays plain text.
+ * <pageask-quote> carries quoted text/formulas, <pageask-file> an artifact reference; both come
+ * from chips the composer serialized. The backend converts chips to Markdown blockquotes for the
+ * model — a literal <q> typed in an HTML discussion is no chip and renders as plain text.
+ */
 function renderUserText(content: string) {
-  return content.split(/(<q>[\s\S]*?<\/q>)/g).map((part, i) => {
-    if (part.startsWith('<q>') && part.endsWith('</q>')) {
-      const text = decodeQuote(part.slice(3, -4));
+  return content.split(/(<pageask-quote>[\s\S]*?<\/pageask-quote>|<pageask-file>[\s\S]*?<\/pageask-file>)/g).map((part, i) => {
+    const m = /^<(pageask-quote|pageask-file)>([\s\S]*)<\/\1>$/.exec(part);
+    if (m) {
+      const text = decodeQuote(m[2] ?? '');
       // Same display rule as the composer chip: first line only, Unicode for formulas. The full
       // quote stays in the stored message; only the bubble rendering is shortened.
       return (
@@ -672,7 +678,7 @@ export default function App() {
   }, [serialize]);
 
   /** Insert a quote chip at the caret: contenteditable=false, so editing treats it as one character */
-  const insertQuoteChip = useCallback((text: string) => {
+  const insertQuoteChip = useCallback((text: string, file = false) => {
     const el = editorRef.current;
     if (!el) return;
     // The answer selection is not the insertion target: savedRange is the composer caret the user
@@ -693,7 +699,7 @@ export default function App() {
     }
     range.deleteContents();
 
-    const chip = createQuoteChip(text);
+    const chip = createQuoteChip(text, file);
 
     range.insertNode(chip);
 
@@ -708,6 +714,9 @@ export default function App() {
 
     setInput(serialize());
   }, [serialize]);
+
+  /** The artifact card's quote button inserts a file reference chip for the workspace file */
+  const insertFileChip = useCallback((name: string) => insertQuoteChip(name, true), [insertQuoteChip]);
 
   /** Insert the selected answer text as a quote chip at the caret */
   const applyQuote = () => {
@@ -1027,11 +1036,14 @@ export default function App() {
   }, [showToast]);
 
   /**
-   * Copy the user's own question. Quote chips are serialized as <q>…</q> in the stored text, so
-   * turn them back into plain quoted text instead of leaking the markers into the clipboard.
+   * Copy the user's own question. Chips are stored as <pageask-quote>/<pageask-file>, so turn them
+   * back into plain text instead of leaking the markers into the clipboard. Both kinds come out
+   * quoted — the file reference as a whole, "file: name" — with one space outside each quote pair.
    */
   const copyQuestion = useCallback((m: Message) => {
-    const text = m.content.replace(/<q>([\s\S]*?)<\/q>/g, (_all, quote: string) => `"${decodeQuote(quote)}"`);
+    const text = m.content
+      .replace(/<pageask-quote>([\s\S]*?)<\/pageask-quote>/g, (_all, quote: string) => ` "${decodeQuote(quote)}" `)
+      .replace(/<pageask-file>([\s\S]*?)<\/pageask-file>/g, (_all, name: string) => ` "file: ${decodeQuote(name)}" `);
     void navigator.clipboard
       .writeText(text)
       .then(() => {
@@ -1814,7 +1826,9 @@ export default function App() {
                               streaming={m.streaming}
                               baseUrl={page?.url}
                               onQuoteMath={insertQuoteChip}
-                              artifacts={settings && conversationId ? { settings, conversationId, showToast } : undefined}
+                              artifacts={settings && conversationId
+                                ? { settings, conversationId, showToast, quoteFile: insertFileChip }
+                                : undefined}
                             />
                           </div>
                         ) : null}

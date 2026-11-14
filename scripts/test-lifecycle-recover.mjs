@@ -104,7 +104,7 @@ async function getJson(port, path, init) {
 }
 
 const conv = createConversation({ url: 'http://example.com/article' });
-addMessage({ conversationId: conv.id, role: 'user', content: '这条提问被进程中断了 <q>引文</q>' });
+addMessage({ conversationId: conv.id, role: 'user', content: '这条提问被进程中断了 <pageask-quote>引文</pageask-quote>' });
 
 // Orphan screenshots: old and unreferenced → delete; old but referenced → keep
 const orphan = join(shots, 'orphan.jpg');
@@ -155,7 +155,7 @@ const conv2 = createConversation({ url: 'http://example.com/other' });
 addMessage({ conversationId: conv2.id, role: 'user', content: '恢复我' });
 addMessage({ conversationId: conv2.id, role: 'assistant', content: '已经回答过了' });
 const conv3 = createConversation({ url: 'http://example.com/crash' });
-addMessage({ conversationId: conv3.id, role: 'user', content: '崩溃前的提问 <q>引文</q>' });
+addMessage({ conversationId: conv3.id, role: 'user', content: '崩溃前的提问 <pageask-file>report.html</pageask-file>' });
 closeDb();
 
 const port = await freePort();
@@ -220,7 +220,7 @@ check('restart after a hard kill reports an abnormal exit', () => {
 const got = await getJson(port2, `/conversations/${conv3.id}/recover`, { method: 'POST' });
 check('the HTTP recover endpoint returns the text and deletes it', () => {
   assert.equal(got.status, 200);
-  assert.equal(got.body.text, '崩溃前的提问 <q>引文</q>');
+  assert.equal(got.body.text, '崩溃前的提问 <pageask-file>report.html</pageask-file>');
   assert.equal(typeof got.body.messageId, 'string');
 });
 const again = await getJson(port2, `/conversations/${conv3.id}/recover`, { method: 'POST' });

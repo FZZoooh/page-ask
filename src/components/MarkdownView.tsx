@@ -133,8 +133,9 @@ export const MarkdownView = memo(function MarkdownView({
   const artifactContext = useMemo(
     () => artifacts ? {
       settings: artifacts.settings, conversationId: artifacts.conversationId, showToast: artifacts.showToast,
+      quoteFile: artifacts.quoteFile,
     } : undefined,
-    [artifacts?.settings, artifacts?.conversationId, artifacts?.showToast],
+    [artifacts?.settings, artifacts?.conversationId, artifacts?.showToast, artifacts?.quoteFile],
   );
   const [menu, setMenu] = useState<MathMenu | null>(null);
   const [copied, setCopied] = useState(false);
@@ -212,7 +213,8 @@ export const MarkdownView = memo(function MarkdownView({
   const quoteLatex = () => {
     if (!menu) return;
     // Keep the delimiters as the math marker: editorDom turns this into a Unicode chip label and
-    // serializes the original LaTeX back into <q>…</q> for the next request.
+    // stores the original LaTeX in a <pageask-quote> chip; the backend converts stored chips to
+    // Markdown blockquotes when building the request.
     const source = (menu.display ? '$$' : '$') + menu.latex + (menu.display ? '$$' : '$');
     closeMenu();
     onQuoteMath?.(source);

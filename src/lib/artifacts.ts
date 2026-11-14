@@ -8,6 +8,8 @@ export interface ArtifactContext {
   settings: Settings;
   conversationId: string;
   showToast: (message: string) => void;
+  /** Insert a file reference chip (stored as <pageask-file>) naming the artifact into the composer */
+  quoteFile: (name: string) => void;
 }
 
 export type ArtifactPreviewContent =
