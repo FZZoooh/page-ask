@@ -1,8 +1,8 @@
 import { assertPublicHttpUrl, fetchPublic, readBodyCapped } from './net.mjs';
 import { extractPdfText } from './pdf.mjs';
-import { findParagraphs } from './text.mjs';
+import { decodeText, findParagraphs } from './text.mjs';
 import { withV1 } from './upstream.mjs';
-import { WorkspaceError } from './workspace.mjs';
+import { suggestName, WorkspaceError } from './workspace.mjs';
 import { logError } from './log.mjs';
 import { t } from './i18n/index.mjs';
 
@@ -64,9 +64,33 @@ export const TOOL_SPECS = [
   {
     type: 'function',
     function: {
+      name: 'copy_attachment',
+      description:
+        'Copies a plain-text file the user attached (txt, md, code, CSV, JSON etc.) into this conversation ' +
+        'workspace, converted to UTF-8, so it can be edited with edit_file and delivered as a downloadable ' +
+        'artifact. Identify it by the file_id from its <attachment> tag. Binary attachments (PDF, Word, ' +
+        'Excel, PowerPoint, images) cannot be copied — read those with read_file instead. Same limits as write_file.',
+      parameters: {
+        type: 'object',
+        properties: {
+          file_id: { type: 'string', description: 'The file_id attribute of the <attachment> tag.' },
+          name: {
+            type: 'string',
+            description: 'Optional flat filename with a text extension; defaults to the attachment name (adapted if needed).',
+          },
+          overwrite: { type: 'boolean', description: 'Optional; default false. Explicitly allow replacing an existing workspace file.' },
+        },
+        required: ['file_id'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'list_files',
-      description: 'Lists names, UTF-8 byte sizes and modification times of generated text files ' +
-        'in this conversation workspace. No paths or folders.',
+      description: 'Lists names, UTF-8 byte sizes and modification times of the text files in this conversation ' +
+        'workspace, whether generated or copied from attachments. No paths or folders.',
       parameters: {
         type: 'object',
         properties: {
@@ -196,6 +220,8 @@ export async function runTool(name, args, ctx) {
       return readPage(args, ctx);
     case 'read_file':
       return readFile(args, ctx);
+    case 'copy_attachment':
+      return copyAttachment(args, ctx);
     case 'list_files':
     case 'read_workspace_file':
     case 'write_file':
@@ -223,6 +249,13 @@ const WORKSPACE_LABELS = {
   write_file: 'Write File',
   edit_file: 'Edit File',
 };
+
+/** Success texts end with the same instruction so the model renders the downloadable card the same way. */
+function artifactHint(name) {
+  return 'To show a downloadable card, put ' +
+    `<artifact name="${name}"/>` +
+    ' on its own line in your answer, outside code fences. The card always reads the current file contents.';
+}
 
 function workspaceTool(name, args, { workspace }) {
   const label = WORKSPACE_LABELS[name];
@@ -253,7 +286,7 @@ function workspaceTool(name, args, { workspace }) {
       ? workspace.write(args?.name, args?.content, { overwrite: args?.overwrite ?? false })
       : workspace.edit(args?.name, args?.old_text, args?.new_text, { replaceAll: args?.replace_all ?? false });
     return {
-      text: envelope(`${JSON.stringify(file)}\nFile saved. To show a downloadable card, put <artifact name="${file.name}"/> on its own line in your answer, outside code fences. The card always reads the current file contents.`),
+      text: envelope(`${JSON.stringify(file)}\nFile saved. ${artifactHint(file.name)}`),
       label,
       detail: file.name,
     };
@@ -449,6 +482,73 @@ function readFile(args, { attachments }) {
     envelope: (text) => untrusted(attrs, text),
   });
   return { ...out, detail: `${file.name} · ${out.detail}` };
+}
+
+/* ---------------- copy_attachment ---------------- */
+
+const COPY_LABEL = 'Copy Attachment';
+
+function copyAttachment(args, { attachments, workspace }) {
+  const id = typeof args?.file_id === 'string' ? args.file_id.trim() : '';
+  const file = id && attachments ? attachments.get(id) : null;
+  if (!file) {
+    const list = attachments ? attachments.list() : [];
+    const lines = list.map((a) => `- ${a.id}: ${a.name} (${FILE_FORMAT_LABELS[a.format] ?? a.format})`);
+    const text = lines.length
+      ? `No attachment with file_id "${id}" in this conversation. Available attachments:\n${lines.join('\n')}`
+      : 'This conversation has no attachments.';
+    return {
+      text: untrusted('source="file_list"', text),
+      label: COPY_LABEL,
+      detail: id ? `Unknown file: ${id}` : 'Missing file_id',
+      failed: true,
+    };
+  }
+
+  const envelope = (text) => untrusted('source="workspace"', text);
+  const refuse = (text, detail = file.name) => ({ text: envelope(text), label: COPY_LABEL, detail, failed: true });
+  // The workspace is a plain-text domain: binaries (including images) never go in, mirroring the upload
+  // sniffing that stores images whole and documents as extracted text.
+  if (file.kind === 'image') {
+    return refuse('This attachment is an image; the workspace holds plain-text files only, and the image is already included in the user message.');
+  }
+  if (file.format !== 'text') {
+    return refuse(`${FILE_FORMAT_LABELS[file.format] ?? file.format} attachments are binary and cannot be copied into the text workspace. Read their extracted text with read_file, or rebuild the part you need as a text file with write_file.`);
+  }
+  if (args?.overwrite !== undefined && typeof args.overwrite !== 'boolean') {
+    return refuse('Boolean options must be true or false.', 'Invalid overwrite');
+  }
+  if (args?.name !== undefined && (typeof args.name !== 'string' || !args.name.trim())) {
+    return refuse('name must be a nonempty filename when given.', 'Invalid name');
+  }
+
+  let text;
+  try {
+    // Text attachments keep their original bytes on disk; decode them the same way the upload did and
+    // store as UTF-8, preserving characters and line endings rather than the normalized extract.
+    text = decodeText(attachments.readBytes(file));
+  } catch (err) {
+    logError('workspace_tool', err, { tool: 'copy_attachment', file: file.id });
+    return refuse('This attachment is missing on disk; ask the user to add it again.');
+  }
+  if (!text) return refuse('This attachment has no readable text.');
+
+  try {
+    const name = typeof args?.name === 'string' ? args.name.trim() : suggestName(file.name);
+    const saved = workspace.write(name, text, { overwrite: args?.overwrite ?? false });
+    return {
+      text: envelope(`${JSON.stringify(saved)}\nCopied "${file.name}" into the workspace as ${saved.name}. ${artifactHint(saved.name)}`),
+      label: COPY_LABEL,
+      detail: saved.name,
+    };
+  } catch (err) {
+    if (!(err instanceof WorkspaceError)) logError('workspace_tool', err, { tool: 'copy_attachment' });
+    return {
+      text: envelope(err instanceof WorkspaceError ? `${err.code}: ${t(`error.${err.code}`, undefined, 'en-US')}` : 'Workspace operation failed.'),
+      label: COPY_LABEL,
+      failed: true,
+    };
+  }
 }
 
 /* ---------------- web_search ---------------- */

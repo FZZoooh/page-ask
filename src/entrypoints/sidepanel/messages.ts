@@ -186,6 +186,7 @@ export function roundEndAt(r: Round): number | null {
 const TOOL_LABEL_KEYS: Record<string, MessageKey> = {
   read_page: 'tool.read_page',
   read_file: 'tool.read_file',
+  copy_attachment: 'tool.copy_attachment',
   list_files: 'tool.list_files',
   read_workspace_file: 'tool.read_workspace_file',
   write_file: 'tool.write_file',
@@ -205,7 +206,7 @@ export function toolLabel(name: string, pdf = false): string {
 /** One-line summary of tool args for the step rows */
 export function toolDetail(name: string, args: Record<string, unknown> | null): string {
   if (!args) return '';
-  if (name === 'write_file' || name === 'edit_file' || name === 'read_workspace_file') {
+  if (name === 'write_file' || name === 'edit_file' || name === 'read_workspace_file' || name === 'copy_attachment') {
     return typeof args.name === 'string' ? args.name : '';
   }
   if (name === 'read_page' || name === 'read_file') {

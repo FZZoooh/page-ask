@@ -60,6 +60,7 @@ export const messages = {
   'chat.stopped': 'Stopped',
   'tool.read_page': 'Read Page',
   'tool.read_file': 'Read Attachment',
+  'tool.copy_attachment': 'Copy Attachment',
   'tool.list_files': 'List Files',
   'tool.read_workspace_file': 'Read File',
   'tool.write_file': 'Write File',

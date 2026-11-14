@@ -101,6 +101,7 @@ export const enUS = {
   'tool.read_page': 'Read page',
   'tool.read_pdf': 'Read PDF',
   'tool.read_file': 'Read attachment',
+  'tool.copy_attachment': 'Copy attachment',
   'tool.list_files': 'List files',
   'tool.read_workspace_file': 'Read file',
   'tool.write_file': 'Write file',

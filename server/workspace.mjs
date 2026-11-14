@@ -51,18 +51,47 @@ function fail(code) {
   throw new WorkspaceError(`workspace.${code}`);
 }
 
+const BANNED_CHARS = /[\\/:<>"'`|?*\u0000-\u001f\u007f-\u009f]/u;
+const RESERVED_STEM = /^(?:CON|PRN|AUX|NUL|CLOCK\$|CONIN\$|CONOUT\$|COM[0-9¹²³]?|LPT[0-9¹²³]?)$/iu;
+const NAME_BYTE_LIMIT = 180;
+
 function validateName(name) {
-  if (typeof name !== 'string' || !name || !name.isWellFormed() || Buffer.byteLength(name, 'utf8') > 180
+  if (typeof name !== 'string' || !name || !name.isWellFormed() || Buffer.byteLength(name, 'utf8') > NAME_BYTE_LIMIT
     || name.startsWith('.') || /[. ]$/.test(name)
-    || /[\\/:<>"'`|?*\u0000-\u001f\u007f-\u009f]/u.test(name)) {
+    || BANNED_CHARS.test(name)) {
     fail('invalid_name');
   }
-  const stem = name.split('.')[0].trimEnd();
-  if (/^(?:CON|PRN|AUX|NUL|CLOCK\$|CONIN\$|CONOUT\$|COM[0-9¹²³]?|LPT[0-9¹²³]?)$/iu.test(stem)) {
-    fail('invalid_name');
-  }
+  if (RESERVED_STEM.test(name.split('.')[0].trimEnd())) fail('invalid_name');
   const extension = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1).toLowerCase() : '';
   if (!EXTENSIONS.has(extension)) fail('unsupported');
+}
+
+/**
+ * Derive a valid flat workspace filename from an arbitrary display name (attachment imports), keeping
+ * the original whenever it can: coerces the extension to an allowed one, replaces characters Windows
+ * filenames reject, trims to the same byte cap validateName enforces. Never throws, so a copied
+ * attachment succeeds in one call even when its name would not have been accepted as is.
+ */
+export function suggestName(raw) {
+  const segment = (typeof raw === 'string' ? raw : '').split(/[\\/]/).pop().replace(BANNED_CHARS, '-');
+  const dot = segment.lastIndexOf('.');
+  // A leading dot (".env") belongs to the stem, not the extension.
+  let stem = (dot > 0 ? segment.slice(0, dot) : segment).replace(/^[.\s]+/, '').replace(/[.\s]+$/, '').trim();
+  let extension = dot > 0 ? segment.slice(dot + 1).toLowerCase() : '';
+  if (!EXTENSIONS.has(extension)) extension = 'txt';
+  if (!stem) stem = 'file';
+  if (RESERVED_STEM.test(stem.split('.')[0])) stem = `file-${stem}`;
+  // Trim by code points so a surrogate pair never gets split in half.
+  while (Buffer.byteLength(`${stem}.${extension}`, 'utf8') > NAME_BYTE_LIMIT && stem.length > 0) {
+    stem = Array.from(stem).slice(0, -1).join('').replace(/[.\s]+$/, '');
+  }
+  const name = stem ? `${stem}.${extension}` : 'file.txt';
+  try {
+    validateName(name);
+    return name;
+  } catch {
+    return 'file.txt';
+  }
 }
 
 function validateText(text) {

@@ -46,6 +46,7 @@ const TESTS = [
   'test-cors-origin.mjs',
   'test-replace-sse.mjs',
   'test-attachments.mjs',
+  'test-attachment-copy.mjs',
   'test-workspace-storage.mjs',
   'test-workspace.mjs',
   'test-artifact-tags.mjs',

@@ -61,6 +61,7 @@ export const messages = {
   'chat.stopped': '已停止',
   'tool.read_page': '读取页面',
   'tool.read_file': '读取附件',
+  'tool.copy_attachment': '复制附件',
   'tool.list_files': '列出文件',
   'tool.read_workspace_file': '读取文件',
   'tool.write_file': '写入文件',

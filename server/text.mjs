@@ -65,3 +65,23 @@ function excerpt(block, needle, size) {
   const suffix = end < block.length ? '…' : '';
   return prefix + block.slice(start, end) + suffix;
 }
+
+/**
+ * Plain text in UTF-8 / UTF-16 (BOM) / GB18030. Returns null for binary: NUL bytes outside UTF-16,
+ * or a GB18030 decode full of control characters (that decoder accepts almost any byte sequence).
+ * Lives here (not in attachments.mjs) so tool code can decode stored text without pulling the
+ * attachment/db module graph into the tool layer.
+ */
+export function decodeText(b) {
+  if (b[0] === 0xff && b[1] === 0xfe) return new TextDecoder('utf-16le').decode(b.subarray(2));
+  if (b[0] === 0xfe && b[1] === 0xff) return new TextDecoder('utf-16be').decode(b.subarray(2));
+  if (b.includes(0)) return null;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(b);
+  } catch {
+    const text = new TextDecoder('gb18030').decode(b);
+    // eslint-disable-next-line no-control-regex
+    const control = text.match(/[\u0001-\u0008\u000e-\u001f\u007f\ufffd]/g)?.length ?? 0;
+    return control > text.length / 100 ? null : text;
+  }
+}
