@@ -1122,10 +1122,15 @@ button.primary.save:hover:not(:disabled) {
 /* Same reason one level down: the inner block is full width too, so a formula wider than the panel
    is centered inside that width and its left end lands at a negative offset no scroll can reach.
    `max-content` sizes the box to the formula itself; the scroll container then scrolls it from its
-   real left edge, and the container's own shrink-wrap keeps short formulas centred. */
+   real left edge, and the container's own shrink-wrap keeps short formulas centred. The 2px right
+   padding absorbs KaTeX's `.vlist-s` strut: that empty 2px cell is hidden from layout by
+   `.vlist-t2 { margin-right: -2px }`, so a formula ending in a sub/sup measures 2px narrower than
+   its real border box — and without this padding the fit-content scroll box always overflows by
+   exactly 2px, painting a scrollbar even on short formulas. */
 .md .katex-display > .katex {
   display: block;
   width: max-content;
+  padding-right: 2px;
 }
 
 /* KaTeX's inline .katex is an inline box wrapping a block .katex-html, so the browser splits it and
