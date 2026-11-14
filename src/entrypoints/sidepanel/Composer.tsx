@@ -133,6 +133,18 @@ export function Composer({
           >
             {t('composer.selection.explain')}
           </button>
+          <div
+            className="sel-hint"
+            role="note"
+            title={selectionHint}
+            aria-label={t('composer.selection.aria', { text: selectionHint })}
+          >
+            <span className="sel-hint-mark" aria-hidden="true">
+              ❝
+            </span>
+            {/* Always one line: CSS truncates it, so a long selection cannot stretch the row */}
+            <span className="sel-hint-text">{selectionHint}</span>
+          </div>
         </div>
       )}
       <div
@@ -151,20 +163,6 @@ export function Composer({
           onRemove={onRemoveAttachment}
           onPreview={onPreview}
         />
-        {selectionHint && (
-          <div
-            className="sel-hint"
-            role="note"
-            title={selectionHint}
-            aria-label={t('composer.selection.aria', { text: selectionHint })}
-          >
-            <span className="sel-hint-mark" aria-hidden="true">
-              ❝
-            </span>
-            {/* Always one line: CSS truncates it, so a long selection cannot stretch the composer */}
-            <span className="sel-hint-text">{selectionHint}</span>
-          </div>
-        )}
         <div
           ref={editorRef}
           className="editor"

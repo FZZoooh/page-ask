@@ -1200,14 +1200,26 @@ button.primary.save:hover:not(:disabled) {
   overflow-y: auto;
 }
 
-.composer .sel-hint {
-  flex-shrink: 0;
-}
-
 .selection-actions {
   display: flex;
+  /* stretch, not center: the hint capsule grows to the Explain button's exact height, so no
+     line-height rounding difference shows between the two pills */
+  align-items: stretch;
+  gap: 6px;
   padding-left: 12px;
   margin-bottom: 6px;
+}
+
+/* The composer's selection hint: a capsule filling the row after the Explain button (the quote-block
+   styling below is only used inside the sent bubble). Always one line — a long selection is
+   ellipsized and never stretches the row. */
+.selection-actions .sel-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 999px;
+  padding: 1px 10px;
 }
 
 /* The radius is constant (= half the single-line height): a pill while single-line, and the same radius
@@ -1293,8 +1305,8 @@ button.primary.save:hover:not(:disabled) {
   pointer-events: none;
 }
 
-/* Page selection hint on the composer's first line: quote-block styling (left rule + faint fill).
-   Always one line — a long selection is ellipsized by CSS and never stretches the composer. */
+/* Quote hint inside the sent user bubble: quote-block styling (left rule + faint fill). The
+   composer renders the same hint as a capsule next to the Explain button instead (.selection-actions). */
 .sel-hint {
   display: flex;
   align-items: center;
@@ -1461,7 +1473,6 @@ button.composer-expand:focus-visible {
   outline-offset: 2px;
 }
 
-.box.multi > .sel-hint,
 .box.multi > .att-strip.in-box {
   margin-right: 36px;
 }
