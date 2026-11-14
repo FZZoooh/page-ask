@@ -1418,6 +1418,10 @@ export default function App() {
       return;
     }
     const expanding = composerExpandingRef.current;
+    // A stale frame id means cleanup just canceled an in-flight animation (typing landed mid-way):
+    // retarget it from the current height instead of snapping, or a key-held single↔multi switch
+    // would jump, because every repeat keystroke re-runs this effect inside the 170ms window.
+    const animating = growAnimRef.current !== 0;
     const finish = () => {
       growAnimRef.current = 0;
       composerExpandingRef.current = false;
@@ -1431,7 +1435,7 @@ export default function App() {
         setComposerFloating(false);
       }
     };
-    if ((!expanding && modeFrom === null) || Math.abs(to - from) < 1) {
+    if ((!expanding && !animating && modeFrom === null) || Math.abs(to - from) < 1) {
       finish();
       return;
     }
