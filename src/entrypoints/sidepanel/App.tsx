@@ -1352,9 +1352,14 @@ export default function App() {
     const app = header?.parentElement;
     if (!header || !app) return;
     const measure = () => {
-      const top = header.offsetTop + header.offsetHeight + 8;
-      app.style.setProperty('--composer-top', `${top}px`);
-      const height = Math.max(0, app.clientHeight - top - 12);
+      // The floating overlay must start at the header's bottom edge, not 8px below: the page card
+      // (and the error card) start right at header-bottom + gap, and fractional header heights
+      // let their top border peek out above the backdrop as a hairline. The backdrop paints the
+      // gap strip in the same --bg as the body, so extending it is seamless. The 8px standoff
+      // still applies to the expanded box itself via composerSpace below.
+      const headerBottom = header.offsetTop + header.offsetHeight;
+      app.style.setProperty('--composer-top', `${headerBottom}px`);
+      const height = Math.max(0, app.clientHeight - headerBottom - 8 - 12);
       const width = app.clientWidth;
       setComposerSpace((prev) => prev.height === height && prev.width === width ? prev : { height, width });
     };
