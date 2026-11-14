@@ -1365,7 +1365,8 @@ export default function App() {
     return () => observer.disconnect();
   }, []);
 
-  // Measure natural text height before applying flex fill or interpolating the whole box.
+  // Measure natural text height before applying flex fill or interpolating the whole box. Expanded
+  // mode never auto-collapses on short text — the button, send, and leaving the page collapse it.
   useLayoutEffect(() => {
     const el = editorRef.current;
     const box = el?.parentElement;
@@ -1395,11 +1396,6 @@ export default function App() {
     if (switched) {
       composerMultiRef.current = multi;
       setComposerMulti(multi);
-    }
-    if (composerExpanded && !multi) {
-      box.style.height = `${from}px`;
-      requestComposerExpanded(false);
-      return;
     }
     el.style.height = `${Math.min(natural, MAX_BOX_H)}px`;
     el.style.overflowY = natural > MAX_BOX_H ? 'auto' : 'hidden';
@@ -1458,7 +1454,7 @@ export default function App() {
     growAnimRef.current = requestAnimationFrame(step);
     return () => cancelAnimationFrame(growAnimRef.current);
   }, [input, pageState.kind, composerMulti, composerFiles.items.length, selectionHint, composerExpanded,
-    composerFloating, composerSpace, requestComposerExpanded]);
+    composerFloating, composerSpace]);
 
   // Conversation title at top left, from the conversation list (the `title` event updates it in place)
   const currentTitle = useMemo(
