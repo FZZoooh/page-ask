@@ -2139,10 +2139,26 @@ button.lightbox-close:hover:not(:disabled) {
 
 /* ---------- settings panel ---------- */
 
+/* Flex column: the fields scroll in .settings-body while the action row stays pinned below,
+   so Save / Test / Reset never scroll out of reach. */
 .settings {
   flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
   max-height: 60vh;
+}
+
+.settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+}
+
+.settings > .actions {
+  flex: 0 0 auto;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
 }
 
 /* "Open the backend settings page": the whole row is clickable, and the left rule hints it leaves this page */

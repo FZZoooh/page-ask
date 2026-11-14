@@ -1,15 +1,15 @@
 import { useState } from 'react';
 import { checkHealth } from '@/lib/chat';
-import { t, type MessageKey } from '@/lib/i18n';
+import { t } from '@/lib/i18n';
 import { DEFAULT_SETTINGS, saveSettings, validPasteBytes, type Settings } from '@/lib/settings';
 
 interface Props {
   value: Settings;
   onDone: (next: Settings) => void;
   onClose: () => void;
+  /** Probe results and validation errors go through the app-level toast instead of inline text */
+  showToast: (message: string) => void;
 }
-
-type Probe = { ok: true; key: MessageKey; params?: Record<string, string | number> } | { ok: false; text: string };
 
 /** Accept http(s) URLs only; null on parse failure, so page content is never posted to a bogus address */
 function parseBackendUrl(raw: string): URL | null {
@@ -29,11 +29,10 @@ function parseBackendUrl(raw: string): URL | null {
 /** Trust the local backend by default; any other host needs a second confirmation from the user */
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 
-export function SettingsPanel({ value, onDone, onClose }: Props) {
+export function SettingsPanel({ value, onDone, onClose, showToast }: Props) {
   const [draft, setDraft] = useState<Settings>(value);
   const [pasteBytesText, setPasteBytesText] = useState(String(value.pasteAsFileBytes));
   const [saving, setSaving] = useState(false);
-  const [probe, setProbe] = useState<Probe | null>(null);
   const [probing, setProbing] = useState(false);
 
   const patch = (p: Partial<Settings>) => setDraft((d) => ({ ...d, ...p }));
@@ -57,10 +56,10 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
     };
   };
 
-  /** Validate the draft URL; on failure it writes probe itself, so callers only need to return */
+  /** Validate the draft URL; on failure it raises a toast itself, so callers only need to return */
   const validated = (): URL | null => {
     const parsed = parseBackendUrl(normalized().backendUrl);
-    if (!parsed) setProbe({ ok: false, text: t('settings.invalidUrl') });
+    if (!parsed) showToast(t('settings.invalidUrl'));
     return parsed;
   };
 
@@ -71,7 +70,7 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
     const parsed = validated();
     if (!parsed) return;
     if (draft.pasteAsFile && !pasteBytesOk) {
-      setProbe({ ok: false, text: t('settings.pasteAsFileBytesInvalid') });
+      showToast(t('settings.pasteAsFileBytesInvalid'));
       return;
     }
     if (!LOOPBACK_HOSTS.has(parsed.hostname) && !window.confirm(t('settings.remoteConfirm', { host: parsed.host }))) {
@@ -83,7 +82,7 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
       await saveSettings(next);
       onDone(next);
     } catch (err) {
-      setProbe({ ok: false, text: err instanceof Error ? err.message : String(err) });
+      showToast(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -97,12 +96,11 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
       return;
     }
     setProbing(true);
-    setProbe(null);
     try {
       const info = await checkHealth(normalized());
-      setProbe({ ok: true, key: 'settings.probeOk', params: { model: info.model } });
+      showToast(t('settings.probeOk', { model: info.model }));
     } catch (err) {
-      setProbe({ ok: false, text: err instanceof Error ? err.message : String(err) });
+      showToast(err instanceof Error ? err.message : String(err));
     } finally {
       setProbing(false);
     }
@@ -117,101 +115,118 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
         </button>
       </div>
 
-      <label className="field">
-        <span>{t('settings.backendUrl')}</span>
-        <input
-          value={draft.backendUrl}
-          onChange={(e) => patch({ backendUrl: e.target.value })}
-          spellCheck={false}
-          placeholder={DEFAULT_SETTINGS.backendUrl}
-        />
-        <small>{t('settings.backendHint')}</small>
-        {remoteHost && <small className="warn">{t('settings.remoteHint', { host: remoteHost })}</small>}
-      </label>
+      {/* The fields scroll; the action row below is pinned, so Save never scrolls out of reach */}
+      <div className="settings-body">
+        <label className="field">
+          <span>{t('settings.backendUrl')}</span>
+          <input
+            value={draft.backendUrl}
+            onChange={(e) => patch({ backendUrl: e.target.value })}
+            spellCheck={false}
+            placeholder={DEFAULT_SETTINGS.backendUrl}
+          />
+          <small>{t('settings.backendHint')}</small>
+          {remoteHost && <small className="warn">{t('settings.remoteHint', { host: remoteHost })}</small>}
+        </label>
 
-      <label className="field">
-        <span>{t('settings.token')}</span>
-        <input
-          type="password"
-          value={draft.token}
-          onChange={(e) => patch({ token: e.target.value })}
-          spellCheck={false}
-          autoComplete="off"
-          placeholder={t('settings.tokenPlaceholder')}
-        />
-        <small>{t('settings.tokenHint')}</small>
-      </label>
+        <label className="field">
+          <span>{t('settings.token')}</span>
+          <input
+            type="password"
+            value={draft.token}
+            onChange={(e) => patch({ token: e.target.value })}
+            spellCheck={false}
+            autoComplete="off"
+            placeholder={t('settings.tokenPlaceholder')}
+          />
+          <small>{t('settings.tokenHint')}</small>
+        </label>
 
-      <label className="field">
-        <span>{t('settings.language')}</span>
-        <select
-          value={draft.locale}
-          onChange={(e) => patch({ locale: e.target.value as Settings['locale'] })}
+        <label className="field">
+          <span>{t('settings.language')}</span>
+          <select
+            value={draft.locale}
+            onChange={(e) => patch({ locale: e.target.value as Settings['locale'] })}
+          >
+            <option value="auto">{t('settings.languageAuto')}</option>
+            <option value="zh-CN">{t('settings.languageZh')}</option>
+            <option value="en-US">{t('settings.languageEn')}</option>
+          </select>
+        </label>
+
+        <label className="field">
+          <span>{t('settings.theme')}</span>
+          <select
+            value={draft.theme}
+            onChange={(e) => patch({ theme: e.target.value as Settings['theme'] })}
+          >
+            <option value="auto">{t('settings.themeAuto')}</option>
+            <option value="light">{t('settings.themeLight')}</option>
+            <option value="dark">{t('settings.themeDark')}</option>
+          </select>
+        </label>
+
+        <label className="field">
+          <span>{t('settings.fontSize')}</span>
+          <select
+            value={draft.fontSize}
+            onChange={(e) => patch({ fontSize: e.target.value as Settings['fontSize'] })}
+          >
+            <option value="small">{t('settings.fontSizeSmall')}</option>
+            <option value="normal">{t('settings.fontSizeNormal')}</option>
+            <option value="large">{t('settings.fontSizeLarge')}</option>
+            <option value="xlarge">{t('settings.fontSizeXLarge')}</option>
+          </select>
+        </label>
+
+        {/* The "show details" explanation lives in title: hover-only, so it costs no layout space */}
+        <label className="check" title={t('settings.verboseHint')}>
+          <input
+            type="checkbox"
+            checked={draft.verbose}
+            onChange={(e) => patch({ verbose: e.target.checked })}
+          />
+          <span>{t('settings.verbose')}</span>
+        </label>
+
+        <label className="check" title={t('settings.pasteAsFileHint')}>
+          <input
+            type="checkbox"
+            checked={draft.pasteAsFile}
+            onChange={(e) => patch({ pasteAsFile: e.target.checked })}
+          />
+          <span>{t('settings.pasteAsFile')}</span>
+        </label>
+
+        <label className="field">
+          <span>{t('settings.pasteAsFileBytes')}</span>
+          <input
+            type="number"
+            min={1}
+            step={1}
+            inputMode="numeric"
+            value={pasteBytesText}
+            disabled={!draft.pasteAsFile}
+            aria-invalid={draft.pasteAsFile && !pasteBytesOk}
+            onChange={(e) => setPasteBytesText(e.target.value)}
+          />
+          <small>{t('settings.pasteAsFileBytesHint')}</small>
+        </label>
+
+        {/* API key / upstream URL / default model live in the backend; this is only the way in */}
+        <button
+          className="console-link"
+          onClick={() => {
+            const parsed = validated();
+            if (!parsed) return;
+            const base = parsed.origin + parsed.pathname.replace(/\/+$/, '');
+            void browser.tabs.create({ url: `${base}/settings` });
+          }}
         >
-          <option value="auto">{t('settings.languageAuto')}</option>
-          <option value="zh-CN">{t('settings.languageZh')}</option>
-          <option value="en-US">{t('settings.languageEn')}</option>
-        </select>
-      </label>
-
-      <label className="field">
-        <span>{t('settings.theme')}</span>
-        <select
-          value={draft.theme}
-          onChange={(e) => patch({ theme: e.target.value as Settings['theme'] })}
-        >
-          <option value="auto">{t('settings.themeAuto')}</option>
-          <option value="light">{t('settings.themeLight')}</option>
-          <option value="dark">{t('settings.themeDark')}</option>
-        </select>
-      </label>
-
-      <label className="field">
-        <span>{t('settings.fontSize')}</span>
-        <select
-          value={draft.fontSize}
-          onChange={(e) => patch({ fontSize: e.target.value as Settings['fontSize'] })}
-        >
-          <option value="small">{t('settings.fontSizeSmall')}</option>
-          <option value="normal">{t('settings.fontSizeNormal')}</option>
-          <option value="large">{t('settings.fontSizeLarge')}</option>
-          <option value="xlarge">{t('settings.fontSizeXLarge')}</option>
-        </select>
-      </label>
-
-      {/* The "show details" explanation lives in title: hover-only, so it costs no layout space */}
-      <label className="check" title={t('settings.verboseHint')}>
-        <input
-          type="checkbox"
-          checked={draft.verbose}
-          onChange={(e) => patch({ verbose: e.target.checked })}
-        />
-        <span>{t('settings.verbose')}</span>
-      </label>
-
-      <label className="check" title={t('settings.pasteAsFileHint')}>
-        <input
-          type="checkbox"
-          checked={draft.pasteAsFile}
-          onChange={(e) => patch({ pasteAsFile: e.target.checked })}
-        />
-        <span>{t('settings.pasteAsFile')}</span>
-      </label>
-
-      <label className="field">
-        <span>{t('settings.pasteAsFileBytes')}</span>
-        <input
-          type="number"
-          min={1}
-          step={1}
-          inputMode="numeric"
-          value={pasteBytesText}
-          disabled={!draft.pasteAsFile}
-          aria-invalid={draft.pasteAsFile && !pasteBytesOk}
-          onChange={(e) => setPasteBytesText(e.target.value)}
-        />
-        <small>{t('settings.pasteAsFileBytesHint')}</small>
-      </label>
+          <span>{t('settings.console')}</span>
+          <small>{t('settings.consoleHint')}</small>
+        </button>
+      </div>
 
       <div className="row actions">
         <button className="primary save" onClick={() => void handleSave()} disabled={saving}>
@@ -230,25 +245,6 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
           {t('settings.reset')}
         </button>
       </div>
-
-      {/* API key / upstream URL / default model live in the backend; this is only the way in */}
-      <button
-        className="console-link"
-        onClick={() => {
-          const parsed = validated();
-          if (!parsed) return;
-          const base = parsed.origin + parsed.pathname.replace(/\/+$/, '');
-          void browser.tabs.create({ url: `${base}/settings` });
-        }}
-      >
-        <span>{t('settings.console')}</span>
-        <small>{t('settings.consoleHint')}</small>
-      </button>
-      {probe && (
-        <p className={probe.ok ? 'muted small' : 'err'}>
-          {probe.ok ? t(probe.key, probe.params) : probe.text}
-        </p>
-      )}
     </section>
   );
 }

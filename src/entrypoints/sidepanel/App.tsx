@@ -1532,6 +1532,7 @@ export default function App() {
       {settingsOpen && settings && (
         <SettingsPanel
           value={settings}
+          showToast={showToast}
           onDone={(next) => {
             setLocale(resolveLocale(next.locale));
             setSettings(next);
