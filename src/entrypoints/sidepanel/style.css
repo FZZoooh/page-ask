@@ -1251,6 +1251,15 @@ button.primary.save:hover:not(:disabled) {
   margin-bottom: 6px;
 }
 
+/* The Explain button must not shrink: flex shrinkage is proportional to base size, and the hint's
+   base is the whole selection text, so a long selection would squeeze the button down to its
+   min-content width — one CJK character — stacking "解释" vertically. The hint (min-width: 0)
+   absorbs all the shrinkage instead. */
+.selection-actions .suggest {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 /* The composer's selection hint: a capsule filling the row after the Explain button (the quote-block
    styling below is only used inside the sent bubble). Always one line — a long selection is
    ellipsized and never stretches the row. */
