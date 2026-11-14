@@ -2,8 +2,10 @@
 //
 // Parsing the whole answer on every 50ms flush is O(n²) and makes KaTeX re-run for every token.
 // We split the text into completed blocks (safe to memoize) plus a tail that has not reached a
-// blank-line boundary yet. The tail is rendered as plain text, so an open code fence or $$ block
-// never reaches remark/KaTeX in a half-written state.
+// blank-line boundary yet. The tail is re-parsed on every flush and rendered as live Markdown:
+// CommonMark defines unclosed fences/tables/lists as blocks running to end of input, so they
+// parse to well-formed partial blocks. The one exception is an open $$ flow, which would feed
+// half-written TeX to KaTeX — `tailPlain` reports that shape so the caller keeps it plain text.
 
 const FENCE = /^(`{3,}|~{3,})/;
 const LIST_OR_QUOTE = /^\s*(?:[-*+] |\d+[.)] |>)/;
@@ -259,7 +261,7 @@ function rewriteMathPairs(text) {
 
 /**
  * @param {string} text
- * @returns {{ blocks: string[], tail: string }}
+ * @returns {{ blocks: string[], tail: string, tailPlain: boolean }}
  */
 export function splitStreamingMarkdown(text) {
   let boundary = 0;
@@ -295,5 +297,8 @@ export function splitStreamingMarkdown(text) {
   return {
     blocks: splitBlocks(text.slice(0, boundary)),
     tail: text.slice(boundary),
+    // An open $$ flow parses to end of input (remark-math), unlike fences/tables which end at a
+    // well-defined partial block; KaTeX must not see half-written TeX on every flush.
+    tailPlain: inMath,
   };
 }

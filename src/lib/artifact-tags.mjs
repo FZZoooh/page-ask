@@ -220,5 +220,8 @@ export function splitArtifactMarkdown(text) {
     current += raw;
     if (blank && complete && !fence && !html && !math && !indented && !htmlContext.length) flush();
   }
-  return { blocks, tail: current };
+  // Same guard as splitStreamingMarkdown: an open $$ flow parses to end of input and would reach
+  // KaTeX half-written. Unclosed fences/indented code are well-defined partial blocks, and
+  // react-markdown renders raw HTML as literal text, so html/fence/indented tails parse fine.
+  return { blocks, tail: current, tailPlain: math };
 }

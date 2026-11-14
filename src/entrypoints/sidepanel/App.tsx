@@ -1823,7 +1823,6 @@ export default function App() {
                           <div className={`md-wrap${m.streaming ? ' streaming' : ''}`}>
                             <MarkdownView
                               text={m.content}
-                              streaming={m.streaming}
                               baseUrl={page?.url}
                               onQuoteMath={insertQuoteChip}
                               artifacts={settings && conversationId

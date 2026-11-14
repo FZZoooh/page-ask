@@ -75,30 +75,60 @@ function codeInfo(node: HastNode | undefined): CodeInfo | null {
 }
 
 // One dynamic import shared by every block; lib/common is already the artifact preview's bundle.
+// Highlighting runs synchronously during render off this module cache: the streaming tail is
+// re-parsed on every 50ms flush, and resolving the highlight through async state would paint one
+// plain or stale frame between the old and new result each time.
 type Hljs = typeof import('highlight.js/lib/common')['default'];
-let hljsPromise: Promise<Hljs> | null = null;
-function loadHljs(): Promise<Hljs> {
-  hljsPromise ??= import('highlight.js/lib/common').then(({ default: highlight }) => highlight);
-  return hljsPromise;
+let hljs: Hljs | null = null;
+let hljsPending: Promise<Hljs> | null = null;
+
+function loadHljs(language: string | null): Promise<Hljs> {
+  hljsPending ??= import('highlight.js/lib/common').then(({ default: common }) => {
+    hljs = common;
+    return common;
+  });
+  return hljsPending.then((common) => {
+    // LaTeX is not part of lib/common; register it on first use, the way buildArtifactPreview does.
+    const name = language?.toLowerCase();
+    if ((name === 'latex' || name === 'tex') && !common.getLanguage('latex')) {
+      return import('highlight.js/lib/languages/latex').then(({ default: latex }) => {
+        common.registerLanguage('latex', latex);
+        return common;
+      });
+    }
+    return common;
+  });
 }
 
-async function resolveLanguage(hljs: Hljs, language: string): Promise<string | null> {
-  if (hljs.getLanguage(language)) return language;
-  // LaTeX is not part of lib/common; mirror buildArtifactPreview and register it on first use.
-  if ((language === 'latex' || language === 'tex') && !hljs.getLanguage('latex')) {
-    const { default: latex } = await import('highlight.js/lib/languages/latex');
-    hljs.registerLanguage('latex', latex);
-    return 'latex';
-  }
-  return null;
-}
-
-/** Grammar-work cap, the same bound buildArtifactPreview applies to workspace files. */
+/** Grammar-work cap for an explicit language, the same bound buildArtifactPreview applies. */
 const HLJS_CAP = 100_000;
+// Auto-detection runs every common grammar on each flush for an unlabeled streaming block, so it
+// gets a tighter budget than the one-shot explicit-language highlight above.
+const AUTO_CAP = 32_000;
+
+/** Synchronous highlight for the current render; null while the module is loading or out of budget. */
+function highlightCode(info: CodeInfo): { html: string; label: string | null } | null {
+  if (!hljs) return null;
+  try {
+    if (info.language) {
+      if (info.code.length > HLJS_CAP) return null;
+      const label = info.language.toLowerCase();
+      // An explicit but unknown language stays plain; the header still names what was asked for.
+      if (!hljs.getLanguage(label)) return null;
+      return { html: hljs.highlight(info.code, { language: label, ignoreIllegals: true }).value, label };
+    }
+    if (info.code.length > AUTO_CAP) return null;
+    // No info string: let hljs guess among the common languages and label the result.
+    const auto = hljs.highlightAuto(info.code);
+    return { html: auto.value, label: auto.language ?? null };
+  } catch {
+    return null;
+  }
+}
 
 const CodeBlock = memo(function CodeBlock({ node, children }: { node?: HastNode; children?: ReactNode }) {
   const info = useMemo(() => codeInfo(node), [node]);
-  const [highlighted, setHighlighted] = useState<{ html: string; label: string | null } | null>(null);
+  const [loadedTick, setLoadedTick] = useState(0);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<number | null>(null);
   const artifacts = useContext(ArtifactRenderContext);
@@ -107,35 +137,27 @@ const CodeBlock = memo(function CodeBlock({ node, children }: { node?: HastNode;
     if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
   }, []);
 
+  // The first block that needs the highlighter triggers the load; every mounted block re-renders
+  // once it lands. latex/tex additionally waits for its grammar to be registered.
   useEffect(() => {
-    setHighlighted(null);
-    if (!info || info.code.length > HLJS_CAP) return;
+    if (!info) return;
+    const latexNeeded = info.language !== null &&
+      ['latex', 'tex'].includes(info.language.toLowerCase()) && !hljs?.getLanguage('latex');
+    if (hljs && !latexNeeded) return;
     let alive = true;
-    const { code, language } = info;
-    void loadHljs()
-      .then(async (hljs) => {
-        let html = '';
-        let label: string | null = null;
-        if (language) {
-          label = language.toLowerCase();
-          const resolved = await resolveLanguage(hljs, label);
-          // An explicit but unknown language stays plain; the header still names what was asked for.
-          if (resolved) html = hljs.highlight(code, { language: resolved, ignoreIllegals: true }).value;
-        } else {
-          // No info string: let hljs guess among the common languages and label the result.
-          const auto = hljs.highlightAuto(code);
-          html = auto.value;
-          label = auto.language ?? null;
-        }
-        if (alive && html) setHighlighted({ html, label });
-      })
+    void loadHljs(info.language)
+      .then(() => { if (alive) setLoadedTick((tick) => tick + 1); })
       .catch(() => {
-        // No highlighter or a grammar error: keep the plain rendering that is already on screen.
+        // No highlighter: keep the plain rendering that is already on screen.
       });
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [info]);
+
+  const highlighted = useMemo(
+    () => info ? highlightCode(info) : null,
+    // loadedTick re-runs this lookup once the highlighter has finished loading.
+    [info, loadedTick],
+  );
 
   const copy = useCallback(() => {
     if (!info) return;
@@ -218,8 +240,8 @@ const artifactComponents: Components = {
 
 /** Completed blocks are immutable while streaming, so memo prevents re-parsing earlier answers. */
 const MarkdownBlock = memo(function MarkdownBlock({ text, artifacts = false }: { text: string; artifacts?: boolean }) {
-  // Normalize on the block (not inside splitStreamingMarkdown) so the unfinished plain-text tail
-  // stays byte-for-byte what the model sent until it is complete.
+  // Normalize on the block (not inside splitStreamingMarkdown) so a tail kept as plain text stays
+  // byte-for-byte what the model sent; parsed tails normalize exactly like completed blocks.
   const source = useMemo(() => normalizeDisplayMath(text), [text]);
   return (
     <Markdown
@@ -236,18 +258,17 @@ type MathMenu = { latex: string; display: boolean; x: number; y: number };
 
 /**
  * Renders a Markdown block (GFM tables, LaTeX math).
- * While streaming, only completed blocks are parsed; the unfinished tail is plain text until a
- * blank line closes it. This keeps each block's remark/KaTeX work out of the next 50ms flush.
+ * While streaming, completed blocks are memoized; the unfinished tail is re-parsed on every 50ms
+ * flush so unclosed fences/tables render live, except an open $$ block which stays plain text
+ * (tailPlain) until its closing delimiter — half-written TeX must not reach KaTeX.
  */
 export const MarkdownView = memo(function MarkdownView({
   text,
-  streaming = false,
   baseUrl,
   onQuoteMath,
   artifacts,
 }: {
   text: string;
-  streaming?: boolean;
   /** URL of the page being read; relative links in the answer resolve against it */
   baseUrl?: string;
   /** Insert a formula quote; the source keeps its `$…$` delimiters and the chip shows Unicode */
@@ -256,7 +277,7 @@ export const MarkdownView = memo(function MarkdownView({
   artifacts?: ArtifactContext;
 }) {
   // Split both live and finished text with the same rules so the blocks parsed during streaming
-  // keep their memo at completion; only the final tail needs a fresh parse.
+  // keep their memo at completion; the tail itself is re-parsed on every flush to render it live.
   const artifactsEnabled = artifacts !== undefined;
   const split = useMemo(
     () => artifactsEnabled ? splitArtifactMarkdown(text) : splitStreamingMarkdown(text),
@@ -360,7 +381,7 @@ export const MarkdownView = memo(function MarkdownView({
             <MarkdownBlock key={index} text={block} artifacts={artifactsEnabled} />
           ))}
           {split.tail ? (
-            streaming ? <span className="md-tail">{split.tail}</span> :
+            split.tailPlain ? <span className="md-tail">{split.tail}</span> :
               <MarkdownBlock key="tail" text={split.tail} artifacts={artifactsEnabled} />
           ) : null}
         </div>
