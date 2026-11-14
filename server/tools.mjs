@@ -90,7 +90,7 @@ export const TOOL_SPECS = [
     function: {
       name: 'list_files',
       description: 'Lists names, UTF-8 byte sizes and modification times of the text files in this conversation ' +
-        'workspace, whether generated or copied from attachments. No paths or folders.',
+        'workspace. No paths or folders.',
       parameters: {
         type: 'object',
         properties: {
@@ -150,6 +150,26 @@ export const TOOL_SPECS = [
           replace_all: { type: 'boolean', description: 'Optional; default false. Replace all occurrences.' },
         },
         required: ['name', 'old_text', 'new_text'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'copy_file',
+      description:
+        'Duplicates a text file in this conversation workspace under a new flat filename, leaving the ' +
+        'original untouched. Without new_name the copy is named like "report (2).md". Same limits as ' +
+        'write_file. Use copy_attachment to bring a user attachment into the workspace.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Flat filename of the existing workspace file to duplicate.' },
+          new_name: { type: 'string', description: 'Optional flat filename for the copy; defaults to "name (2)" with the same extension.' },
+          overwrite: { type: 'boolean', description: 'Optional; default false. Explicitly allow replacing an existing file when new_name is given.' },
+        },
+        required: ['name'],
         additionalProperties: false,
       },
     },
@@ -227,6 +247,8 @@ export async function runTool(name, args, ctx) {
     case 'write_file':
     case 'edit_file':
       return workspaceTool(name, args, ctx);
+    case 'copy_file':
+      return copyWorkspaceFile(args, ctx);
     case 'web_search':
       return webSearch(args, ctx);
     case 'fetch_url':
@@ -255,6 +277,18 @@ function artifactHint(name) {
   return 'To show a downloadable card, put ' +
     `<artifact name="${name}"/>` +
     ' on its own line in your answer, outside code fences. The card always reads the current file contents.';
+}
+
+/** Workspace failures share one shape: a short model-facing reason, details only in the log. */
+function workspaceFailure(err, label, tool) {
+  if (!(err instanceof WorkspaceError)) logError('workspace_tool', err, { tool });
+  return {
+    text: untrusted('source="workspace"', err instanceof WorkspaceError
+      ? `${err.code}: ${t(`error.${err.code}`, undefined, 'en-US')}`
+      : 'Workspace operation failed.'),
+    label,
+    failed: true,
+  };
 }
 
 function workspaceTool(name, args, { workspace }) {
@@ -291,12 +325,7 @@ function workspaceTool(name, args, { workspace }) {
       detail: file.name,
     };
   } catch (err) {
-    if (!(err instanceof WorkspaceError)) logError('workspace_tool', err, { tool: name });
-    return {
-      text: envelope(err instanceof WorkspaceError ? `${err.code}: ${t(`error.${err.code}`, undefined, 'en-US')}` : 'Workspace operation failed.'),
-      label,
-      failed: true,
-    };
+    return workspaceFailure(err, label, name);
   }
 }
 
@@ -542,12 +571,63 @@ function copyAttachment(args, { attachments, workspace }) {
       detail: saved.name,
     };
   } catch (err) {
-    if (!(err instanceof WorkspaceError)) logError('workspace_tool', err, { tool: 'copy_attachment' });
+    return workspaceFailure(err, COPY_LABEL, 'copy_attachment');
+  }
+}
+
+/* ---------------- copy_file ---------------- */
+
+const COPY_FILE_LABEL = 'Copy File';
+
+/** First free "stem (2).ext" style name, fitting the same 180-byte cap the workspace enforces. */
+function duplicateName(name, taken) {
+  const dot = name.lastIndexOf('.');
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const extension = dot > 0 ? name.slice(dot + 1) : '';
+  for (let n = 2; ; n += 1) {
+    let withCount = `${stem} (${n})`;
+    while (Buffer.byteLength(`${withCount}.${extension}`, 'utf8') > 180 && withCount.length > 0) {
+      withCount = Array.from(withCount).slice(0, -1).join('');
+    }
+    const candidate = extension ? `${withCount}.${extension}` : withCount;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
+  }
+}
+
+function copyWorkspaceFile(args, { workspace }) {
+  const envelope = (text) => untrusted('source="workspace"', text);
+  const refuse = (text, detail) => ({ text: envelope(text), label: COPY_FILE_LABEL, detail, failed: true });
+  const source = typeof args?.name === 'string' ? args.name.trim() : '';
+  if (!source) return refuse('name, the flat filename of the workspace file to duplicate, is required.', 'Missing name');
+  if (args?.overwrite !== undefined && typeof args.overwrite !== 'boolean') {
+    return refuse('Boolean options must be true or false.', 'Invalid overwrite');
+  }
+  if (args?.new_name !== undefined && (typeof args.new_name !== 'string' || !args.new_name.trim())) {
+    return refuse('new_name must be a nonempty filename when given.', 'Invalid new_name');
+  }
+
+  try {
+    const files = workspace.list();
+    const taken = new Set(files.map((f) => f.name.toLowerCase()));
+    if (!taken.has(source.toLowerCase())) {
+      return refuse(JSON.stringify({ files: files.map((f) => f.name) }) +
+        `\nNo workspace file named "${source}". Pick one of these, or create it with write_file first.`, `Unknown file: ${source}`);
+    }
+    const explicit = args?.new_name?.trim();
+    // Workspace lookups are case-insensitive, so an equal name would copy a file onto itself.
+    if (explicit && explicit.toLowerCase() === source.toLowerCase()) {
+      return refuse('A copy needs a name different from the source file.', 'Same name');
+    }
+    // Workspace files are written through encode(), so read → write is a lossless byte round-trip.
+    const text = workspace.read(source);
+    const saved = workspace.write(explicit || duplicateName(source, taken), text, { overwrite: args?.overwrite ?? false });
     return {
-      text: envelope(err instanceof WorkspaceError ? `${err.code}: ${t(`error.${err.code}`, undefined, 'en-US')}` : 'Workspace operation failed.'),
-      label: COPY_LABEL,
-      failed: true,
+      text: envelope(`${JSON.stringify(saved)}\nCopied ${source} to ${saved.name}; the original is untouched. ${artifactHint(saved.name)}`),
+      label: COPY_FILE_LABEL,
+      detail: saved.name,
     };
+  } catch (err) {
+    return workspaceFailure(err, COPY_FILE_LABEL, 'copy_file');
   }
 }
 

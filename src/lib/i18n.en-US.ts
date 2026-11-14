@@ -106,6 +106,7 @@ export const enUS = {
   'tool.read_workspace_file': 'Read file',
   'tool.write_file': 'Write file',
   'tool.edit_file': 'Edit file',
+  'tool.copy_file': 'Copy file',
   'tool.web_search': 'Web search',
   'tool.fetch_url': 'Fetch page',
   'tool.screenshot': 'Screenshot',

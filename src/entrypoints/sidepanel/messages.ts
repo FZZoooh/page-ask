@@ -191,6 +191,7 @@ const TOOL_LABEL_KEYS: Record<string, MessageKey> = {
   read_workspace_file: 'tool.read_workspace_file',
   write_file: 'tool.write_file',
   edit_file: 'tool.edit_file',
+  copy_file: 'tool.copy_file',
   web_search: 'tool.web_search',
   fetch_url: 'tool.fetch_url',
   screenshot: 'tool.screenshot',
@@ -208,6 +209,11 @@ export function toolDetail(name: string, args: Record<string, unknown> | null): 
   if (!args) return '';
   if (name === 'write_file' || name === 'edit_file' || name === 'read_workspace_file' || name === 'copy_attachment') {
     return typeof args.name === 'string' ? args.name : '';
+  }
+  if (name === 'copy_file') {
+    const source = typeof args.name === 'string' ? args.name : '';
+    const target = typeof args.new_name === 'string' && args.new_name.trim() ? args.new_name : '';
+    return target ? `${source} → ${target}` : source;
   }
   if (name === 'read_page' || name === 'read_file') {
     if (name === 'read_page' && args.scope === 'viewport') return t('tool.detail.viewport');

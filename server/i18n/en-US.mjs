@@ -65,6 +65,7 @@ export const messages = {
   'tool.read_workspace_file': 'Read File',
   'tool.write_file': 'Write File',
   'tool.edit_file': 'Edit File',
+  'tool.copy_file': 'Copy File',
   'tool.screenshot': 'Screenshot',
   'tool.web_search': 'Web Search',
   'tool.fetch_url': 'Fetch URL',

@@ -1834,6 +1834,7 @@ function buildSystemPrompt(page) {
     'Conversation workspace:',
     '- list_files: list the text files in this conversation workspace, whether generated or copied from attachments.',
     '- copy_attachment: copy a plain-text attachment (txt, code, CSV, JSON etc.) into the workspace as a UTF-8 text file, so it can be edited with edit_file and delivered as a file. Binary attachments (PDF, Word, Excel, PowerPoint, images) cannot be copied.',
+    '- copy_file: duplicate a workspace text file under a new name ("name (2).ext" by default); the original is untouched.',
     '- write_file: create a UTF-8 text file, or replace it only with overwrite=true.',
     '- read_workspace_file: read a workspace file by name, with query or offset/limit.',
     '- edit_file: replace exact text in a workspace file; ambiguous matches require replace_all=true.',

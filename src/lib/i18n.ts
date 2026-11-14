@@ -110,6 +110,7 @@ export const zhCN = {
   'tool.read_workspace_file': '读取文件',
   'tool.write_file': '写入文件',
   'tool.edit_file': '修改文件',
+  'tool.copy_file': '复制文件',
   'tool.web_search': '联网搜索',
   'tool.fetch_url': '抓取网页',
   'tool.screenshot': '截图',
