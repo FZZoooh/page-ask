@@ -70,7 +70,7 @@ function ArtifactPreview({ name, content, restoreFocus, onClose }: {
     >
       <div
         ref={dialogRef}
-        className={`artifact-dialog${content.kind === 'html' ? ' html' : ''}`}
+        className={`artifact-dialog${content.kind !== 'markdown' ? ` ${content.kind}` : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -100,7 +100,13 @@ function ArtifactPreview({ name, content, restoreFocus, onClose }: {
             srcDoc={content.source}
           />
         ) : (
-          <div className="artifact-preview-body" tabIndex={0} aria-label={t('artifact.previewTitle', { name })}>
+          // Code and table previews scroll inside their content block (both axes), so the body is
+          // not a scroll container there and keyboard focus moves to that block instead.
+          <div
+            className="artifact-preview-body"
+            tabIndex={content.kind === 'markdown' ? 0 : undefined}
+            aria-label={content.kind === 'markdown' ? t('artifact.previewTitle', { name }) : undefined}
+          >
             {content.kind === 'markdown' && (
               <Suspense fallback={<div className="artifact-preview-notice">{t('artifact.loading')}</div>}>
                 <MarkdownPreview text={content.source} />
@@ -109,7 +115,7 @@ function ArtifactPreview({ name, content, restoreFocus, onClose }: {
             {content.kind === 'code' && (
               <>
                 {content.limited && <div className="artifact-preview-notice">{t('artifact.highlightLimited')}</div>}
-                <pre className="artifact-code"><code>
+                <pre className="artifact-code" tabIndex={0} aria-label={t('artifact.previewTitle', { name })}><code>
                   {content.highlighted !== null && <span dangerouslySetInnerHTML={{ __html: content.highlighted }} />}
                   {content.source}
                 </code></pre>
@@ -119,7 +125,7 @@ function ArtifactPreview({ name, content, restoreFocus, onClose }: {
               <>
                 {content.truncated && <div className="artifact-preview-notice">{t('artifact.tableLimited')}</div>}
                 {content.headers.length ? (
-                  <div className="md artifact-table">
+                  <div className="md artifact-table" tabIndex={0} aria-label={t('artifact.previewTitle', { name })}>
                     <div className="table-wrap">
                       <table>
                         <thead><tr>{content.headers.map((cell, column) => <th key={column}>{cell}</th>)}</tr></thead>

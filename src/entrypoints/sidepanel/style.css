@@ -1872,10 +1872,60 @@ button.artifact-close:focus-visible {
 
 .artifact-dialog.html { height: 90vh; }
 
+/* Code and table previews drop the preview-body padding so the content block fills the dialog,
+   and that block owns BOTH scroll axes: with the old split (body vertical / inner horizontal)
+   the horizontal scrollbar sat at the bottom of the whole document and vanished from view on
+   any long file. The overlay inset (dialog ↔ panel gap) and the inner gutters stay as-is. */
+.artifact-dialog.code .artifact-preview-body,
+.artifact-dialog.table .artifact-preview-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+.artifact-dialog.code .artifact-code,
+.artifact-dialog.table .artifact-table {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.artifact-dialog.code .artifact-code:focus-visible,
+.artifact-dialog.table .artifact-table:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.artifact-dialog.code .artifact-preview-notice,
+.artifact-dialog.table .artifact-preview-notice {
+  flex: 0 0 auto;
+  padding: 12px 14px 0;
+}
+/* Inside the preview the .artifact-table is the single scroll container, so the wrap keeps its
+   chat-markdown role only: no inner horizontal scroller, no margin. */
+.artifact-dialog.table .artifact-table .table-wrap {
+  overflow: visible;
+}
+/* Sticky header keeps column names visible in long tables. The tint must mix onto --card to stay
+   opaque (the translucent .md th tint would let scrolled rows show through), and the shadow
+   replaces the collapsed bottom border, which belongs to the scrolling table layer. */
+.artifact-dialog.table th {
+  position: sticky;
+  top: 0;
+  background: color-mix(in srgb, var(--fg) 5%, var(--card));
+  box-shadow: 0 1px 0 var(--line);
+}
+
 .artifact-dialog-head {
   flex: 0 0 auto;
-  padding: 10px;
+  /* Slim title bar (~29px): the shared 28px button and 10px padding are sized for the card's
+     action row; the head hugs the 16px icon instead. */
+  padding: 2px 10px;
   border-bottom: 1px solid var(--line);
+}
+
+.artifact-dialog-head .artifact-close {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
 }
 
 .artifact-frame {
