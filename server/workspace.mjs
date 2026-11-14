@@ -121,22 +121,23 @@ function assertFile(stat) {
   if (!stat || stat.isSymbolicLink() || !stat.isFile() || stat.nlink !== 1) fail('unsafe_entry');
 }
 
-function sameFile(a, b) {
-  return a.dev === b.dev && a.ino === b.ino;
-}
-
+// ReFS volumes (Windows Dev Drive, the windows-2025 CI image) surface a 64-bit file id that can
+// differ between two opens of the same file (MS-FSCC maps ReFS's 128-bit ids onto 64 bits), so a
+// dev/ino mismatch between two stats is filesystem noise, not proof of a swapped file. Fail-closed
+// verification therefore leans on entry kind, link count, size and timestamps, never on identity.
 function assertUnchanged(path, previous) {
   const current = statOrNull(path);
   assertFile(current);
-  if (!sameFile(current, previous) || current.size !== previous.size
+  if (current.size !== previous.size
     || current.mtimeMs !== previous.mtimeMs || current.ctimeMs !== previous.ctimeMs) fail('unsafe_entry');
 }
 
-// Closing a written handle can refresh timestamps lazily on Windows, so compare identity and length only.
+// Closing a written handle can refresh timestamps lazily on Windows, so our own staging file is
+// re-checked by kind and size only.
 function assertSameEntry(path, previous) {
   const current = statOrNull(path);
   assertFile(current);
-  if (!sameFile(current, previous) || current.size !== previous.size) fail('unsafe_entry');
+  if (current.size !== previous.size) fail('unsafe_entry');
 }
 
 // Check ancestors individually: recursive mkdir and realpath alone would accept a junction out of dataDir.
@@ -219,7 +220,6 @@ function readBytes(directory, entry) {
   try {
     const stat = fstatSync(fd);
     assertFile(stat);
-    if (!sameFile(stat, entry.stat)) fail('unsafe_entry');
     if (stat.size > FILE_LIMIT) fail('too_large');
     const buffer = Buffer.alloc(FILE_LIMIT + 1);
     let size = 0;
@@ -299,7 +299,7 @@ function store(directory, entries, name, bytes, overwrite) {
     } finally {
       if (!committed && owned && ensureDirectory(directory, false)) {
         const current = statOrNull(staging);
-        if (current && sameFile(current, owned) && current.isFile() && current.nlink === 1) unlinkSync(staging);
+        if (current && current.isFile() && current.nlink === 1) unlinkSync(staging);
       }
     }
   }

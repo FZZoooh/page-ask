@@ -279,6 +279,25 @@ try {
     assert.equal(stamps.read('stamped.txt'), 'replaced');
   });
 
+  check('a volume that reports a different 64-bit file id per open still stores and reads', () => {
+    // ReFS (Windows Dev Drive, the windows-2025 CI image) can hand out a fresh dev/ino for every
+    // open of one file; storage must not read that as a replaced file, or every write would fail.
+    const shifting = workspaceFor('shifting-ids');
+    injectedFailure('fstatSync', (original, fd) => {
+      const stat = original(fd);
+      const copy = Object.create(Object.getPrototypeOf(stat), Object.getOwnPropertyDescriptors(stat));
+      Object.defineProperty(copy, 'ino', { value: stat.ino + 1 });
+      return copy;
+    }, () => {
+      shifting.write('reid.txt', 'written through per-open file ids');
+      assert.equal(shifting.read('reid.txt'), 'written through per-open file ids');
+      shifting.write('reid.txt', 'replaced', { overwrite: true });
+      assert.equal(shifting.read('reid.txt'), 'replaced');
+      shifting.edit('reid.txt', 'replaced', 'swapped');
+      assert.equal(shifting.read('reid.txt'), 'swapped');
+    });
+  });
+
   check('abandoned staging files are removed before quota checks after restart', () => {
     const name = `.workspace-${'b'.repeat(32)}.tmp`;
     const staging = join(folder('quota'), name);
