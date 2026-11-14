@@ -103,6 +103,13 @@ function assertUnchanged(path, previous) {
     || current.mtimeMs !== previous.mtimeMs || current.ctimeMs !== previous.ctimeMs) fail('unsafe_entry');
 }
 
+// Closing a written handle can refresh timestamps lazily on Windows, so compare identity and length only.
+function assertSameEntry(path, previous) {
+  const current = statOrNull(path);
+  assertFile(current);
+  if (!sameFile(current, previous) || current.size !== previous.size) fail('unsafe_entry');
+}
+
 // Check ancestors individually: recursive mkdir and realpath alone would accept a junction out of dataDir.
 function ensureDirectory(directory, create) {
   const root = parse(directory).root;
@@ -250,7 +257,7 @@ function store(directory, entries, name, bytes, overwrite) {
     closeSync(fd);
     fd = undefined;
     if (!ensureDirectory(directory, false)) fail('not_found');
-    assertUnchanged(staging, stat);
+    assertSameEntry(staging, stat);
     if (existing) {
       assertUnchanged(target, existing.stat);
       renameSync(staging, target);

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { makeTestConfig } from './temp-config.mjs';
 
 const previousHome = process.env.HOME;
@@ -260,6 +260,23 @@ try {
     error('full', 413, () => quota.edit('empty.txt', 'a', 'ab'));
     assert.equal(quota.read('empty.txt'), 'a');
     assert.equal(fs.existsSync(join(folder('quota'), 'extra.txt')), false);
+  });
+
+  check('a timestamp refresh after closing the write handle is not a replaced file', () => {
+    const stamps = workspaceFor('timestamps');
+    injectedFailure('lstatSync', (original, path) => {
+      const stat = original(path);
+      if (!stat || !basename(String(path)).startsWith('.workspace-')) return stat;
+      const copy = Object.create(Object.getPrototypeOf(stat), Object.getOwnPropertyDescriptors(stat));
+      Object.defineProperty(copy, 'mtimeMs', { value: stat.mtimeMs + 1000 });
+      Object.defineProperty(copy, 'ctimeMs', { value: stat.ctimeMs + 1000 });
+      return copy;
+    }, () => {
+      stamps.write('stamped.txt', 'safe');
+    });
+    assert.equal(stamps.read('stamped.txt'), 'safe');
+    stamps.write('stamped.txt', 'replaced', { overwrite: true });
+    assert.equal(stamps.read('stamped.txt'), 'replaced');
   });
 
   check('abandoned staging files are removed before quota checks after restart', () => {
