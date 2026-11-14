@@ -1817,10 +1817,10 @@ function buildSystemPrompt(page) {
   if (isPdf) {
     lines.push(
       '  This is a PDF, so read_page works differently from a web page:',
-      '  · There is no DOM: **no viewport** (scope="viewport" returns nothing; do not use it), no selected text, no anchors or page-number lookup. The text is the whole document in page order.',
-      '  · To see what a page or screen looks like, use **screenshot** (it captures the PDF as the user sees it), not viewport.',
-      '  · To locate content, use **query** for keywords (it returns matching paragraphs), or offset/limit in characters; there are no page numbers in the text, only character positions.',
-      '  · For a very long PDF, do not read it all at once: query first, then read around the hits.',
+      '  - There is no DOM: **no viewport** (scope="viewport" returns nothing; do not use it), no selected text, no anchors or page-number lookup. The text is the whole document in page order.',
+      '  - To see what a page or screen looks like, use **screenshot** (it captures the PDF as the user sees it), not viewport.',
+      '  - To locate content, use **query** for keywords (it returns matching paragraphs), or offset/limit in characters; there are no page numbers in the text, only character positions.',
+      '  - For a very long PDF, do not read it all at once: query first, then read around the hits.',
     );
   } else {
     lines.push(
