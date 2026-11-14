@@ -15,6 +15,7 @@ server/data/
 settings.json
 settings.json.broken-*
 *.pem
+.zcode/
 
 # Browser test instance profile (may contain tokens in extension storage)
 .edge-profile*/
