@@ -177,6 +177,35 @@ const FILE_ICON_KINDS: Record<string, string> = {
   rs: 'code', go: 'code', java: 'code', c: 'code', cpp: 'code', h: 'code',
 };
 
+/** The white glyph drawn inside the badge; coordinates assume the 30×25 badge at (14,34).
+ *  IconAttachmentFile scales the group up and drops it straight onto the tinted sheet. */
+function fileBadgeMark(kind: string, transform?: string) {
+  return (
+    <g className="artifact-mark" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" transform={transform}>
+      {kind === 'markdown' && <path d="M19 51V42l4 5 4-5v9m9-9v9m-3-3 3 3 3-3" />}
+      {(kind === 'html' || kind === 'code') && <path d="m23 42-4 4.5 4 4.5m12-9 4 4.5-4 4.5m-5-10-3 11" />}
+      {kind === 'style' && <path d="m26 40-2 13m10-13-2 13m-11-9h16m-17 5h16" />}
+      {kind === 'json' && <path d="M25 40h-2v4l-3 2.5 3 2.5v4h2m8-13h2v4l3 2.5-3 2.5v4h-2" />}
+      {kind === 'table' && <>
+        <rect x="20" y="40" width="18" height="13" rx="1" />
+        <path d="M20 44h18m-18 4.5h18m-12-8.5v13" />
+      </>}
+      {kind === 'config' && <>
+        <path d="M20 42h18m-18 9h18" />
+        <circle cx="25" cy="42" r="2" className="artifact-knob" />
+        <circle cx="33" cy="51" r="2" className="artifact-knob" />
+      </>}
+      {kind === 'slide' && <path d="M26 41v10l9-5Z" />}
+      {kind === 'image' && <>
+        <rect x="20" y="39" width="18" height="15" rx="2" />
+        <circle cx="24.5" cy="43.5" r="1.8" className="artifact-knob" />
+        <path d="m21.5 51.5 4.5-4.5 3 3 3-3.5 4.5 4.5" />
+      </>}
+      {kind === 'text' && <path d="M21 41h16m-16 5.5h16M21 52h11" />}
+    </g>
+  );
+}
+
 export function IconArtifactFile({ extension }: { extension: string }) {
   const kind = FILE_ICON_KINDS[extension.toLowerCase()] ?? 'text';
   return (
@@ -184,32 +213,32 @@ export function IconArtifactFile({ extension }: { extension: string }) {
       <path className="artifact-paper" d="M8 2h28l18 18v54a3 3 0 0 1-3 3H8a5 5 0 0 1-5-5V7a5 5 0 0 1 5-5Z" />
       <path className="artifact-fold" d="M36 2v13a5 5 0 0 0 5 5h13Z" />
       <rect className="artifact-badge" x="14" y="34" width="30" height="25" rx="2.5" />
-      <g className="artifact-mark" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        {kind === 'markdown' && <path d="M19 51V42l4 5 4-5v9m9-9v9m-3-3 3 3 3-3" />}
-        {(kind === 'html' || kind === 'code') && <path d="m23 42-4 4.5 4 4.5m12-9 4 4.5-4 4.5m-5-10-3 11" />}
-        {kind === 'style' && <path d="m26 40-2 13m10-13-2 13m-11-9h16m-17 5h16" />}
-        {kind === 'json' && <path d="M25 40h-2v4l-3 2.5 3 2.5v4h2m8-13h2v4l3 2.5-3 2.5v4h-2" />}
-        {kind === 'table' && <>
-          <rect x="20" y="40" width="18" height="13" rx="1" />
-          <path d="M20 44h18m-18 4.5h18m-12-8.5v13" />
-        </>}
-        {kind === 'config' && <>
-          <path d="M20 42h18m-18 9h18" />
-          <circle cx="25" cy="42" r="2" className="artifact-knob" />
-          <circle cx="33" cy="51" r="2" className="artifact-knob" />
-        </>}
-        {kind === 'text' && <path d="M21 41h16m-16 5.5h16M21 52h11" />}
-      </g>
+      {fileBadgeMark(kind)}
     </svg>
   );
 }
 
-/** Document: page with a folded corner */
-export function IconFile(_props: Props) {
+/** Formats without a per-extension glyph map straight to one; text files go through FILE_ICON_KINDS */
+const ATT_FORMAT_KINDS: Record<string, string> = {
+  pdf: 'text', docx: 'text', xlsx: 'table', pptx: 'slide', image: 'image', file: 'text',
+};
+
+/** Attachment card icon: the artifact sheet drawn at 36px card size. The whole sheet takes the
+ *  format tint and the white glyph sits straight on it (paper and badge share one color, no
+ *  boundary), so the badge rect is gone; the glyph keeps the badge position, scaled by 4/3 around
+ *  its center — translate(c*(1-s)) scale(s), c = (29, 46.5), s = 4/3 — because at this size the
+ *  original marks are too small to read. The fold spans 22 units, proportionally a bit larger
+ *  than the artifact's 18, which nearly disappears at this scale. */
+export function IconAttachmentFile({ format, name }: { format: string; name: string }) {
+  const ext = /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase() ?? '';
+  const kind = format === 'text'
+    ? (FILE_ICON_KINDS[ext] ?? 'text')
+    : (ATT_FORMAT_KINDS[format] ?? 'text');
   return (
-    <svg {...base} stroke="currentColor" strokeWidth={1.3} fill="none">
-      <path d="M4 1.8h5l3.2 3.2v8.2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2.8a1 1 0 0 1 1-1Z" strokeLinejoin="round" />
-      <path d="M9 1.8V5h3.2" strokeLinejoin="round" />
+    <svg className="att-file" viewBox="0 0 60 78" aria-hidden="true" focusable="false" data-format={format}>
+      <path className="artifact-paper" d="M8 2h24l22 22v50a3 3 0 0 1-3 3H8a5 5 0 0 1-5-5V7a5 5 0 0 1 5-5Z" />
+      <path className="artifact-fold" d="M32 2v17a5 5 0 0 0 5 5h17Z" />
+      {fileBadgeMark(kind, 'translate(-9.67 -15.5) scale(1.3333)')}
     </svg>
   );
 }

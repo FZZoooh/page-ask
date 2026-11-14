@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { IconClose, IconFile, IconPlus } from '@/components/icons';
+import { IconAttachmentFile, IconClose, IconPlus } from '@/components/icons';
 import {
   ATTACHMENT_ACCEPT,
   attachmentImageUrl,
@@ -16,16 +16,6 @@ export type CardItem = Pick<DraftAttachment, 'key' | 'name' | 'format' | 'status
 
 export function sentCards(list: Attachment[]): CardItem[] {
   return list.map((a) => ({ key: a.id, name: a.name, format: a.format, status: 'ready', attachment: a }));
-}
-
-const BADGES: Partial<Record<CardItem['format'], string>> = { pdf: 'PDF', docx: 'DOC', xlsx: 'XLS', pptx: 'PPT' };
-
-function badgeText(item: CardItem): string | null {
-  if (item.format === 'text') {
-    const ext = /\.([a-z0-9]{1,4})$/i.exec(item.name)?.[1];
-    return ext ? ext.toUpperCase() : 'TXT';
-  }
-  return BADGES[item.format] ?? null;
 }
 
 export interface PreviewTarget {
@@ -60,7 +50,6 @@ function AttachmentCard({ item, settings, onRemove, onPreview }: CardProps) {
 
   const url = isImage && !broken ? (item.previewUrl ?? loaded) : null;
   const uploading = item.status === 'uploading';
-  const badge = badgeText(item);
   const size = item.attachment?.size;
   const sub = uploading
     ? t('attachment.uploading')
@@ -71,9 +60,7 @@ function AttachmentCard({ item, settings, onRemove, onPreview }: CardProps) {
   const thumb = url ? (
     <img src={url} alt="" draggable={false} onError={() => setBroken(true)} />
   ) : (
-    <span className={`att-icon att-${item.format}`}>
-      {badge ? <span className="att-badge">{badge}</span> : <IconFile />}
-    </span>
+    <IconAttachmentFile format={item.format} name={item.name} />
   );
 
   return (

@@ -1544,32 +1544,31 @@ button.att-thumb:focus-visible {
   display: block;
 }
 
-.att-icon {
-  --att-color: var(--att-file);
-  width: 100%;
-  height: 100%;
-  display: grid;
-  place-items: center;
-  background: color-mix(in srgb, var(--att-color) 14%, transparent);
-  color: var(--att-color);
+/* Document sheet icon: the artifact card's icon at card size, with the whole sheet filled in the
+   chip tint (white glyph straight on it) and a slightly larger fold. The tint follows the
+   attachment format, not the file extension, so every text file keeps the neutral gray. */
+.att-file {
+  display: block;
+  width: 28px;
+  height: 36px;
+  --artifact-tint: var(--att-file);
 }
 
-.att-icon.att-pdf { --att-color: var(--att-pdf); }
-.att-icon.att-docx { --att-color: var(--att-word); }
-.att-icon.att-xlsx { --att-color: var(--att-excel); }
-.att-icon.att-pptx { --att-color: var(--att-ppt); }
-.att-icon.att-text { --att-color: var(--att-text); }
+.att-file[data-format='pdf'] { --artifact-tint: var(--att-pdf); }
+.att-file[data-format='docx'] { --artifact-tint: var(--att-word); }
+.att-file[data-format='xlsx'] { --artifact-tint: var(--att-excel); }
+.att-file[data-format='pptx'] { --artifact-tint: var(--att-ppt); }
+.att-file[data-format='text'] { --artifact-tint: var(--att-text); }
 
-.att-icon .icon {
-  width: 18px;
-  height: 18px;
+/* Solid tinted sheet, no outline; the fold is a darker shade of the same hue (the artifact's fold
+   is darker than its paper too) */
+.att-file .artifact-paper {
+  fill: var(--artifact-tint);
+  stroke: none;
 }
 
-.att-badge {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  line-height: 1;
+.att-file .artifact-fold {
+  fill: color-mix(in srgb, var(--artifact-tint) 80%, black);
 }
 
 .att-card.uploading .att-thumb > :not(.att-spin) {
