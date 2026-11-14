@@ -6,6 +6,6 @@ export function remarkArtifactTags(this: { parse(source: string): unknown }): (t
 export function splitArtifactMarkdown(text: string): {
   blocks: string[];
   tail: string;
-  /** An open $$ flow reached end of input; the caller must render this tail as plain text. */
-  tailPlain: boolean;
+  /** Offset of an open $$ opener within the tail, -1 when none; the caller hides that region. */
+  tailMathStart: number;
 };

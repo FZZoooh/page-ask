@@ -240,8 +240,8 @@ const artifactComponents: Components = {
 
 /** Completed blocks are immutable while streaming, so memo prevents re-parsing earlier answers. */
 const MarkdownBlock = memo(function MarkdownBlock({ text, artifacts = false }: { text: string; artifacts?: boolean }) {
-  // Normalize on the block (not inside splitStreamingMarkdown) so a tail kept as plain text stays
-  // byte-for-byte what the model sent; parsed tails normalize exactly like completed blocks.
+  // Normalize at render time per block (not inside splitStreamingMarkdown): the splitter only
+  // slices the streamed text, and every parsed block — completed or tail — normalizes the same way.
   const source = useMemo(() => normalizeDisplayMath(text), [text]);
   return (
     <Markdown
@@ -259,8 +259,8 @@ type MathMenu = { latex: string; display: boolean; x: number; y: number };
 /**
  * Renders a Markdown block (GFM tables, LaTeX math).
  * While streaming, completed blocks are memoized; the unfinished tail is re-parsed on every 50ms
- * flush so unclosed fences/tables render live, except an open $$ block which stays plain text
- * (tailPlain) until its closing delimiter — half-written TeX must not reach KaTeX.
+ * flush so unclosed fences/tables render live. An open $$ block is hidden (tailMathStart) until
+ * its closing delimiter lands and the formula appears whole — half-written TeX must not reach KaTeX.
  */
 export const MarkdownView = memo(function MarkdownView({
   text,
@@ -283,6 +283,11 @@ export const MarkdownView = memo(function MarkdownView({
     () => artifactsEnabled ? splitArtifactMarkdown(text) : splitStreamingMarkdown(text),
     [text, artifactsEnabled],
   );
+  // An open $$ flow would reach KaTeX half-written: hide it and everything from its opener on, so
+  // the formula appears whole when the closing delimiter lands. Safe text before it renders live.
+  const tailRender = !split.tail ? null :
+    split.tailMathStart < 0 ? split.tail :
+    split.tailMathStart > 0 ? split.tail.slice(0, split.tailMathStart) : null;
   const artifactContext = useMemo(
     () => artifacts ? {
       settings: artifacts.settings, conversationId: artifacts.conversationId, showToast: artifacts.showToast,
@@ -380,10 +385,7 @@ export const MarkdownView = memo(function MarkdownView({
           {split.blocks.map((block, index) => (
             <MarkdownBlock key={index} text={block} artifacts={artifactsEnabled} />
           ))}
-          {split.tail ? (
-            split.tailPlain ? <span className="md-tail">{split.tail}</span> :
-              <MarkdownBlock key="tail" text={split.tail} artifacts={artifactsEnabled} />
-          ) : null}
+          {tailRender ? <MarkdownBlock key="tail" text={tailRender} artifacts={artifactsEnabled} /> : null}
         </div>
       </ArtifactRenderContext.Provider>
       {menu &&

@@ -147,6 +147,7 @@ export function splitArtifactMarkdown(text) {
   let html = null;
   const htmlContext = [];
   let math = false;
+  let mathStart = 0;
   let indented = false;
   let pos = 0;
   const flush = () => {
@@ -212,6 +213,8 @@ export function splitArtifactMarkdown(text) {
       indented = true;
     } else if (line.trimStart().startsWith('$$')) {
       math = (line.match(/\$\$/g) ?? []).length % 2 === 1;
+      // The opener line is not appended to `current` until below, so its tail offset is exact.
+      if (math) mathStart = current.length;
     } else if (!blank) {
       // Literal HTML in inline code or an escape must not hold all subsequent streaming blocks.
       const plain = line.replace(/\\[\\`<]/g, '').replace(/(^|[^`])(`+)(?!`)(.*?)\2(?!`)/g, '$1');
@@ -223,5 +226,6 @@ export function splitArtifactMarkdown(text) {
   // Same guard as splitStreamingMarkdown: an open $$ flow parses to end of input and would reach
   // KaTeX half-written. Unclosed fences/indented code are well-defined partial blocks, and
   // react-markdown renders raw HTML as literal text, so html/fence/indented tails parse fine.
-  return { blocks, tail: current, tailPlain: math };
+  // tailMathStart lets the caller hide the open formula and still render the safe text before it.
+  return { blocks, tail: current, tailMathStart: math ? mathStart : -1 };
 }

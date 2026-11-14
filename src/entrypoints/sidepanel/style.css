@@ -921,12 +921,6 @@ button.primary.save:hover:not(:disabled) {
   font-size: var(--reading-size);
 }
 
-.md-tail {
-  display: block;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
 /* Fatal render fallback (ErrorBoundary): keep it usable with only the theme variables. */
 .fatal {
   display: flex;

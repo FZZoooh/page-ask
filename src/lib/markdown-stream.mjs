@@ -5,7 +5,8 @@
 // blank-line boundary yet. The tail is re-parsed on every flush and rendered as live Markdown:
 // CommonMark defines unclosed fences/tables/lists as blocks running to end of input, so they
 // parse to well-formed partial blocks. The one exception is an open $$ flow, which would feed
-// half-written TeX to KaTeX — `tailPlain` reports that shape so the caller keeps it plain text.
+// half-written TeX to KaTeX — `tailMathStart` marks its opener so the caller hides that region
+// until the closing delimiter lands and the formula appears whole.
 
 const FENCE = /^(`{3,}|~{3,})/;
 const LIST_OR_QUOTE = /^\s*(?:[-*+] |\d+[.)] |>)/;
@@ -261,12 +262,13 @@ function rewriteMathPairs(text) {
 
 /**
  * @param {string} text
- * @returns {{ blocks: string[], tail: string, tailPlain: boolean }}
+ * @returns {{ blocks: string[], tail: string, tailMathStart: number }}
  */
 export function splitStreamingMarkdown(text) {
   let boundary = 0;
   let fence = null;
   let inMath = false;
+  let mathStart = 0;
   let pos = 0;
 
   while (pos < text.length) {
@@ -284,7 +286,10 @@ export function splitStreamingMarkdown(text) {
       if (nextFence) {
         fence = nextFence;
       } else if (trimmed.startsWith('$$')) {
-        if (startsMath(trimmed)) inMath = true;
+        if (startsMath(trimmed)) {
+          inMath = true;
+          mathStart = pos - boundary;
+        }
       } else if (!trimmed) {
         // Keep the newline so the completed prefix ends exactly at a block boundary.
         boundary = nl === -1 ? text.length : nl + 1;
@@ -298,7 +303,9 @@ export function splitStreamingMarkdown(text) {
     blocks: splitBlocks(text.slice(0, boundary)),
     tail: text.slice(boundary),
     // An open $$ flow parses to end of input (remark-math), unlike fences/tables which end at a
-    // well-defined partial block; KaTeX must not see half-written TeX on every flush.
-    tailPlain: inMath,
+    // well-defined partial block. tailMathStart marks its opener within the tail (-1 when none):
+    // the caller hides that region so KaTeX never sees half-written TeX, while safe text before
+    // the opener still renders live.
+    tailMathStart: inMath ? mathStart : -1,
   };
 }
