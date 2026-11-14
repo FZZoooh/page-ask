@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import Markdown, { type Components } from 'react-markdown';
@@ -20,6 +21,7 @@ import { t } from '@/lib/i18n';
 import { remarkArtifactTags, splitArtifactMarkdown } from '@/lib/artifact-tags.mjs';
 import type { ArtifactContext } from '@/lib/artifacts';
 import { ArtifactCard } from './ArtifactCard';
+import { IconCheck, IconCopy } from './icons';
 
 // Keep the MathML annotation: it carries the original TeX, which the formula menu copies and quotes.
 const remarkPlugins = [remarkGfm, remarkMath, remarkBreaks];
@@ -44,7 +46,137 @@ function safeHref(href: string | undefined, baseUrl: string | undefined): string
   }
 }
 
+// Structural subset of the hast nodes react-markdown passes to component overrides; importing
+// @types/hast directly does not resolve under pnpm's strict node_modules layout.
+interface HastNode {
+  type?: string;
+  tagName?: string;
+  value?: string;
+  properties?: Record<string, unknown>;
+  children?: HastNode[];
+}
+
+interface CodeInfo {
+  /** Fence info string, or null when the model emitted no language */
+  language: string | null;
+  code: string;
+}
+
+/** Read the fenced language and raw text out of a `pre` node; null when it is not a plain code block. */
+function codeInfo(node: HastNode | undefined): CodeInfo | null {
+  const code = node?.children?.find((child) => child.tagName === 'code');
+  if (!code?.children || code.children.some((child) => child.type !== 'text')) return null;
+  const classes = Array.isArray(code.properties?.className) ? (code.properties.className as string[]) : [];
+  const languageClass = classes.find((name) => name.startsWith('language-'));
+  return {
+    language: languageClass ? languageClass.slice('language-'.length) : null,
+    code: code.children.map((child) => child.value ?? '').join(''),
+  };
+}
+
+// One dynamic import shared by every block; lib/common is already the artifact preview's bundle.
+type Hljs = typeof import('highlight.js/lib/common')['default'];
+let hljsPromise: Promise<Hljs> | null = null;
+function loadHljs(): Promise<Hljs> {
+  hljsPromise ??= import('highlight.js/lib/common').then(({ default: highlight }) => highlight);
+  return hljsPromise;
+}
+
+async function resolveLanguage(hljs: Hljs, language: string): Promise<string | null> {
+  if (hljs.getLanguage(language)) return language;
+  // LaTeX is not part of lib/common; mirror buildArtifactPreview and register it on first use.
+  if ((language === 'latex' || language === 'tex') && !hljs.getLanguage('latex')) {
+    const { default: latex } = await import('highlight.js/lib/languages/latex');
+    hljs.registerLanguage('latex', latex);
+    return 'latex';
+  }
+  return null;
+}
+
+/** Grammar-work cap, the same bound buildArtifactPreview applies to workspace files. */
+const HLJS_CAP = 100_000;
+
+const CodeBlock = memo(function CodeBlock({ node, children }: { node?: HastNode; children?: ReactNode }) {
+  const info = useMemo(() => codeInfo(node), [node]);
+  const [highlighted, setHighlighted] = useState<{ html: string; label: string | null } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<number | null>(null);
+  const artifacts = useContext(ArtifactRenderContext);
+
+  useEffect(() => () => {
+    if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+  }, []);
+
+  useEffect(() => {
+    setHighlighted(null);
+    if (!info || info.code.length > HLJS_CAP) return;
+    let alive = true;
+    const { code, language } = info;
+    void loadHljs()
+      .then(async (hljs) => {
+        let html = '';
+        let label: string | null = null;
+        if (language) {
+          label = language.toLowerCase();
+          const resolved = await resolveLanguage(hljs, label);
+          // An explicit but unknown language stays plain; the header still names what was asked for.
+          if (resolved) html = hljs.highlight(code, { language: resolved, ignoreIllegals: true }).value;
+        } else {
+          // No info string: let hljs guess among the common languages and label the result.
+          const auto = hljs.highlightAuto(code);
+          html = auto.value;
+          label = auto.language ?? null;
+        }
+        if (alive && html) setHighlighted({ html, label });
+      })
+      .catch(() => {
+        // No highlighter or a grammar error: keep the plain rendering that is already on screen.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [info]);
+
+  const copy = useCallback(() => {
+    if (!info) return;
+    void navigator.clipboard.writeText(info.code)
+      .then(() => {
+        setCopied(true);
+        if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+        copiedTimer.current = window.setTimeout(() => setCopied(false), 1400);
+      })
+      // The toast exists only for assistant answers; elsewhere a failed write stays silent.
+      .catch(() => artifacts?.showToast(t('answer.copyFailed')));
+  }, [info, artifacts]);
+
+  if (!info) return <pre>{children}</pre>;
+  const label = highlighted?.label ?? info.language?.toLowerCase() ?? '';
+  return (
+    <div className="md-code">
+      <div className="md-code-head">
+        {label && <span className="md-code-lang">{label}</span>}
+        <button
+          type="button"
+          className="icon-btn"
+          title={copied ? t('code.copied') : t('code.copy')}
+          aria-label={copied ? t('code.copied') : t('code.copy')}
+          onClick={copy}
+        >
+          {copied ? <IconCheck /> : <IconCopy />}
+        </button>
+      </div>
+      <pre>
+        <code className={info.language ? `language-${info.language}` : undefined}>
+          {highlighted ? <span dangerouslySetInnerHTML={{ __html: highlighted.html }} /> : info.code}
+        </code>
+      </pre>
+    </div>
+  );
+});
+
 const components: Components = {
+  // Fenced code blocks: language header + copy button + highlight.js coloring (see CodeBlock).
+  pre: CodeBlock,
   // Open every link in a new tab: clicking one in the side panel must not replace the page being read
   a: ({ href, children }) => {
     const baseUrl = useContext(BaseUrlContext);

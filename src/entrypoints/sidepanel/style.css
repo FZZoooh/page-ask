@@ -729,7 +729,8 @@ button.primary.save:hover:not(:disabled) {
 }
 
 .answer-actions .icon-btn,
-.msg-actions .icon-btn {
+.msg-actions .icon-btn,
+.md .md-code-head .icon-btn {
   width: var(--icon-btn);
   height: var(--icon-btn);
   padding: 0;
@@ -745,7 +746,8 @@ button.primary.save:hover:not(:disabled) {
 }
 
 .answer-actions .icon-btn:hover:not(:disabled),
-.msg-actions .icon-btn:hover:not(:disabled) {
+.msg-actions .icon-btn:hover:not(:disabled),
+.md .md-code-head .icon-btn:hover:not(:disabled) {
   color: color-mix(in srgb, var(--fg) 78%, transparent);
   background: color-mix(in srgb, var(--fg) 6%, transparent);
 }
@@ -1023,6 +1025,48 @@ button.primary.save:hover:not(:disabled) {
   /* em, not px: code should grow with the answer-size setting */
   font-size: 0.88em;
   line-height: 1.6;
+}
+
+/* Fenced code blocks get a header bar (language label + copy). The wrapper owns the border and the
+   rounded corners so the scrolling pre inside clips cleanly under them. */
+.md .md-code {
+  margin: 0.6em 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  overflow: hidden;
+}
+
+.md .md-code-head {
+  display: flex;
+  align-items: center;
+  padding: 1px 4px 1px 10px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+
+.md .md-code-lang {
+  font-size: 11px;
+  color: var(--meta);
+  user-select: none;
+}
+
+.md .md-code-head .icon-btn {
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+}
+
+.md .md-code-head .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.md .md-code pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
 }
 
 .md blockquote {
@@ -1969,24 +2013,26 @@ button.artifact-close:focus-visible {
   tab-size: 2;
 }
 
-.artifact-code .hljs-comment,
-.artifact-code .hljs-quote { color: var(--meta); }
-.artifact-code .hljs-keyword,
-.artifact-code .hljs-literal,
-.artifact-code .hljs-built_in { color: var(--artifact-code); }
-.artifact-code .hljs-string,
-.artifact-code .hljs-regexp,
-.artifact-code .hljs-addition { color: var(--att-excel); }
-.artifact-code .hljs-number,
-.artifact-code .hljs-symbol,
-.artifact-code .hljs-deletion { color: var(--warn); }
-.artifact-code .hljs-title,
-.artifact-code .hljs-attr,
-.artifact-code .hljs-attribute,
-.artifact-code .hljs-tag,
-.artifact-code .hljs-name { color: var(--link); }
-.artifact-code .hljs-meta,
-.artifact-code .hljs-variable { color: var(--att-ppt); }
+/* Token colors for highlight.js output: artifact code previews and chat code blocks share one
+   palette built from the theme variables, so light and dark both come from the palettes above. */
+:is(.artifact-code, .md pre) .hljs-comment,
+:is(.artifact-code, .md pre) .hljs-quote { color: var(--meta); }
+:is(.artifact-code, .md pre) .hljs-keyword,
+:is(.artifact-code, .md pre) .hljs-literal,
+:is(.artifact-code, .md pre) .hljs-built_in { color: var(--artifact-code); }
+:is(.artifact-code, .md pre) .hljs-string,
+:is(.artifact-code, .md pre) .hljs-regexp,
+:is(.artifact-code, .md pre) .hljs-addition { color: var(--att-excel); }
+:is(.artifact-code, .md pre) .hljs-number,
+:is(.artifact-code, .md pre) .hljs-symbol,
+:is(.artifact-code, .md pre) .hljs-deletion { color: var(--warn); }
+:is(.artifact-code, .md pre) .hljs-title,
+:is(.artifact-code, .md pre) .hljs-attr,
+:is(.artifact-code, .md pre) .hljs-attribute,
+:is(.artifact-code, .md pre) .hljs-tag,
+:is(.artifact-code, .md pre) .hljs-name { color: var(--link); }
+:is(.artifact-code, .md pre) .hljs-meta,
+:is(.artifact-code, .md pre) .hljs-variable { color: var(--att-ppt); }
 
 .artifact-table .table-wrap { margin: 0; }
 .artifact-table th,

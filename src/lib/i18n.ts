@@ -188,6 +188,10 @@ export const zhCN = {
   'math.copied': '已复制',
   'math.quote': '引用',
 
+  // 代码块头部（语言标签 + 复制按钮）
+  'code.copy': '复制',
+  'code.copied': '已复制',
+
   // 错误
   'error.unreachable': '连接后端 {baseUrl} 失败，请先启动后端',
   'error.streamCut': '后端连接中断，这条回答可能不完整',

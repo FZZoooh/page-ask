@@ -184,6 +184,10 @@ export const enUS = {
   'math.copied': 'Copied',
   'math.quote': 'Quote',
 
+  // Code block header (language label + copy button)
+  'code.copy': 'Copy code',
+  'code.copied': 'Copied',
+
   // Client-side errors
   'error.unreachable': 'Could not reach the backend at {baseUrl}. Start it first.',
   'error.streamCut': 'The backend connection dropped; this answer may be incomplete',
