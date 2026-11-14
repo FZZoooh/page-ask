@@ -4,6 +4,9 @@ import type { LocalePreference } from './i18n';
 /** Reading size for answers; formulas use em units and scale with it. */
 export type FontSize = 'small' | 'normal' | 'large' | 'xlarge';
 
+/** UI theme; auto follows the OS color scheme, light/dark force it */
+export type ThemePreference = 'auto' | 'light' | 'dark';
+
 export interface Settings {
   /** Local backend address, e.g. http://127.0.0.1:8787 */
   backendUrl: string;
@@ -13,6 +16,8 @@ export interface Settings {
   token: string;
   /** UI language; auto follows the browser, anything else is forced */
   locale: LocalePreference;
+  /** UI theme; auto follows the OS color scheme, light/dark force it */
+  theme: ThemePreference;
   /** Answer text size; KaTeX is em-based, so formulas grow/shrink with the same value */
   fontSize: FontSize;
   /** A plain-text paste of at least pasteAsFileBytes (UTF-8) becomes a .txt attachment instead of text */
@@ -25,6 +30,7 @@ export const DEFAULT_SETTINGS: Settings = {
   verbose: true,
   token: '',
   locale: 'auto',
+  theme: 'auto',
   fontSize: 'normal',
   pasteAsFile: true,
   pasteAsFileBytes: 10000,
@@ -46,6 +52,7 @@ function pick(raw: Partial<Settings> | undefined): Settings {
     verbose: raw?.verbose !== false,
     token: raw?.token?.trim() ?? '',
     locale: raw?.locale === 'zh-CN' || raw?.locale === 'en-US' ? raw.locale : 'auto',
+    theme: raw?.theme === 'light' || raw?.theme === 'dark' ? raw.theme : 'auto',
     fontSize: fontSize === 'small' || fontSize === 'large' || fontSize === 'xlarge' ? fontSize : 'normal',
     pasteAsFile: raw?.pasteAsFile !== false,
     pasteAsFileBytes: validPasteBytes(pasteBytes) ? pasteBytes : DEFAULT_SETTINGS.pasteAsFileBytes,

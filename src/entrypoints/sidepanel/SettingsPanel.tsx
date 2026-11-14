@@ -50,6 +50,7 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
       verbose: draft.verbose,
       token: draft.token.trim(),
       locale: draft.locale,
+      theme: draft.theme,
       fontSize: draft.fontSize,
       pasteAsFile: draft.pasteAsFile,
       pasteAsFileBytes: pasteBytesOk ? pasteBytes : value.pasteAsFileBytes,
@@ -150,6 +151,18 @@ export function SettingsPanel({ value, onDone, onClose }: Props) {
           <option value="auto">{t('settings.languageAuto')}</option>
           <option value="zh-CN">{t('settings.languageZh')}</option>
           <option value="en-US">{t('settings.languageEn')}</option>
+        </select>
+      </label>
+
+      <label className="field">
+        <span>{t('settings.theme')}</span>
+        <select
+          value={draft.theme}
+          onChange={(e) => patch({ theme: e.target.value as Settings['theme'] })}
+        >
+          <option value="auto">{t('settings.themeAuto')}</option>
+          <option value="light">{t('settings.themeLight')}</option>
+          <option value="dark">{t('settings.themeDark')}</option>
         </select>
       </label>
 

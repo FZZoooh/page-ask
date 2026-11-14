@@ -1,3 +1,4 @@
+/* Light palette: the default until main.tsx sets data-theme (dark lives in :root[data-theme='dark']) */
 :root {
   color-scheme: light;
   --bg: #fcfcfc;
@@ -58,50 +59,52 @@
   --scrim: rgb(0 0 0 / 0.72);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    /* Pure black background: cards are separated by 1px borders and a barely-there lift */
-    --bg: #000000;
-    --fg: #e8eaed;
-    --muted: #a3adba;
-    --meta: #a7b3c2;
-    --line: #262b32;
-    --card: #0f1216;
-    --accent: #6f9bff;
-    --accent-fg: #0b0d10;
-    --link: #8ab4ff;
-    --error-bg: #2a1414;
-    --error-line: #5b2a2a;
-    --warn: #fbbf24;
-    --ok: #4ade80;
-    --bad: #f87171;
-    --danger: #f87171;
-    --md-strong: #f5f5f7;
-    --bubble: #223d75;
-    --bubble-fg: #eaf0ff;
-    --send: #3e65c4;
-    --input-bg: #12161b;
-    --input-line: #2b323b;
-    --think-bg: #12161b;
-    --think-line: #2b323b;
-    --think-fg: #b7c1cf;
-    --round-bg: #0d1014;
-    --sb-thumb: #3c4046;
-    --sb-thumb-hover: #5b626b;
-    --att-pdf: #f07a7a;
-    --att-word: #7fa8ff;
-    --att-excel: #55c78a;
-    --att-ppt: #f19a5e;
-    --att-text: #a7b3c2;
-    --att-file: #a3adba;
-    --artifact-paper: #191f27;
-    --artifact-paper-line: #384352;
-    --artifact-fold: #2a323d;
-    --artifact-markdown: #6d97fa;
-    --artifact-code: #b89af6;
-    --scrim: rgb(0 0 0 / 0.82);
-  }
+/* Dark palette, applied via <html data-theme="dark">: settings.theme sets it (auto follows the OS
+   scheme, resolved in src/lib/theme.ts), and there is no prefers-color-scheme media query here on
+   purpose so the dark palette is defined exactly once. The :root rule above stays the light
+   palette and the pre-attribute default. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  /* Pure black background: cards are separated by 1px borders and a barely-there lift */
+  --bg: #000000;
+  --fg: #e8eaed;
+  --muted: #a3adba;
+  --meta: #a7b3c2;
+  --line: #262b32;
+  --card: #0f1216;
+  --accent: #6f9bff;
+  --accent-fg: #0b0d10;
+  --link: #8ab4ff;
+  --error-bg: #2a1414;
+  --error-line: #5b2a2a;
+  --warn: #fbbf24;
+  --ok: #4ade80;
+  --bad: #f87171;
+  --danger: #f87171;
+  --md-strong: #f5f5f7;
+  --bubble: #223d75;
+  --bubble-fg: #eaf0ff;
+  --send: #3e65c4;
+  --input-bg: #12161b;
+  --input-line: #2b323b;
+  --think-bg: #12161b;
+  --think-line: #2b323b;
+  --think-fg: #b7c1cf;
+  --round-bg: #0d1014;
+  --sb-thumb: #3c4046;
+  --sb-thumb-hover: #5b626b;
+  --att-pdf: #f07a7a;
+  --att-word: #7fa8ff;
+  --att-excel: #55c78a;
+  --att-ppt: #f19a5e;
+  --att-text: #a7b3c2;
+  --att-file: #a3adba;
+  --artifact-paper: #191f27;
+  --artifact-paper-line: #384352;
+  --artifact-fold: #2a323d;
+  --artifact-markdown: #6d97fa;
+  --artifact-code: #b89af6;
+  --scrim: rgb(0 0 0 / 0.82);
 }
 
 /* Scrollbar: faint (#d6d6d6) by default, darker only while hovered. Uses the ::-webkit-scrollbar family

@@ -34,6 +34,7 @@ import {
   normalizeUrl,
   type Settings,
 } from '@/lib/settings';
+import { applyTheme, cacheThemePreference, resolveTheme } from '@/lib/theme';
 import { SettingsPanel } from './SettingsPanel';
 import { Composer } from './Composer';
 import { AttachButton, AttachmentStrip, ImageLightbox, sentCards, type PreviewTarget } from './AttachmentCards';
@@ -432,6 +433,22 @@ export default function App() {
   // KaTeX from one value without re-rendering every block.
   useEffect(() => {
     document.documentElement.dataset.fontSize = settings?.fontSize ?? DEFAULT_SETTINGS.fontSize;
+  }, [settings]);
+
+  // Theme also lives on <html> (data-theme). While settings are still loading, keep whatever
+  // main.tsx restored from the cache: applying the 'auto' fallback here would visibly flip a
+  // forced dark theme light for a frame.
+  useEffect(() => {
+    if (!settings) return;
+    const pref = settings.theme;
+    const apply = () => applyTheme(resolveTheme(pref));
+    apply();
+    cacheThemePreference(pref);
+    // 'auto' must track a mid-session OS scheme switch; the media query used to do that for free
+    if (pref !== 'auto') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
   }, [settings]);
 
   /* ---------------- Tab change → conversation change ---------------- */
